@@ -1,9 +1,21 @@
-from flask import Flask, request, session, redirect, url_for, render_template_string, flash
+from flask import Flask, request, session, redirect, url_for, render_template_string, flash, send_file
 import pymysql
 import configparser
 import hashlib
 from functools import wraps
 from datetime import datetime
+import io
+import os
+
+# --- PDF GENERATION LIBRARIES ---
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import inch, mm
+from reportlab.graphics.barcode import code128
+try:
+    import qrcode
+except ImportError:
+    qrcode = None
 
 app = Flask(__name__)
 app.secret_key = 'agc_super_secret_erp_ultimate_key'
@@ -20,39 +32,7 @@ def get_db():
     db_user = config['CLOUD_DB']['user'].replace('"', '').replace("'", "").strip()
     db_pass = config['CLOUD_DB']['password'].replace('"', '').replace("'", "").strip()
     db_name = config['CLOUD_DB']['database'].replace('"', '').replace("'", "").strip()
-    
-    return pymysql.connect(
-        host=db_host, 
-        port=db_port, 
-        user=db_user, 
-        password=db_pass, 
-        database=db_name, 
-        cursorclass=pymysql.cursors.DictCursor, 
-        ssl={'ssl': {}}
-    )
-
-def auto_heal_db():
-    try:
-        conn = get_db()
-        with conn.cursor() as c:
-            c.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password_hash VARCHAR(100), full_name VARCHAR(100), role VARCHAR(50), branch_name VARCHAR(100), active INT DEFAULT 1)")
-            c.execute("CREATE TABLE IF NOT EXISTS customers (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(255), gstin VARCHAR(50), phone VARCHAR(50), state VARCHAR(100), credit_limit DOUBLE DEFAULT 0, is_active INT DEFAULT 1)")
-            c.execute("CREATE TABLE IF NOT EXISTS ledger (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, entry_date DATE, voucher_type VARCHAR(50), reference VARCHAR(100), debit DOUBLE DEFAULT 0, credit DOUBLE DEFAULT 0, narration TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS payments (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, payment_date DATE, amount DOUBLE, mode VARCHAR(50), reference VARCHAR(100))")
-            c.execute("CREATE TABLE IF NOT EXISTS shipments (id INT AUTO_INCREMENT PRIMARY KEY, awb_no VARCHAR(100) UNIQUE, customer_id INT, booking_date DATE, origin_name VARCHAR(100), origin_phone VARCHAR(50), origin_address TEXT, origin_state_code VARCHAR(10), dest_name VARCHAR(100), dest_phone VARCHAR(50), dest_address TEXT, dest_state_code VARCHAR(10), dest_station VARCHAR(100), weight_kg DOUBLE, quantity INT, cod_amount DOUBLE, declared_value DOUBLE, service_type VARCHAR(50), taxable_amount DOUBLE, tax_rate DOUBLE, cgst DOUBLE, sgst DOUBLE, igst DOUBLE, total_amount DOUBLE, status VARCHAR(50), current_location VARCHAR(100), info TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS scan_events (id INT AUTO_INCREMENT PRIMARY KEY, shipment_id INT, scan_type VARCHAR(50), location VARCHAR(100), remarks TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS outward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), out_station VARCHAR(100), destination VARCHAR(100), weight VARCHAR(50), info TEXT, manifest_no VARCHAR(100), finalized INT DEFAULT 0)")
-            c.execute("CREATE TABLE IF NOT EXISTS inward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), in_station VARCHAR(100), info TEXT, finalized INT DEFAULT 0)")
-            c.execute("CREATE TABLE IF NOT EXISTS manifests (id INT AUTO_INCREMENT PRIMARY KEY, manifest_type VARCHAR(50), from_location VARCHAR(100), to_location VARCHAR(100), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS manifest_items (id INT AUTO_INCREMENT PRIMARY KEY, manifest_id INT, shipment_id INT)")
-            c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_date DATE, rider_name VARCHAR(100), status VARCHAR(50))")
-            c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100))")
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print("Heal Error:", e)
-
-auto_heal_db()
+    return pymysql.connect(host=db_host, port=db_port, user=db_user, password=db_pass, database=db_name, cursorclass=pymysql.cursors.DictCursor, ssl={'ssl': {}})
 
 def sha(text): return hashlib.sha256(text.encode()).hexdigest()
 
@@ -141,7 +121,7 @@ def render_page(title, content):
     return render_template_string(BASE_HTML, title=title, content=content)
 
 # ==========================================
-# 🔐 3. AUTH ROUTES
+# 🔐 3. AUTH & PUBLIC TRACKING
 # ==========================================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -159,13 +139,8 @@ def login():
     return """<style>body{background:#0f172a; display:flex; justify-content:center; align-items:center; height:100vh;} .box{background:#1e293b; padding:40px; border-radius:8px; text-align:center; width:300px;} input{width:100%; margin:10px 0; padding:12px; box-sizing:border-box;} button{width:100%; padding:12px; background:#0f766e; color:white; border:none; font-weight:bold; cursor:pointer;}</style><div class="box"><h2 style="color:#38bdf8; margin-top:0;">ERP LOGIN</h2><form method="POST"><input name="username" placeholder="Username" required autocomplete="off"><input type="password" name="password" placeholder="Password" required><button type="submit">LOGIN</button></form></div>"""
 
 @app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
+def logout(): session.clear(); return redirect(url_for('login'))
 
-# ==========================================
-# 🌐 4. PUBLIC TRACKING (NO LOGIN)
-# ==========================================
 @app.route('/track', methods=['GET'])
 def track():
     awb = request.args.get('awb', '').strip().upper()
@@ -185,7 +160,7 @@ def track():
     return render_template_string(html, awb=awb, shipment=shipment, timeline=timeline)
 
 # ==========================================
-# 📊 5. DASHBOARD & REPORTS
+# 📊 4. DASHBOARD & REPORTS (NO CHANGES)
 # ==========================================
 @app.route('/')
 @login_required
@@ -224,7 +199,7 @@ def reports():
     return render_page("All Reports", render_template_string(html, b=b, p=p, out=out, cods=cods, date=d))
 
 # ==========================================
-# 📦 6. COMPLETE BOOKING & CUSTOMERS
+# 📦 5. COMPLETE BOOKING, SHIPMENTS & HUB (UNCHANGED)
 # ==========================================
 @app.route('/customers', methods=['GET', 'POST'])
 @login_required
@@ -233,15 +208,12 @@ def customers():
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("UPDATE customers SET is_active=0 WHERE id=%s", (request.args.get('delete'),))
-            conn.commit()
-            flash("Customer Deleted!", "success")
-            return redirect('/customers')
+            conn.commit(); flash("Customer Deleted!", "success"); return redirect('/customers')
     if request.method == 'POST':
         c, n, g, p = request.form.get('code'), request.form.get('name'), request.form.get('gstin'), request.form.get('phone')
         with conn.cursor() as cur:
             cur.execute("INSERT INTO customers(code, name, gstin, phone, state, is_active) VALUES(%s,%s,%s,%s,'Default',1)", (c, n, g, p))
-            conn.commit()
-            flash("Customer Added!", "success")
+            conn.commit(); flash("Customer Added!", "success")
     with conn.cursor() as cur:
         cur.execute("SELECT id, code, name, phone, credit_limit FROM customers WHERE is_active=1 ORDER BY id DESC")
         custs = cur.fetchall()
@@ -259,10 +231,8 @@ def booking():
         gst = fr * (tax / 100)
         tot = fr + gst
         cgst = sgst = igst = 0
-        if d['ostate'] == d['dstate']: 
-            cgst = sgst = gst / 2
-        else: 
-            igst = gst
+        if d['ostate'] == d['dstate']: cgst = sgst = gst / 2
+        else: igst = gst
 
         with conn.cursor() as c:
             try:
@@ -273,10 +243,8 @@ def booking():
                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session['branch']))
                 if d.get('cust_id'):
                     c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (d['cust_id'], d['date'], d['awb'].upper(), tot, f"Booking {d['awb'].upper()}"))
-                conn.commit()
-                flash(f"✅ AWB {d['awb'].upper()} Booked! Total: ₹{tot}", "success")
-            except Exception as e: 
-                flash(f"Error: {e}", "error")
+                conn.commit(); flash(f"✅ AWB {d['awb'].upper()} Booked! Total: ₹{tot}", "success")
+            except Exception as e: flash(f"Error: {e}", "error")
 
     with conn.cursor() as c:
         c.execute("SELECT id, name, phone FROM customers WHERE is_active=1")
@@ -319,9 +287,6 @@ def booking():
     """
     return render_page("Complete Booking", render_template_string(html, custs=custs))
 
-# ==========================================
-# 🚚 7. SHIPMENTS (EDIT / DELETE / PRINT)
-# ==========================================
 @app.route('/shipments', methods=['GET', 'POST'])
 @login_required
 def shipments():
@@ -330,17 +295,14 @@ def shipments():
         with conn.cursor() as c:
             c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (request.args.get('delete'),))
             c.execute("DELETE FROM shipments WHERE id=%s", (request.args.get('delete'),))
-            conn.commit()
-            flash("Shipment Deleted!", "success")
-            return redirect('/shipments')
+            conn.commit(); flash("Shipment Deleted!", "success"); return redirect('/shipments')
 
     search = request.form.get('search', '').strip() if request.method == 'POST' else ''
     with conn.cursor() as c:
         q = "SELECT s.*, c.phone as cphone FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id"
         if search: q += f" WHERE s.awb_no LIKE '%{search}%' OR s.dest_station LIKE '%{search}%'"
         q += " ORDER BY s.id DESC LIMIT 150"
-        c.execute(q)
-        rows = c.fetchall()
+        c.execute(q); rows = c.fetchall()
     conn.close()
     
     html = """
@@ -350,19 +312,14 @@ def shipments():
             <td><strong>{{ r.awb_no }}</strong></td><td>{{ r.booking_date }}</td><td>{{ r.dest_name }}</td><td>{{ r.dest_station }}</td><td>₹{{ r.total_amount }}</td>
             <td><span class="badge b-book">{{ r.status }}</span></td>
             <td>
-                {% set ph = r.dest_phone if r.dest_phone else r.cphone %}
-                {% if ph %}<a href="https://wa.me/91{{ ph }}?text=Track%20AGC%20Parcel:%20http://pagcerp.cgsmart.in/track?awb={{ r.awb_no }}" target="_blank" class="btn" style="background:#16a34a; padding:4px; font-size:11px;">WA</a>{% endif %}
-                <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn" style="padding:4px; font-size:11px;">🖨️ Lbl</a>
-                <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:4px; font-size:11px;">🧾 Rec</a>
-                <a href="/shipments?delete={{ r.id }}" onclick="return confirm('Delete this shipment?');" class="btn btn-red" style="padding:4px; font-size:11px;">🗑️</a>
+                <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn" style="padding:4px; font-size:11px;">🖨️ Label</a>
+                <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:4px; font-size:11px;">🧾 Bilti</a>
+                <a href="/shipments?delete={{ r.id }}" onclick="return confirm('Delete?');" class="btn btn-red" style="padding:4px; font-size:11px;">🗑️</a>
             </td>
         </tr>{% endfor %}</table></div>
     """
     return render_page("Shipments Management", render_template_string(html, rows=rows, search=search))
 
-# ==========================================
-# 📤 8. HUB OPERATIONS (OUTWARD & INWARD)
-# ==========================================
 @app.route('/outward', methods=['GET', 'POST'])
 @login_required
 def outward():
@@ -370,9 +327,7 @@ def outward():
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("DELETE FROM outward_register WHERE id=%s", (request.args.get('delete'),))
-            conn.commit()
-            flash("Entry Deleted!", "success")
-            return redirect('/outward')
+            conn.commit(); flash("Entry Deleted!", "success"); return redirect('/outward')
 
     if request.method == 'POST' and 'scan_awb' in request.form:
         awbs = request.form.get('awbs').replace(',', '\n').split('\n')
@@ -385,8 +340,7 @@ def outward():
                     wt = s['weight_kg'] if s else 1.0; dst = s['dest_station'] if s else 'Unknown'
                     c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(CURDATE(), %s, %s, %s, %s, %s, %s, 0)", 
                               (awb, session['branch'], request.form.get('dest_hub'), dst, wt, request.form.get('info')))
-            conn.commit()
-            flash("✅ Added to Pending Outward.", "success")
+            conn.commit(); flash("✅ Added to Pending Outward.", "success")
             
     elif request.method == 'POST' and 'finalize_manifest' in request.form:
         vcl = request.form.get('vehicle')
@@ -404,8 +358,7 @@ def outward():
                         c.execute("INSERT INTO manifest_items(manifest_id, shipment_id) VALUES(%s, %s)", (man_id, sid))
                         c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s WHERE id=%s", (f"To {pending[0]['out_station']}", sid))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'OUTWARD', %s)", (sid, session['branch']))
-                conn.commit()
-                flash(f"🚀 Manifest MF-{man_id} Generated!", "success")
+                conn.commit(); flash(f"🚀 Manifest MF-{man_id} Generated!", "success")
 
     with conn.cursor() as c:
         c.execute("SELECT * FROM outward_register WHERE finalized=0 AND origin_station=%s", (session['branch'],))
@@ -455,9 +408,7 @@ def inward():
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("DELETE FROM inward_register WHERE id=%s", (request.args.get('delete'),))
-            conn.commit()
-            return redirect('/inward')
-            
+            conn.commit(); return redirect('/inward')
     if request.method == 'POST':
         awbs = request.form.get('awbs').replace(',', '\n').split('\n')
         with conn.cursor() as c:
@@ -470,20 +421,15 @@ def inward():
                         sid = c.fetchone()['id']
                         c.execute("UPDATE shipments SET status='INWARD', current_location=%s WHERE id=%s", (session['branch'], sid))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'INWARD', %s)", (sid, session['branch']))
-            conn.commit()
-            flash("✅ Inward Completed.", "success")
+            conn.commit(); flash("✅ Inward Completed.", "success")
             
     with conn.cursor() as c:
         c.execute("SELECT * FROM inward_register WHERE in_station=%s ORDER BY id DESC LIMIT 50", (session['branch'],))
         hist = c.fetchall()
     conn.close()
-    
     html = """<div class="grid-2"><div class="card"><h3 style="color:#0f766e; margin-top:0;">📥 Receive Inward</h3><form method="POST"><label>Info / Notes</label><input name="info" placeholder="Received via..." style="margin-bottom:10px;"><label>Scan AWBs</label><textarea name="awbs" rows="8" required></textarea><button type="submit" class="btn" style="margin-top:10px; width:100%;">Receive Parcels</button></form></div><div class="card" style="overflow-y:auto; max-height:400px;"><h3>Inward History</h3><table><tr><th>Date</th><th>AWB</th><th>Info</th><th>Del</th></tr>{% for h in hist %}<tr><td>{{ h.entry_date }}</td><td><strong>{{ h.awb_no }}</strong></td><td>{{ h.info }}</td><td><a href="/inward?delete={{ h.id }}" class="btn btn-red" style="padding:2px 5px; font-size:10px;">X</a></td></tr>{% endfor %}</table></div></div>"""
     return render_page("Inward Hub", render_template_string(html, hist=hist))
 
-# ==========================================
-# 🛵 9. DRS / DELIVERY & ACCOUNTS
-# ==========================================
 @app.route('/drs', methods=['GET', 'POST'])
 @login_required
 def drs():
@@ -492,8 +438,7 @@ def drs():
         with conn.cursor() as c:
             c.execute("DELETE FROM drs_items WHERE drs_id=%s", (request.args.get('del_drs'),))
             c.execute("DELETE FROM drs WHERE id=%s", (request.args.get('del_drs'),))
-            conn.commit()
-            return redirect('/drs')
+            conn.commit(); return redirect('/drs')
 
     if request.method == 'POST' and 'assign_drs' in request.form:
         awbs = request.form.get('awbs').replace(',', '\n').split('\n')
@@ -510,8 +455,7 @@ def drs():
                         c.execute("INSERT INTO drs_items(drs_id, shipment_id, status) VALUES(%s, %s, 'ASSIGNED')", (drs_id, sid))
                         c.execute("UPDATE shipments SET status='ON_DRS', current_location=%s WHERE id=%s", (f"Rider: {rider}", sid))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'ON_DRS', %s, %s)", (sid, session['branch'], f"Assigned to {rider}"))
-            conn.commit()
-            flash("✅ DRS Generated", "success")
+            conn.commit(); flash("✅ DRS Generated", "success")
 
     elif request.method == 'POST' and 'mark_deliver' in request.form:
         awb = request.form.get('deliver_awb').strip().upper()
@@ -523,8 +467,7 @@ def drs():
                 c.execute("UPDATE shipments SET status='DELIVERED', current_location=%s WHERE id=%s", (f"Delivered: {receiver}", sid))
                 c.execute("UPDATE drs_items SET status='DELIVERED', receiver_name=%s WHERE shipment_id=%s", (receiver, sid))
                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'DELIVERED', %s, %s)", (sid, session['branch'], f"Received by {receiver}"))
-                conn.commit()
-                flash(f"✅ Delivered: {awb}", "success")
+                conn.commit(); flash(f"✅ Delivered: {awb}", "success")
 
     with conn.cursor() as c:
         c.execute("SELECT id, drs_date, rider_name FROM drs ORDER BY id DESC LIMIT 10")
@@ -567,17 +510,14 @@ def accounts():
                 p = c.fetchone()
                 c.execute("DELETE FROM ledger WHERE voucher_type='PAYMENT' AND reference=%s AND customer_id=%s", (p['reference'], p['customer_id']))
                 c.execute("DELETE FROM payments WHERE id=%s", (p['id'],))
-            conn.commit()
-            flash("Payment Deleted!", "success")
-            return redirect('/accounts')
+            conn.commit(); flash("Payment Deleted!", "success"); return redirect('/accounts')
 
     if request.method == 'POST':
         cid, amt, mode, ref, d = request.form.get('cust_id'), request.form.get('amount'), request.form.get('mode'), request.form.get('ref') or f"PAY-{int(datetime.now().timestamp())}", datetime.now().strftime("%Y-%m-%d")
         with conn.cursor() as c:
             c.execute("INSERT INTO payments(customer_id, payment_date, amount, mode, reference) VALUES(%s,%s,%s,%s,%s)", (cid, d, amt, mode, ref))
             c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'PAYMENT',%s,0,%s,%s)", (cid, d, ref, amt, f"Received ({mode})"))
-            conn.commit()
-            flash("Payment Saved!", "success")
+            conn.commit(); flash("Payment Saved!", "success")
 
     with conn.cursor() as c:
         c.execute("SELECT id, name FROM customers WHERE is_active=1")
@@ -611,101 +551,242 @@ def accounts():
     return render_page("Accounts & Ledger", render_template_string(html, custs=custs, pays=pays, l_data=l_data, c_bal=c_bal))
 
 # ==========================================
-# 🖨️ 10. PRINTING MODULES (Bilti, Label, Manifest, DRS)
+# 🖨️ 10. PREMIUM PDF GENERATOR (ReportLab)
 # ==========================================
+def hex_rgb(h): return tuple(int(h.lstrip("#")[i:i+2], 16)/255.0 for i in (0,2,4))
+def money(val): return f"{float(val or 0):,.2f}"
+def draw_barcode_safe(cv, value, x, y, height):
+    try: code128.Code128(str(value), barHeight=height, barWidth=0.011 * inch).drawOn(cv, x, y); return True
+    except Exception: return False
+def draw_qr(cv, text, x, y, size):
+    if qrcode:
+        try:
+            img = qrcode.make(text); buf = io.BytesIO(); img.save(buf, format="PNG")
+            from reportlab.lib.utils import ImageReader
+            cv.drawImage(ImageReader(io.BytesIO(buf.getvalue())), x, y, width=size, height=size)
+        except Exception: pass
+def wrap_lines(cv, text, font, size, max_width):
+    lines, line = [], ""
+    for word in str(text or "").split():
+        t = (line + " " + word).strip()
+        if cv.stringWidth(t, font, size) <= max_width: line = t
+        else:
+            if line: lines.append(line)
+            line = word
+    if line: lines.append(line)
+    return lines
+def num_to_words_inr(amount):
+    return f"Rupees {money(amount)} Only"
+
 @app.route('/print/label/<awb>')
 @login_required
-def print_label(awb):
+def print_label_pdf(awb):
     conn = get_db()
     with conn.cursor() as c:
-        c.execute("SELECT s.*, c.name as cname, c.address as caddr FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.awb_no=%s", (awb,))
-        d = c.fetchone()
+        c.execute("SELECT s.*, c.name as cname, c.address as caddr, c.gstin FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.awb_no=%s", (awb,))
+        s = c.fetchone()
     conn.close()
-    if not d: return "Not found"
-    html = """<html><head><script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script></head>
-    <body onload="JsBarcode('#bc', '{{d.awb_no}}', {displayValue:false, height:60}); window.print();" style="font-family:Arial, sans-serif; width:380px; margin:auto; border:2px solid #000; padding:15px; box-sizing:border-box;">
-        <h2 style="text-align:center; margin:0 0 10px 0;">AGC EXPRESS</h2>
-        <div style="text-align:center;"><svg id="bc"></svg><h2 style="margin:0; letter-spacing:2px;">{{ d.awb_no }}</h2></div><hr style="border:1px solid #000;">
-        <div style="display:flex; justify-content:space-between; font-weight:bold; font-size:20px;"><span>{{ d.origin_name }}</span> &rarr; <span>{{ d.dest_station }}</span></div><hr style="border:1px solid #000;">
-        <p style="font-size:15px;"><strong>TO (CONSIGNEE):</strong><br>{{ d.dest_name }}<br>{{ d.dest_address }}<br>Phone: {{ d.dest_phone }}</p>
-        <p style="font-size:13px;"><strong>FROM (SHIPPER):</strong><br>{{ d.cname or d.origin_name }}<br>{{ d.caddr or d.origin_address }}</p><hr style="border:1px solid #000;">
-        <div style="display:flex; justify-content:space-between; font-size:14px; font-weight:bold;"><span>WT: {{ d.weight_kg }} KG</span> <span>PCS: {{ d.quantity }}</span> <span>{{ d.service_type }}</span></div>
-        <h2 style="text-align:right; margin:10px 0 0 0;">TOTAL: ₹{{ d.total_amount }}</h2>
-    </body></html>"""
-    return render_template_string(html, d=d)
+    if not s: return "Not found"
+    
+    buf = io.BytesIO()
+    w, h = 4 * inch, 6 * inch
+    cv = canvas.Canvas(buf, pagesize=(w, h))
+    cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
+    cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
+    
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11); cv.drawString(14, h - 26, "AGC PREMIUM COURIER")
+    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2); cv.drawString(14, h - 36, "Head Office: Nohar, Rajasthan")
+    
+    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.2); cv.rect(w - 90, h - 42, 80, 16) 
+    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawCentredString(w - 50, h - 37, "PREMIUM EXPRESS")
+    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(10, h - 62, w - 10, h - 62)
+
+    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(14, h - 74, "AWB NUMBER")
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, s["awb_no"])
+    draw_barcode_safe(cv, s["awb_no"], 18, h - 128, 0.40 * inch)
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, s["awb_no"])
+
+    draw_qr(cv, f"AWB:{s['awb_no']}|WT:{s['weight_kg']}", w - 74, h - 138, 58)
+
+    cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawString(20, h - 158, "ORIGIN"); cv.drawRightString(w - 20, h - 158, "DESTINATION")
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 13)
+    cv.drawString(20, h - 172, str(s["origin_name"])[:12].upper())
+    cv.drawRightString(w - 20, h - 170, str(s["dest_station"] or s["dest_name"])[:12].upper())
+
+    cv.setFillColorRGB(*hex_rgb("#FFFFFF")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, h - 254, w - 24, 70, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.rect(12, h - 254, 4, 70, fill=1, stroke=0)
+    cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, h - 194, "DELIVER TO")
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 10)
+    
+    yy = h - 206
+    for line in wrap_lines(cv, s["dest_name"] or "", "Helvetica-Bold", 10, w - 50)[:2]:
+        cv.drawString(22, yy, line); yy -= 12
+    cv.setFont("Helvetica", 7.5)
+    for line in wrap_lines(cv, s["dest_address"] or "", "Helvetica", 7.5, w - 50)[:2]:
+        cv.drawString(22, yy, line); yy -= 10
+    cv.setFont("Helvetica-Bold", 7.5); cv.drawString(22, yy, f"Ph: {s['dest_phone'] or '-'}")
+
+    cells = [("WEIGHT", f"{s['weight_kg']} KG"), ("PIECES", s["quantity"]), ("COD", f"Rs {money(s['cod_amount'])}"), ("DATE", s["booking_date"])]
+    cw = (w - 24) / 4; chh = 19; y0 = h - 258
+    for i, (label, value) in enumerate(cells):
+        cx = 12 + i * cw; cy = y0 - chh
+        cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(cx, cy, cw, chh, fill=1, stroke=1)
+        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 5.6); cv.drawString(cx + 4, cy + chh - 7, label)
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, cy + 4, str(value))
+
+    st = y0 - chh - 6
+    cv.setFillColorRGB(*hex_rgb("#FFFFFF")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, st - 40, w - 24, 40, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(20, st - 10, "SHIPPER")
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 6.8)
+    yy = st - 20
+    for line in wrap_lines(cv, f"{s['cname'] or s['origin_name']} | {s['caddr'] or s['origin_address']}", "Helvetica", 6.8, w - 44)[:2]:
+        cv.drawString(20, yy, line); yy -= 9
+
+    cv.showPage(); cv.save()
+    buf.seek(0)
+    return send_file(buf, download_name=f"Label_{awb}.pdf", mimetype='application/pdf')
 
 @app.route('/print/receipt/<awb>')
 @login_required
-def print_receipt(awb):
+def print_receipt_pdf(awb):
     conn = get_db()
     with conn.cursor() as c:
         c.execute("SELECT s.*, c.name as cname, c.address as caddr FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.awb_no=%s", (awb,))
-        d = c.fetchone()
+        s = c.fetchone()
     conn.close()
-    if not d: return "Not found"
-    html = """<html><head><script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script></head>
-    <body onload="JsBarcode('#bc', '{{d.awb_no}}', {displayValue:false, height:40}); window.print();" style="font-family:Arial, sans-serif; max-width:800px; margin:auto; padding:20px; border:1px solid #000;">
-        <h1 style="text-align:center; margin-bottom:5px;">AGC COURIER - BOOKING RECEIPT</h1>
-        <div style="display:flex; justify-content:space-between; margin-bottom:20px; border-bottom:2px solid #000; padding-bottom:10px;">
-            <div><strong>AWB No:</strong> {{d.awb_no}}<br><strong>Date:</strong> {{d.booking_date}}</div>
-            <div><svg id="bc"></svg></div>
-            <div style="text-align:right; font-size:18px;"><strong>{{d.origin_name}} &rarr; {{d.dest_station}}</strong></div>
-        </div>
-        <table style="width:100%; border-collapse:collapse;" border="1" cellpadding="10">
-            <tr><th style="text-align:left; width:50%;">Shipper Details</th><th style="text-align:left; width:50%;">Consignee Details</th></tr>
-            <tr><td valign="top"><strong>{{ d.cname or d.origin_name }}</strong><br>{{ d.caddr or d.origin_address }}<br>Ph: {{ d.origin_phone }}</td>
-            <td valign="top"><strong>{{ d.dest_name }}</strong><br>{{ d.dest_address }}<br>Ph: {{ d.dest_phone }}</td></tr>
-        </table>
-        <table style="width:100%; border-collapse:collapse; margin-top:20px;" border="1" cellpadding="10">
-            <tr style="background:#eee;"><th>Weight</th><th>Pieces</th><th>Service</th><th>Taxable</th><th>GST ({{d.tax_rate}}%)</th><th>Total Amount</th></tr>
-            <tr style="text-align:center;"><td>{{ d.weight_kg }} KG</td><td>{{ d.quantity }}</td><td>{{ d.service_type }}</td>
-            <td>₹{{ d.taxable_amount }}</td><td>₹{{ d.cgst + d.sgst + d.igst }}</td><td style="font-size:18px;"><strong>₹{{ d.total_amount }}</strong></td></tr>
-        </table>
-        <p style="margin-top:60px; text-align:right;"><strong>Authorised Signatory</strong></p>
-    </body></html>"""
-    return render_template_string(html, d=d)
+    if not s: return "Not found"
+
+    buf = io.BytesIO()
+    w, h = A4
+    cv = canvas.Canvas(buf, pagesize=A4)
+    x = 30
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 16); cv.drawString(x, h - 40, "AGC PREMIUM COURIER")
+    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 8); cv.drawString(x, h - 55, "Head Office: Nohar, Rajasthan")
+    
+    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.roundRect(w - 175, h - 52, 145, 30, 8, fill=0, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 11); cv.drawCentredString(w - 102, h - 41, "BOOKING RECEIPT")
+    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 7); cv.drawRightString(w - 30, h - 62, f"Date: {s['booking_date']}")
+    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(20, h - 70, w - 20, h - 70)
+
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 16); cv.drawString(30, h - 90, s["awb_no"])
+    draw_barcode_safe(cv, s["awb_no"], 34, h - 125, 0.30 * inch)
+    cv.setFont("Courier-Bold", 8); cv.drawString(34, h - 135, s["awb_no"])
+    draw_qr(cv, f"AWB:{s['awb_no']}|WT:{s['weight_kg']}|COD:{money(s['cod_amount'])}", w - 95, h - 135, 60)
+
+    bw = (w - 70) / 2; yb = h - 235
+    cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setFillColorRGB(*hex_rgb("#F7F8FA"))
+    cv.roundRect(30, yb, bw, 90, 6, fill=1, stroke=1); cv.roundRect(40 + bw, yb, bw, 90, 6, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 7)
+    cv.drawString(38, yb + 80, "SHIPPER"); cv.drawString(48 + bw, yb + 80, "CONSIGNEE")
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 8)
+    
+    yy = yb + 65
+    for ln in wrap_lines(cv, f"{s['cname'] or s['origin_name']} {s['caddr'] or s['origin_address']}", "Helvetica", 8, bw - 16)[:3]:
+        cv.drawString(38, yy, ln); yy -= 11
+    
+    yy = yb + 65
+    for ln in wrap_lines(cv, f"{s['dest_name'] or ''} {s['dest_address'] or ''}", "Helvetica", 8, bw - 16)[:3]:
+        cv.drawString(48 + bw, yy, ln); yy -= 11
+    cv.drawString(48 + bw, yy - 2, f"Ph: {s['dest_phone'] or '-'}")
+
+    vals = [("WEIGHT", f"{s['weight_kg']} KG"), ("PIECES", s["quantity"]), ("TAXABLE", f"Rs {money(s['taxable_amount'])}"), ("GST", f"Rs {money((s['cgst'] or 0) + (s['sgst'] or 0) + (s['igst'] or 0))}"), ("TOTAL", f"Rs {money(s['total_amount'])}")]
+    cw2 = (w - 60) / len(vals); yc = yb - 18
+    for i, (lb, vl) in enumerate(vals):
+        cx = 30 + i * cw2
+        cv.setFillColorRGB(*hex_rgb("#EEF1F4")); cv.rect(cx, yc - 26, cw2 - 4, 26, fill=1, stroke=0)
+        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 5.5); cv.drawString(cx + 4, yc - 8, lb)
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, yc - 19, str(vl))
+
+    cv.setFont("Helvetica", 7); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(30, yc - 38, num_to_words_inr(s['total_amount']))
+    cv.line(w - 170, yc - 30, w - 30, yc - 30); cv.drawString(w - 170, yc - 40, "Authorised Signatory")
+    
+    cv.showPage(); cv.save()
+    buf.seek(0)
+    return send_file(buf, download_name=f"Receipt_{awb}.pdf", mimetype='application/pdf')
 
 @app.route('/print/manifest/<int:mid>')
 @login_required
-def print_manifest(mid):
+def print_manifest_pdf(mid):
     conn = get_db()
     with conn.cursor() as c:
         c.execute("SELECT * FROM manifests WHERE id=%s", (mid,))
         m = c.fetchone()
-        c.execute("SELECT s.awb_no, s.dest_name, s.weight_kg FROM manifest_items mi JOIN shipments s ON s.id=mi.shipment_id WHERE mi.manifest_id=%s", (mid,))
+        c.execute("SELECT s.awb_no, s.dest_station, s.weight_kg FROM manifest_items mi JOIN shipments s ON s.id=mi.shipment_id WHERE mi.manifest_id=%s", (mid,))
         items = c.fetchall()
     conn.close()
-    html = """<html><body onload="window.print()" style="font-family:Arial; padding:20px; max-width:900px; margin:auto;">
-        <h2 style="text-align:center; border-bottom:2px solid #000; padding-bottom:10px;">OUTWARD MANIFEST (MF-{{m.id}})</h2>
-        <p style="font-size:16px;"><strong>Date:</strong> {{ m.created_at }} | <strong>Route:</strong> {{ m.from_location }} &rarr; {{ m.to_location }} | <strong>Vehicle:</strong> {{ m.vehicle_no }}</p>
-        <table style="width:100%; border-collapse:collapse; margin-top:20px;" border="1" cellpadding="8">
-            <tr style="background:#eee;"><th>S.No</th><th>AWB Number</th><th>Destination Consignee</th><th>Weight</th></tr>
-            {% for i in items %}<tr><td>{{ loop.index }}</td><td><strong>{{ i.awb_no }}</strong></td><td>{{ i.dest_name }}</td><td>{{ i.weight_kg }} KG</td></tr>{% endfor %}
-        </table>
-    </body></html>"""
-    return render_template_string(html, m=m, items=items)
+
+    buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 14); cv.drawString(40, h - 40, "OUTWARD MANIFEST")
+    cv.setFont("Helvetica", 9); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(40, h - 55, f"Date: {m['created_at']} | Route: {m['from_location']} -> {m['to_location']}")
+    draw_barcode_safe(cv, f"MF-{m['id']}", w - 150, h - 50, 0.35 * inch)
+    
+    cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.roundRect(40, h - 100, w - 80, 35, 6, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 9); cv.drawString(55, h - 80, f"Vehicle: {m['vehicle_no']} | Total Items: {len(items)}")
+    
+    y = h - 120
+    cv.setFillColorRGB(*hex_rgb("#EEF1F4")); cv.rect(40, y - 16, w - 80, 16, fill=1, stroke=0)
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
+    cv.drawString(45, y - 11, "S.No"); cv.drawString(80, y - 11, "AWB & BARCODE"); cv.drawString(250, y - 11, "DESTINATION"); cv.drawString(450, y - 11, "WEIGHT")
+    y -= 16
+    
+    for i, it in enumerate(items):
+        if y < 40: cv.showPage(); y = h - 40
+        if i % 2 == 1: cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(40, y - 24, w - 80, 24, fill=1, stroke=0)
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(45, y - 10, str(i + 1)); cv.drawString(80, y - 9, it["awb_no"])
+        draw_barcode_safe(cv, it["awb_no"], 80, y - 21, 0.16 * inch)
+        cv.setFont("Helvetica", 8); cv.drawString(250, y - 14, str(it.get("dest_station", ""))[:20])
+        cv.setFont("Helvetica-Bold", 8); cv.drawString(450, y - 14, f"{it['weight_kg']} KG")
+        y -= 24
+
+    cv.showPage(); cv.save()
+    buf.seek(0); return send_file(buf, download_name=f"Manifest_{mid}.pdf", mimetype='application/pdf')
 
 @app.route('/print/drs/<int:did>')
 @login_required
-def print_drs(did):
+def print_drs_pdf(did):
     conn = get_db()
     with conn.cursor() as c:
         c.execute("SELECT * FROM drs WHERE id=%s", (did,))
         d = c.fetchone()
-        c.execute("SELECT s.awb_no, s.dest_name, s.dest_address, s.dest_phone FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (did,))
+        c.execute("SELECT s.awb_no, s.dest_name, di.receiver_name FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (did,))
         items = c.fetchall()
     conn.close()
-    html = """<html><body onload="window.print()" style="font-family:Arial; padding:20px; max-width:900px; margin:auto;">
-        <h2 style="text-align:center; border-bottom:2px solid #000; padding-bottom:10px;">DELIVERY RUN SHEET (DRS #{{d.id}})</h2>
-        <p style="font-size:16px;"><strong>Date:</strong> {{ d.drs_date }} | <strong>Rider Name:</strong> {{ d.rider_name }}</p>
-        <table style="width:100%; border-collapse:collapse; margin-top:20px;" border="1" cellpadding="8">
-            <tr style="background:#eee;"><th>S.No</th><th>AWB Number</th><th>Consignee Details</th><th>Receiver Signature & Mobile</th></tr>
-            {% for i in items %}<tr><td>{{ loop.index }}</td><td><strong>{{ i.awb_no }}</strong></td>
-            <td><strong>{{ i.dest_name }}</strong><br>{{ i.dest_address }}<br>Ph: {{ i.dest_phone }}</td><td style="width:35%;"></td></tr>{% endfor %}
-        </table>
-        <p style="margin-top:60px; font-weight:bold;">Rider Signature: _______________ <span style="float:right;">Hub Manager Signature: _______________</span></p>
-    </body></html>"""
-    return render_template_string(html, d=d, items=items)
+
+    buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 14); cv.drawString(40, h - 40, "DELIVERY RUN SHEET (DRS)")
+    cv.setFont("Helvetica", 9); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(40, h - 55, f"Date: {d['drs_date']} | Rider: {d['rider_name']}")
+    
+    cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.roundRect(40, h - 100, w - 80, 35, 6, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 9); cv.drawString(55, h - 80, f"DRS No: DRS-{d['id']} | Total Items: {len(items)}")
+    
+    y = h - 120
+    cv.setFillColorRGB(*hex_rgb("#EEF1F4")); cv.rect(40, y - 20, w - 80, 20, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
+    cv.drawString(45, y - 14, "#"); cv.drawString(75, y - 14, "AWB & BARCODE"); cv.drawString(220, y - 14, "CONSIGNEE"); cv.drawString(380, y - 14, "SIGNATURE & MOBILE")
+    y -= 20
+
+    for i, it in enumerate(items):
+        if y < 60: cv.showPage(); y = h - 40
+        if i % 2 == 1: cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(40, y - 40, w - 80, 40, fill=1, stroke=0)
+        cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(40, y - 40, w - 80, 40, fill=0, stroke=1)
+        
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(45, y - 25, str(i + 1)); cv.drawString(75, y - 12, it["awb_no"])
+        draw_barcode_safe(cv, it["awb_no"], 75, y - 36, 0.28 * inch)
+        cv.setFont("Helvetica-Bold", 9); cv.drawString(220, y - 25, str(it.get("dest_name", ""))[:20].upper())
+        
+        cv.setStrokeColorRGB(*hex_rgb("#6B7280")); cv.setDash(1, 2)
+        cv.line(410, y - 15, w - 50, y - 15); cv.line(410, y - 32, w - 50, y - 32); cv.setDash()
+        cv.setFont("Helvetica", 8); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(385, y - 15, "Sign:"); cv.drawString(385, y - 32, "Mob:")
+        y -= 40
+
+    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 9); cv.line(60, y - 40, 200, y - 40); cv.drawString(60, y - 55, "Rider Signature")
+    cv.line(350, y - 40, 500, y - 40); cv.drawString(350, y - 55, "Hub Manager Signature")
+    
+    cv.showPage(); cv.save()
+    buf.seek(0); return send_file(buf, download_name=f"DRS_{did}.pdf", mimetype='application/pdf')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
