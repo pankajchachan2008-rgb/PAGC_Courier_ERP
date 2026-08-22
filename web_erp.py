@@ -6,33 +6,31 @@ from functools import wraps
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'agc_super_secret_erp_key'
+app.secret_key = 'agc_super_secret_erp_ultimate_key'
 
 config = configparser.ConfigParser()
 config.read('db_config.ini')
 
+# ==========================================
+# 🛠️ 1. BULLETPROOF DB CONNECTION & HEALER
+# ==========================================
 def get_db():
-    # 🧹 AUTO-CLEANER: Copy-Paste ke hidden spaces ko saaf karega
     db_host = config['CLOUD_DB']['host'].replace('"', '').replace("'", "").strip()
     db_port = int(config['CLOUD_DB']['port'].replace('"', '').replace("'", "").strip())
     db_user = config['CLOUD_DB']['user'].replace('"', '').replace("'", "").strip()
     db_pass = config['CLOUD_DB']['password'].replace('"', '').replace("'", "").strip()
     db_name = config['CLOUD_DB']['database'].replace('"', '').replace("'", "").strip()
     
-    # 🔒 MAGIC TRICK 2: Aiven bina SSL ke connect nahi hota, hum automatically SSL force karenge
     return pymysql.connect(
         host=db_host, 
-        port=db_port,
+        port=db_port, 
         user=db_user, 
-        password=db_pass,
+        password=db_pass, 
         database=db_name, 
-        cursorclass=pymysql.cursors.DictCursor,
-        ssl={'ssl': {}}  # Yeh Aiven ko batayega ki connection 100% Secure (SSL) hai
+        cursorclass=pymysql.cursors.DictCursor, 
+        ssl={'ssl': {}}
     )
 
-# ==========================================
-# 🚀 DATABASE AUTO-HEALER (Missing Tables Creator)
-# ==========================================
 def auto_heal_db():
     try:
         conn = get_db()
@@ -49,8 +47,10 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS manifest_items (id INT AUTO_INCREMENT PRIMARY KEY, manifest_id INT, shipment_id INT)")
             c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_date DATE, rider_name VARCHAR(100), status VARCHAR(50))")
             c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100))")
-        conn.commit(); conn.close()
-    except Exception as e: print("Heal Error:", e)
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print("Heal Error:", e)
 
 auto_heal_db()
 
@@ -73,7 +73,7 @@ BASE_HTML = """
     <title>{{ title }} - AGC Cloud ERP</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f5f7; margin: 0; color: #1e293b; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f4f5f7; margin: 0; color: #1e293b; }
         .sidebar { width: 260px; background: #0f172a; color: white; position: fixed; height: 100%; overflow-y: auto; box-shadow: 2px 0 10px rgba(0,0,0,0.1); }
         .logo { padding: 20px; font-size: 24px; font-weight: 900; color: #38bdf8; border-bottom: 1px solid #1e293b; text-align: center; }
         .menu a { display: block; padding: 12px 25px; color: #cbd5e1; text-decoration: none; font-weight: 600; border-bottom: 1px solid #1e293b; transition: 0.2s; }
@@ -137,10 +137,11 @@ BASE_HTML = """
 </body>
 </html>
 """
-def render_page(title, content): return render_template_string(BASE_HTML, title=title, content=content)
+def render_page(title, content):
+    return render_template_string(BASE_HTML, title=title, content=content)
 
 # ==========================================
-# 🔐 3. AUTH & PUBLIC TRACKING
+# 🔐 3. AUTH ROUTES
 # ==========================================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -158,8 +159,13 @@ def login():
     return """<style>body{background:#0f172a; display:flex; justify-content:center; align-items:center; height:100vh;} .box{background:#1e293b; padding:40px; border-radius:8px; text-align:center; width:300px;} input{width:100%; margin:10px 0; padding:12px; box-sizing:border-box;} button{width:100%; padding:12px; background:#0f766e; color:white; border:none; font-weight:bold; cursor:pointer;}</style><div class="box"><h2 style="color:#38bdf8; margin-top:0;">ERP LOGIN</h2><form method="POST"><input name="username" placeholder="Username" required autocomplete="off"><input type="password" name="password" placeholder="Password" required><button type="submit">LOGIN</button></form></div>"""
 
 @app.route('/logout')
-def logout(): session.clear(); return redirect(url_for('login'))
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
+# ==========================================
+# 🌐 4. PUBLIC TRACKING (NO LOGIN)
+# ==========================================
 @app.route('/track', methods=['GET'])
 def track():
     awb = request.args.get('awb', '').strip().upper()
@@ -179,7 +185,7 @@ def track():
     return render_template_string(html, awb=awb, shipment=shipment, timeline=timeline)
 
 # ==========================================
-# 📊 4. DASHBOARD & REPORTS
+# 📊 5. DASHBOARD & REPORTS
 # ==========================================
 @app.route('/')
 @login_required
@@ -218,7 +224,7 @@ def reports():
     return render_page("All Reports", render_template_string(html, b=b, p=p, out=out, cods=cods, date=d))
 
 # ==========================================
-# 📦 5. COMPLETE BOOKING & CUSTOMERS
+# 📦 6. COMPLETE BOOKING & CUSTOMERS
 # ==========================================
 @app.route('/customers', methods=['GET', 'POST'])
 @login_required
@@ -227,12 +233,15 @@ def customers():
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("UPDATE customers SET is_active=0 WHERE id=%s", (request.args.get('delete'),))
-            conn.commit(); flash("Customer Deleted!", "success"); return redirect('/customers')
+            conn.commit()
+            flash("Customer Deleted!", "success")
+            return redirect('/customers')
     if request.method == 'POST':
         c, n, g, p = request.form.get('code'), request.form.get('name'), request.form.get('gstin'), request.form.get('phone')
         with conn.cursor() as cur:
             cur.execute("INSERT INTO customers(code, name, gstin, phone, state, is_active) VALUES(%s,%s,%s,%s,'Default',1)", (c, n, g, p))
-            conn.commit(); flash("Customer Added!", "success")
+            conn.commit()
+            flash("Customer Added!", "success")
     with conn.cursor() as cur:
         cur.execute("SELECT id, code, name, phone, credit_limit FROM customers WHERE is_active=1 ORDER BY id DESC")
         custs = cur.fetchall()
@@ -246,13 +255,14 @@ def booking():
     conn = get_db()
     if request.method == 'POST':
         d = request.form
-        # Calculation Logic
         fr, tax = float(d['fr']), float(d['tax'])
         gst = fr * (tax / 100)
         tot = fr + gst
         cgst = sgst = igst = 0
-        if d['ostate'] == d['dstate']: cgst = sgst = gst / 2
-        else: igst = gst
+        if d['ostate'] == d['dstate']: 
+            cgst = sgst = gst / 2
+        else: 
+            igst = gst
 
         with conn.cursor() as c:
             try:
@@ -263,8 +273,10 @@ def booking():
                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session['branch']))
                 if d.get('cust_id'):
                     c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (d['cust_id'], d['date'], d['awb'].upper(), tot, f"Booking {d['awb'].upper()}"))
-                conn.commit(); flash(f"✅ AWB {d['awb'].upper()} Booked! Total: ₹{tot}", "success")
-            except Exception as e: flash(f"Error: {e}", "error")
+                conn.commit()
+                flash(f"✅ AWB {d['awb'].upper()} Booked! Total: ₹{tot}", "success")
+            except Exception as e: 
+                flash(f"Error: {e}", "error")
 
     with conn.cursor() as c:
         c.execute("SELECT id, name, phone FROM customers WHERE is_active=1")
@@ -308,7 +320,7 @@ def booking():
     return render_page("Complete Booking", render_template_string(html, custs=custs))
 
 # ==========================================
-# 🚚 6. SHIPMENTS (EDIT / DELETE / PRINT)
+# 🚚 7. SHIPMENTS (EDIT / DELETE / PRINT)
 # ==========================================
 @app.route('/shipments', methods=['GET', 'POST'])
 @login_required
@@ -318,14 +330,17 @@ def shipments():
         with conn.cursor() as c:
             c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (request.args.get('delete'),))
             c.execute("DELETE FROM shipments WHERE id=%s", (request.args.get('delete'),))
-            conn.commit(); flash("Shipment Deleted!", "success"); return redirect('/shipments')
+            conn.commit()
+            flash("Shipment Deleted!", "success")
+            return redirect('/shipments')
 
     search = request.form.get('search', '').strip() if request.method == 'POST' else ''
     with conn.cursor() as c:
         q = "SELECT s.*, c.phone as cphone FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id"
         if search: q += f" WHERE s.awb_no LIKE '%{search}%' OR s.dest_station LIKE '%{search}%'"
         q += " ORDER BY s.id DESC LIMIT 150"
-        c.execute(q); rows = c.fetchall()
+        c.execute(q)
+        rows = c.fetchall()
     conn.close()
     
     html = """
@@ -346,7 +361,7 @@ def shipments():
     return render_page("Shipments Management", render_template_string(html, rows=rows, search=search))
 
 # ==========================================
-# 📤 7. HUB OPERATIONS (OUTWARD & INWARD)
+# 📤 8. HUB OPERATIONS (OUTWARD & INWARD)
 # ==========================================
 @app.route('/outward', methods=['GET', 'POST'])
 @login_required
@@ -355,7 +370,9 @@ def outward():
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("DELETE FROM outward_register WHERE id=%s", (request.args.get('delete'),))
-            conn.commit(); flash("Entry Deleted!", "success"); return redirect('/outward')
+            conn.commit()
+            flash("Entry Deleted!", "success")
+            return redirect('/outward')
 
     if request.method == 'POST' and 'scan_awb' in request.form:
         awbs = request.form.get('awbs').replace(',', '\n').split('\n')
@@ -368,7 +385,8 @@ def outward():
                     wt = s['weight_kg'] if s else 1.0; dst = s['dest_station'] if s else 'Unknown'
                     c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(CURDATE(), %s, %s, %s, %s, %s, %s, 0)", 
                               (awb, session['branch'], request.form.get('dest_hub'), dst, wt, request.form.get('info')))
-            conn.commit(); flash("✅ Added to Pending Outward.", "success")
+            conn.commit()
+            flash("✅ Added to Pending Outward.", "success")
             
     elif request.method == 'POST' and 'finalize_manifest' in request.form:
         vcl = request.form.get('vehicle')
@@ -386,7 +404,8 @@ def outward():
                         c.execute("INSERT INTO manifest_items(manifest_id, shipment_id) VALUES(%s, %s)", (man_id, sid))
                         c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s WHERE id=%s", (f"To {pending[0]['out_station']}", sid))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'OUTWARD', %s)", (sid, session['branch']))
-                conn.commit(); flash(f"🚀 Manifest MF-{man_id} Generated!", "success")
+                conn.commit()
+                flash(f"🚀 Manifest MF-{man_id} Generated!", "success")
 
     with conn.cursor() as c:
         c.execute("SELECT * FROM outward_register WHERE finalized=0 AND origin_station=%s", (session['branch'],))
@@ -436,7 +455,9 @@ def inward():
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("DELETE FROM inward_register WHERE id=%s", (request.args.get('delete'),))
-            conn.commit(); return redirect('/inward')
+            conn.commit()
+            return redirect('/inward')
+            
     if request.method == 'POST':
         awbs = request.form.get('awbs').replace(',', '\n').split('\n')
         with conn.cursor() as c:
@@ -449,17 +470,19 @@ def inward():
                         sid = c.fetchone()['id']
                         c.execute("UPDATE shipments SET status='INWARD', current_location=%s WHERE id=%s", (session['branch'], sid))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'INWARD', %s)", (sid, session['branch']))
-            conn.commit(); flash("✅ Inward Completed.", "success")
+            conn.commit()
+            flash("✅ Inward Completed.", "success")
             
     with conn.cursor() as c:
         c.execute("SELECT * FROM inward_register WHERE in_station=%s ORDER BY id DESC LIMIT 50", (session['branch'],))
         hist = c.fetchall()
     conn.close()
+    
     html = """<div class="grid-2"><div class="card"><h3 style="color:#0f766e; margin-top:0;">📥 Receive Inward</h3><form method="POST"><label>Info / Notes</label><input name="info" placeholder="Received via..." style="margin-bottom:10px;"><label>Scan AWBs</label><textarea name="awbs" rows="8" required></textarea><button type="submit" class="btn" style="margin-top:10px; width:100%;">Receive Parcels</button></form></div><div class="card" style="overflow-y:auto; max-height:400px;"><h3>Inward History</h3><table><tr><th>Date</th><th>AWB</th><th>Info</th><th>Del</th></tr>{% for h in hist %}<tr><td>{{ h.entry_date }}</td><td><strong>{{ h.awb_no }}</strong></td><td>{{ h.info }}</td><td><a href="/inward?delete={{ h.id }}" class="btn btn-red" style="padding:2px 5px; font-size:10px;">X</a></td></tr>{% endfor %}</table></div></div>"""
     return render_page("Inward Hub", render_template_string(html, hist=hist))
 
 # ==========================================
-# 🛵 8. DRS / DELIVERY & ACCOUNTS
+# 🛵 9. DRS / DELIVERY & ACCOUNTS
 # ==========================================
 @app.route('/drs', methods=['GET', 'POST'])
 @login_required
@@ -469,7 +492,8 @@ def drs():
         with conn.cursor() as c:
             c.execute("DELETE FROM drs_items WHERE drs_id=%s", (request.args.get('del_drs'),))
             c.execute("DELETE FROM drs WHERE id=%s", (request.args.get('del_drs'),))
-            conn.commit(); return redirect('/drs')
+            conn.commit()
+            return redirect('/drs')
 
     if request.method == 'POST' and 'assign_drs' in request.form:
         awbs = request.form.get('awbs').replace(',', '\n').split('\n')
@@ -486,7 +510,8 @@ def drs():
                         c.execute("INSERT INTO drs_items(drs_id, shipment_id, status) VALUES(%s, %s, 'ASSIGNED')", (drs_id, sid))
                         c.execute("UPDATE shipments SET status='ON_DRS', current_location=%s WHERE id=%s", (f"Rider: {rider}", sid))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'ON_DRS', %s, %s)", (sid, session['branch'], f"Assigned to {rider}"))
-            conn.commit(); flash("✅ DRS Generated", "success")
+            conn.commit()
+            flash("✅ DRS Generated", "success")
 
     elif request.method == 'POST' and 'mark_deliver' in request.form:
         awb = request.form.get('deliver_awb').strip().upper()
@@ -498,7 +523,8 @@ def drs():
                 c.execute("UPDATE shipments SET status='DELIVERED', current_location=%s WHERE id=%s", (f"Delivered: {receiver}", sid))
                 c.execute("UPDATE drs_items SET status='DELIVERED', receiver_name=%s WHERE shipment_id=%s", (receiver, sid))
                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'DELIVERED', %s, %s)", (sid, session['branch'], f"Received by {receiver}"))
-                conn.commit(); flash(f"✅ Delivered: {awb}", "success")
+                conn.commit()
+                flash(f"✅ Delivered: {awb}", "success")
 
     with conn.cursor() as c:
         c.execute("SELECT id, drs_date, rider_name FROM drs ORDER BY id DESC LIMIT 10")
@@ -541,14 +567,17 @@ def accounts():
                 p = c.fetchone()
                 c.execute("DELETE FROM ledger WHERE voucher_type='PAYMENT' AND reference=%s AND customer_id=%s", (p['reference'], p['customer_id']))
                 c.execute("DELETE FROM payments WHERE id=%s", (p['id'],))
-            conn.commit(); flash("Payment Deleted!", "success"); return redirect('/accounts')
+            conn.commit()
+            flash("Payment Deleted!", "success")
+            return redirect('/accounts')
 
     if request.method == 'POST':
         cid, amt, mode, ref, d = request.form.get('cust_id'), request.form.get('amount'), request.form.get('mode'), request.form.get('ref') or f"PAY-{int(datetime.now().timestamp())}", datetime.now().strftime("%Y-%m-%d")
         with conn.cursor() as c:
             c.execute("INSERT INTO payments(customer_id, payment_date, amount, mode, reference) VALUES(%s,%s,%s,%s,%s)", (cid, d, amt, mode, ref))
             c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'PAYMENT',%s,0,%s,%s)", (cid, d, ref, amt, f"Received ({mode})"))
-            conn.commit(); flash("Payment Saved!", "success")
+            conn.commit()
+            flash("Payment Saved!", "success")
 
     with conn.cursor() as c:
         c.execute("SELECT id, name FROM customers WHERE is_active=1")
@@ -582,7 +611,7 @@ def accounts():
     return render_page("Accounts & Ledger", render_template_string(html, custs=custs, pays=pays, l_data=l_data, c_bal=c_bal))
 
 # ==========================================
-# 🖨️ 9. PRINTING MODULES (Bilti, Label, Manifest, DRS)
+# 🖨️ 10. PRINTING MODULES (Bilti, Label, Manifest, DRS)
 # ==========================================
 @app.route('/print/label/<awb>')
 @login_required
@@ -677,158 +706,6 @@ def print_drs(did):
         <p style="margin-top:60px; font-weight:bold;">Rider Signature: _______________ <span style="float:right;">Hub Manager Signature: _______________</span></p>
     </body></html>"""
     return render_template_string(html, d=d, items=items)
-
-# ==========================================
-# 🌐 PUBLIC TRACKING PAGE (No Login Required)
-# ==========================================
-@app.route('/track', methods=['GET', 'POST'])
-def track():
-    awb = request.args.get('awb') or request.form.get('awb')
-    awb = awb.strip().upper() if awb else ''
-    
-    shipment = None
-    timeline = []
-    
-    if awb:
-        try:
-            conn = get_db()
-            with conn.cursor() as c:
-                # Basic Shipment Data
-                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
-                shipment = c.fetchone()
-                
-                if shipment:
-                    # 1. Booking Event
-                    timeline.append({
-                        'date': str(shipment['booking_date']), 
-                        'title': '📦 Parcel Booked', 
-                        'desc': f"Origin: {shipment['origin_name']} | Dest: {shipment['dest_station']}"
-                    })
-                    
-                    # 2. Outward Events (Dispatched)
-                    c.execute("SELECT entry_date, out_station, info FROM outward_register WHERE awb_no=%s ORDER BY id", (awb,))
-                    for r in c.fetchall():
-                        timeline.append({
-                            'date': str(r['entry_date']), 
-                            'title': '📤 Dispatched (Outward)', 
-                            'desc': f"Forwarded to {r['out_station']}. {r['info']}"
-                        })
-                        
-                    # 3. Inward Events (Received at Hub)
-                    c.execute("SELECT entry_date, in_station, info FROM inward_register WHERE awb_no=%s ORDER BY id", (awb,))
-                    for r in c.fetchall():
-                        timeline.append({
-                            'date': str(r['entry_date']), 
-                            'title': '📥 Received at Hub (Inward)', 
-                            'desc': f"Arrived at {r['in_station']}. {r['info']}"
-                        })
-                        
-                    # 4. Delivery Events (DRS)
-                    c.execute("SELECT entry_date, delivery_boy, drs_no FROM delivery_register WHERE awb_no=%s ORDER BY id", (awb,))
-                    for r in c.fetchall():
-                        timeline.append({
-                            'date': str(r['entry_date']), 
-                            'title': '🛵 Out for Delivery', 
-                            'desc': f"Assigned to Rider: {r['delivery_boy']} (DRS: {r['drs_no']})"
-                        })
-                        
-                    # 5. Delivered Event (Final)
-                    if shipment['status'] == 'DELIVERED':
-                        timeline.append({
-                            'date': 'System Updated', 
-                            'title': '✅ Successfully Delivered', 
-                            'desc': f"Status: {shipment['current_location']}"
-                        })
-                        
-            conn.close()
-            # Sort timeline by date
-            timeline = sorted(timeline, key=lambda x: x['date'])
-        except Exception as e:
-            print("Tracking Error:", e)
-
-    # 🎨 Premium Mobile-Friendly UI (CSS & HTML)
-    html = """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Track Shipment - AGC Courier</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-            body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; color: #1e293b; }
-            .nav { background: #0f172a; padding: 15px 20px; color: white; text-align: center; font-size: 22px; font-weight: 900; letter-spacing: 1px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
-            .nav span { color: #38bdf8; }
-            .container { max-width: 600px; margin: 40px auto; padding: 20px; }
-            .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
-            .search-box { display: flex; gap: 10px; margin-bottom: 20px; }
-            input { flex: 1; padding: 15px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 16px; outline: none; text-transform: uppercase;}
-            input:focus { border-color: #0f766e; }
-            .btn { padding: 15px 25px; background: #0f766e; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s;}
-            .btn:hover { background: #0d9488; }
-            
-            /* Premium Vertical Timeline CSS */
-            .status-badge { display: inline-block; padding: 6px 12px; background: #fef08a; color: #b45309; border-radius: 20px; font-weight: bold; font-size: 14px; margin-bottom: 20px;}
-            .status-DELIVERED { background: #dcfce7; color: #166534; }
-            
-            .timeline { border-left: 3px solid #0f766e; margin-left: 15px; padding-left: 25px; margin-top: 25px; }
-            .event { position: relative; margin-bottom: 25px; }
-            .event::before { content: ''; position: absolute; left: -35px; top: 0; width: 14px; height: 14px; background: #fbbf24; border: 3px solid #0f766e; border-radius: 50%; }
-            .e-date { font-size: 13px; color: #0f766e; font-weight: bold; margin-bottom: 5px; }
-            .e-title { font-size: 16px; font-weight: bold; margin: 0 0 5px 0; color: #1e293b; }
-            .e-desc { font-size: 14px; color: #475569; margin: 0; line-height: 1.5; }
-            
-            .footer { text-align: center; margin-top: 40px; color: #94a3b8; font-size: 13px; }
-            @media (max-width: 600px) { .search-box { flex-direction: column; } .container { margin: 10px auto;} }
-        </style>
-    </head>
-    <body>
-        <div class="nav">AGC <span>COURIER</span></div>
-        <div class="container">
-            <div class="card">
-                <h2 style="margin-top:0; text-align:center;">Track Your Shipment</h2>
-                <p style="text-align:center; color:#64748b; margin-bottom:25px;">Enter your AWB / Bilti number below</p>
-                
-                <form method="GET" class="search-box">
-                    <input type="text" name="awb" value="{{ awb }}" placeholder="e.g. AWB00000123" required autocomplete="off">
-                    <button type="submit" class="btn">Track Live</button>
-                </form>
-                
-                {% if awb %}
-                    <hr style="border:0; border-top:1px dashed #cbd5e1; margin:25px 0;">
-                    {% if shipment %}
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <h3 style="margin:0; color:#0f766e;">AWB: {{ shipment.awb_no }}</h3>
-                            <div class="status-badge status-{{ shipment.status }}">{{ shipment.status }}</div>
-                        </div>
-                        
-                        <div style="background:#f8fafc; padding:15px; border-radius:8px; margin-bottom:20px; font-size:14px; border-left:4px solid #38bdf8;">
-                            <strong>To:</strong> {{ shipment.dest_name }}<br>
-                            <strong>Destination:</strong> {{ shipment.dest_station }}<br>
-                            <strong>Weight:</strong> {{ shipment.weight_kg }} KG
-                        </div>
-                        
-                        <div class="timeline">
-                            {% for t in timeline %}
-                            <div class="event">
-                                <div class="e-date">{{ t.date }}</div>
-                                <h4 class="e-title">{{ t.title }}</h4>
-                                <p class="e-desc">{{ t.desc }}</p>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        <div style="text-align:center; color:#be123c; padding:20px; background:#fee2e2; border-radius:8px;">
-                            <strong>No records found for AWB: {{ awb }}</strong><br>
-                            Please check the number and try again.
-                        </div>
-                    {% endif %}
-                {% endif %}
-            </div>
-            <div class="footer">&copy; 2026 AGC Smart ERP Cloud. All rights reserved.</div>
-        </div>
-    </body>
-    </html>
-    """
-    return render_template_string(html, awb=awb, shipment=shipment, timeline=timeline)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
