@@ -6,22 +6,33 @@ from functools import wraps
 from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'agc_super_secret_erp_ultimate_key'
+app.secret_key = 'agc_super_secret_erp_key'
 
 config = configparser.ConfigParser()
 config.read('db_config.ini')
 
-# ==========================================
-# 🛠️ 1. BULLETPROOF DB CONNECTION & HEALER
-# ==========================================
 def get_db():
+    # 🧹 AUTO-CLEANER: Copy-Paste ke hidden spaces ko saaf karega
     db_host = config['CLOUD_DB']['host'].replace('"', '').replace("'", "").strip()
     db_port = int(config['CLOUD_DB']['port'].replace('"', '').replace("'", "").strip())
     db_user = config['CLOUD_DB']['user'].replace('"', '').replace("'", "").strip()
     db_pass = config['CLOUD_DB']['password'].replace('"', '').replace("'", "").strip()
     db_name = config['CLOUD_DB']['database'].replace('"', '').replace("'", "").strip()
-    return pymysql.connect(host=db_host, port=db_port, user=db_user, password=db_pass, database=db_name, cursorclass=pymysql.cursors.DictCursor, ssl={'ssl': {}})
+    
+    # 🔒 MAGIC TRICK 2: Aiven bina SSL ke connect nahi hota, hum automatically SSL force karenge
+    return pymysql.connect(
+        host=db_host, 
+        port=db_port,
+        user=db_user, 
+        password=db_pass,
+        database=db_name, 
+        cursorclass=pymysql.cursors.DictCursor,
+        ssl={'ssl': {}}  # Yeh Aiven ko batayega ki connection 100% Secure (SSL) hai
+    )
 
+# ==========================================
+# 🚀 DATABASE AUTO-HEALER (Missing Tables Creator)
+# ==========================================
 def auto_heal_db():
     try:
         conn = get_db()
