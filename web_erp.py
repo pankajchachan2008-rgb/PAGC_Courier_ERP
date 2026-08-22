@@ -18,6 +18,45 @@ def get_db():
         database=config['CLOUD_DB']['database'], cursorclass=pymysql.cursors.DictCursor
     )
 
+# ==========================================
+# 🚀 DATABASE AUTO-HEALER (Missing Tables Creator)
+# ==========================================
+def auto_heal_cloud_db():
+    try:
+        conn = get_db()
+        with conn.cursor() as c:
+            # Create completely new missing tables for Accounts, DRS, Manifests
+            c.execute("CREATE TABLE IF NOT EXISTS customers (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(255), gstin VARCHAR(50), phone VARCHAR(50), state VARCHAR(100), credit_limit DOUBLE DEFAULT 0, is_active INT DEFAULT 1)")
+            c.execute("CREATE TABLE IF NOT EXISTS ledger (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, entry_date DATE, voucher_type VARCHAR(50), reference VARCHAR(100), debit DOUBLE DEFAULT 0, credit DOUBLE DEFAULT 0, narration TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS payments (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, payment_date DATE, amount DOUBLE, mode VARCHAR(50), reference VARCHAR(100))")
+            c.execute("CREATE TABLE IF NOT EXISTS outward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), out_station VARCHAR(100), destination VARCHAR(100), weight VARCHAR(50), info TEXT, finalized INT DEFAULT 0)")
+            c.execute("CREATE TABLE IF NOT EXISTS inward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), in_station VARCHAR(100), weight VARCHAR(50), info TEXT, finalized INT DEFAULT 0)")
+            c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_date DATE, rider_name VARCHAR(100), status VARCHAR(50))")
+            c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100))")
+            c.execute("CREATE TABLE IF NOT EXISTS manifests (id INT AUTO_INCREMENT PRIMARY KEY, manifest_type VARCHAR(50), from_location VARCHAR(100), to_location VARCHAR(100), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS manifest_items (id INT AUTO_INCREMENT PRIMARY KEY, manifest_id INT, shipment_id INT)")
+            
+            # Patch shipments table for any missing columns
+            cols_to_add = [
+                "customer_id INT", "dest_station VARCHAR(100)", "weight_kg DOUBLE DEFAULT 1.0", 
+                "quantity INT DEFAULT 1", "service_type VARCHAR(50) DEFAULT 'SURFACE'", 
+                "current_location VARCHAR(100)", "origin_name VARCHAR(100)", 
+                "dest_phone VARCHAR(50)", "dest_address TEXT"
+            ]
+            for col in cols_to_add:
+                try:
+                    c.execute(f"ALTER TABLE shipments ADD COLUMN {col}")
+                except Exception:
+                    pass # Column already exists
+        conn.commit()
+        conn.close()
+        print("✅ Cloud DB Tables Healed Successfully!")
+    except Exception as e:
+        print("DB Heal Error:", e)
+
+# Run healer once when app starts
+auto_heal_cloud_db()
+
 def sha(text): return hashlib.sha256(text.encode()).hexdigest()
 
 def login_required(f):
@@ -199,14 +238,11 @@ def booking():
     if request.method == 'POST':
         d = request.form
         with conn.cursor() as c:
-            # Insert into Shipments
             c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, dest_name, dest_station, 
                          weight_kg, quantity, service_type, total_amount, status, current_location) 
                          VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s)""",
                       (d['awb'].upper(), d.get('cust_id') or None, d['date'], session['branch'], d['dname'], d['dstat'], 
                        d['wt'], d['pcs'], d['srv'], d['amt'], session['branch']))
-            
-            # Auto-Ledger Post (If Customer selected)
             if d.get('cust_id'):
                 c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)",
                           (d['cust_id'], d['date'], d['awb'].upper(), d['amt'], f"Auto Bill AWB {d['awb'].upper()}"))
@@ -289,11 +325,8 @@ def outward():
         date_val = datetime.now().strftime("%Y-%m-%d")
         
         with conn.cursor() as c:
-            # 1. Create Manifest Header
             c.execute("INSERT INTO manifests(manifest_type, from_location, to_location, vehicle_no, status) VALUES('OUTWARD', %s, %s, %s, 'CLOSED')", (session['branch'], dest, vcl))
             man_id = c.lastrowid
-            
-            # 2. Process AWBs
             count = 0
             for a in awbs:
                 awb = a.strip().upper()
@@ -556,7 +589,6 @@ def print_label(awb):
 @app.route('/print/receipt/<awb>')
 @login_required
 def print_receipt(awb):
-    # Standard receipt structure...
     conn = get_db()
     with conn.cursor() as c:
         c.execute("SELECT s.*, c.name as cname FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id WHERE s.awb_no=%s", (awb,))
