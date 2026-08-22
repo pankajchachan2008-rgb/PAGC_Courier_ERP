@@ -38,6 +38,7 @@ def auto_heal_db():
     try:
         conn = get_db()
         with conn.cursor() as c:
+            # Create Base Tables
             c.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password_hash VARCHAR(100), full_name VARCHAR(100), role VARCHAR(50), branch_name VARCHAR(100), active INT DEFAULT 1)")
             c.execute("CREATE TABLE IF NOT EXISTS customers (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(255), gstin VARCHAR(50), phone VARCHAR(50), state VARCHAR(100), credit_limit DOUBLE DEFAULT 0, is_active INT DEFAULT 1)")
             c.execute("CREATE TABLE IF NOT EXISTS ledger (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, entry_date DATE, voucher_type VARCHAR(50), reference VARCHAR(100), debit DOUBLE DEFAULT 0, credit DOUBLE DEFAULT 0, narration TEXT)")
@@ -51,6 +52,21 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_date DATE, rider_name VARCHAR(100), status VARCHAR(50))")
             c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100))")
             c.execute("CREATE TABLE IF NOT EXISTS stations (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) UNIQUE)")
+            
+            # ADVANCED OUTWARD & MANIFEST COLUMNS UPDATE (Safe Alter)
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN pcs INT DEFAULT 1")
+            except: pass
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN network VARCHAR(100) DEFAULT 'SELF'")
+            except: pass
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN network_awb VARCHAR(100)")
+            except: pass
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN bag_no VARCHAR(100)")
+            except: pass
+            try: c.execute("ALTER TABLE manifests ADD COLUMN driver_phone VARCHAR(50)")
+            except: pass
+            try: c.execute("ALTER TABLE manifests ADD COLUMN seal_no VARCHAR(100)")
+            except: pass
+            
         conn.commit(); conn.close()
     except Exception as e: print("Heal Error:", e)
 
@@ -142,8 +158,7 @@ BASE_HTML = """
 </body>
 </html>
 """
-def render_page(title, content):
-    return render_template_string(BASE_HTML, title=title, content=content)
+def render_page(title, content): return render_template_string(BASE_HTML, title=title, content=content)
 
 # ==========================================
 # 🔐 3. AUTH, USERS & PUBLIC TRACKING
@@ -169,62 +184,28 @@ def logout(): session.clear(); return redirect(url_for('login'))
 @app.route('/users', methods=['GET', 'POST'])
 @login_required
 def users():
-    if session.get('role') != 'ADMIN':
-        flash("Access Denied! Only Admin can manage users.", "error")
-        return redirect(url_for('dashboard'))
-
+    if session.get('role') != 'ADMIN': return redirect(url_for('dashboard'))
     conn = get_db()
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("DELETE FROM users WHERE id=%s AND username != 'admin'", (request.args.get('delete'),))
-            conn.commit()
-            flash("User Deleted Successfully!", "success")
-            return redirect('/users')
-
+            conn.commit(); flash("User Deleted!", "success"); return redirect('/users')
     if request.method == 'POST':
         u, p, f, r, b = request.form.get('user'), request.form.get('pass'), request.form.get('fname'), request.form.get('role'), request.form.get('branch')
         with conn.cursor() as c:
             try:
-                # Add station silently if it's new
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (b.upper(),))
-                c.execute("INSERT INTO users(username, password_hash, full_name, role, branch_name, active) VALUES(%s,%s,%s,%s,%s,1)", 
-                          (u, sha(p), f, r, b.upper()))
-                conn.commit()
-                flash(f"User '{u}' created for Branch: {b.upper()}", "success")
-            except Exception as e:
-                flash("Error: Username already exists!", "error")
-
+                c.execute("INSERT INTO users(username, password_hash, full_name, role, branch_name, active) VALUES(%s,%s,%s,%s,%s,1)", (u, sha(p), f, r, b.upper()))
+                conn.commit(); flash(f"User created for Branch: {b.upper()}", "success")
+            except Exception: flash("Username exists!", "error")
     with conn.cursor() as c:
         c.execute("SELECT id, username, full_name, role, branch_name FROM users ORDER BY id")
         usr_list = c.fetchall()
         c.execute("SELECT name FROM stations ORDER BY name")
         branches = c.fetchall()
     conn.close()
-    
-    html = """
-    <div class="grid-2">
-        <div class="card" style="border-top-color: #38bdf8;"><h3 style="margin-top:0; color:#0f172a;">➕ Create Branch User</h3>
-            <form method="POST">
-                <label>Username (Login ID)</label><input name="user" required style="margin-bottom:10px;">
-                <label>Password</label><input type="password" name="pass" required style="margin-bottom:10px;">
-                <label>Full Name</label><input name="fname" required style="margin-bottom:10px;">
-                <label>Role</label><select name="role" style="margin-bottom:10px;"><option>OPS</option><option>DELIVERY</option><option>ACCOUNTS</option><option>ADMIN</option></select>
-                <label>Assign Branch / Station</label>
-                <input name="branch" list="branches" required style="margin-bottom:15px; text-transform:uppercase;">
-                <datalist id="branches">{% for b in branches %}<option value="{{ b.name }}">{% endfor %}</datalist>
-                <button type="submit" class="btn btn-blue" style="width:100%;">Create User</button>
-            </form>
-        </div>
-        <div class="card"><h3 style="margin-top:0;">👥 All Users List</h3>
-            <div style="max-height:400px; overflow-y:auto;">
-                <table><tr><th>User</th><th>Name</th><th>Role</th><th>Branch</th><th>Action</th></tr>
-                {% for u in usr_list %}<tr><td><strong>{{ u.username }}</strong></td><td>{{ u.full_name }}</td><td>{{ u.role }}</td><td>{{ u.branch_name }}</td>
-                <td>{% if u.username != 'admin' %}<a href="/users?delete={{ u.id }}" onclick="return confirm('Delete user?');" class="btn btn-red" style="padding:4px 8px; font-size:11px;">Del</a>{% endif %}</td></tr>{% endfor %}</table>
-            </div>
-        </div>
-    </div>
-    """
-    return render_page("User & Branch Setup", render_template_string(html, usr_list=usr_list, branches=branches))
+    html = """<div class="grid-2"><div class="card" style="border-top-color: #38bdf8;"><h3 style="margin-top:0;">➕ Create Branch User</h3><form method="POST"><label>Username</label><input name="user" required style="margin-bottom:10px;"><label>Password</label><input type="password" name="pass" required style="margin-bottom:10px;"><label>Full Name</label><input name="fname" required style="margin-bottom:10px;"><label>Role</label><select name="role" style="margin-bottom:10px;"><option>OPS</option><option>DELIVERY</option><option>ACCOUNTS</option><option>ADMIN</option></select><label>Branch / Station</label><input name="branch" list="branches" required style="margin-bottom:15px; text-transform:uppercase;"><datalist id="branches">{% for b in branches %}<option value="{{ b.name }}">{% endfor %}</datalist><button type="submit" class="btn btn-blue" style="width:100%;">Create User</button></form></div><div class="card"><h3 style="margin-top:0;">👥 All Users List</h3><div style="max-height:400px; overflow-y:auto;"><table><tr><th>User</th><th>Name</th><th>Role</th><th>Branch</th><th>Action</th></tr>{% for u in usr_list %}<tr><td><strong>{{ u.username }}</strong></td><td>{{ u.full_name }}</td><td>{{ u.role }}</td><td>{{ u.branch_name }}</td><td>{% if u.username != 'admin' %}<a href="/users?delete={{ u.id }}" class="btn btn-red" style="padding:4px 8px; font-size:11px;">Del</a>{% endif %}</td></tr>{% endfor %}</table></div></div></div>"""
+    return render_page("User Setup", render_template_string(html, usr_list=usr_list, branches=branches))
 
 @app.route('/track', methods=['GET'])
 def track():
@@ -239,9 +220,7 @@ def track():
                 c.execute("SELECT created_at as date, scan_type as title, CONCAT(location, ' - ', remarks) as _desc FROM scan_events WHERE shipment_id=%s ORDER BY id", (shipment['id'],))
                 timeline = c.fetchall()
         conn.close()
-    html = """<style>body{font-family:sans-serif; background:#f4f5f7; margin:0;} .nav{background:#0f172a; padding:15px; color:white; text-align:center; font-size:20px; font-weight:bold;} .card{max-width:600px; margin:40px auto; background:white; padding:30px; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);} input, button{padding:12px; font-size:16px;} input{width:70%; border:2px solid #cbd5e1; border-radius:4px;} button{background:#0f766e; color:white; border:none; border-radius:4px; cursor:pointer;} .event{margin-bottom:15px; padding-left:20px; border-left:3px solid #0f766e;} .e-date{font-size:12px; color:#0f766e; font-weight:bold;}</style>
-    <div class="nav">AGC Courier Tracking</div><div class="card"><h2 style="margin-top:0; text-align:center;">Track Parcel</h2><form style="display:flex; gap:10px;"><input name="awb" value="{{ awb }}" placeholder="Enter AWB Number" required><button>Track</button></form>
-    {% if awb %}<hr style="margin:25px 0;">{% if shipment %}<div style="background:#f8fafc; padding:15px; border-left:4px solid #38bdf8;"><strong>Status:</strong> {{ shipment.status }}<br><strong>Destination:</strong> {{ shipment.dest_station }}</div><div style="margin-top:20px;">{% for t in timeline %}<div class="event"><div class="e-date">{{ t.date }}</div><h4 style="margin:5px 0;">{{ t.title }}</h4><p style="margin:0; font-size:14px; color:#475569;">{{ t._desc }}</p></div>{% endfor %}</div>{% else %}<p style="color:red; text-align:center;">Invalid AWB Number</p>{% endif %}{% endif %}</div>"""
+    html = """<style>body{font-family:sans-serif; background:#f4f5f7; margin:0;} .nav{background:#0f172a; padding:15px; color:white; text-align:center; font-size:20px; font-weight:bold;} .card{max-width:600px; margin:40px auto; background:white; padding:30px; border-radius:8px; box-shadow:0 4px 6px rgba(0,0,0,0.1);} input, button{padding:12px; font-size:16px;} input{width:70%; border:2px solid #cbd5e1; border-radius:4px;} button{background:#0f766e; color:white; border:none; border-radius:4px; cursor:pointer;} .event{margin-bottom:15px; padding-left:20px; border-left:3px solid #0f766e;} .e-date{font-size:12px; color:#0f766e; font-weight:bold;}</style><div class="nav">AGC Courier Tracking</div><div class="card"><h2 style="margin-top:0; text-align:center;">Track Parcel</h2><form style="display:flex; gap:10px;"><input name="awb" value="{{ awb }}" placeholder="Enter AWB Number" required><button>Track</button></form>{% if awb %}<hr style="margin:25px 0;">{% if shipment %}<div style="background:#f8fafc; padding:15px; border-left:4px solid #38bdf8;"><strong>Status:</strong> {{ shipment.status }}<br><strong>Destination:</strong> {{ shipment.dest_station }}</div><div style="margin-top:20px;">{% for t in timeline %}<div class="event"><div class="e-date">{{ t.date }}</div><h4 style="margin:5px 0;">{{ t.title }}</h4><p style="margin:0; font-size:14px; color:#475569;">{{ t._desc }}</p></div>{% endfor %}</div>{% else %}<p style="color:red; text-align:center;">Invalid AWB Number</p>{% endif %}{% endif %}</div>"""
     return render_template_string(html, awb=awb, shipment=shipment, timeline=timeline)
 
 # ==========================================
@@ -273,7 +252,7 @@ def reports():
     d = datetime.now().strftime("%Y-%m-%d")
     conn = get_db()
     with conn.cursor() as c:
-        p1 = [d]; p2 = [d]; p3 = []; p4 = []
+        p1 = [d]; p2 = [d]; p4 = []
         q_b = "SELECT COUNT(*) c, COALESCE(SUM(total_amount),0) t FROM shipments WHERE booking_date=%s"
         q_c = "SELECT awb_no, dest_name, cod_amount FROM shipments WHERE status='DELIVERED' AND cod_amount>0"
         
@@ -287,10 +266,7 @@ def reports():
         out = c.fetchall()
         c.execute(q_c, p4); cods = c.fetchall()
     conn.close()
-    html = """
-    <div class="card" style="background:#0f172a; color:white;"><h2 style="margin:0; color:#38bdf8;">📊 Day Close Report ({{ date }})</h2><div class="grid-3" style="margin-top:15px;"><div style="background:#1e293b; padding:15px; border-radius:8px;"><h3>Bookings</h3><h2>{{ b.c }} Pcs | ₹{{ b.t }}</h2></div><div style="background:#1e293b; padding:15px; border-radius:8px;"><h3>Payments Received</h3><h2 style="color:#10b981;">₹{{ p.a }}</h2></div></div></div>
-    <div class="grid-2"><div class="card"><h3 style="color:#e11d48;">🔴 Top Market Outstanding</h3><table><tr><th>Customer</th><th>Due Amount</th></tr>{% for o in out %}<tr><td><strong>{{ o.name }}</strong></td><td style="color:#e11d48; font-weight:bold;">₹{{ o.bal }}</td></tr>{% endfor %}</table></div><div class="card"><h3 style="color:#d97706;">💰 Pending COD to Collect</h3><table><tr><th>AWB</th><th>Consignee</th><th>COD Amt</th></tr>{% for c in cods %}<tr><td>{{ c.awb_no }}</td><td>{{ c.dest_name }}</td><td style="color:#d97706; font-weight:bold;">₹{{ c.cod_amount }}</td></tr>{% endfor %}</table></div></div>
-    """
+    html = """<div class="card" style="background:#0f172a; color:white;"><h2 style="margin:0; color:#38bdf8;">📊 Day Close Report ({{ date }})</h2><div class="grid-3" style="margin-top:15px;"><div style="background:#1e293b; padding:15px; border-radius:8px;"><h3>Bookings</h3><h2>{{ b.c }} Pcs | ₹{{ b.t }}</h2></div><div style="background:#1e293b; padding:15px; border-radius:8px;"><h3>Payments Received</h3><h2 style="color:#10b981;">₹{{ p.a }}</h2></div></div></div><div class="grid-2"><div class="card"><h3 style="color:#e11d48;">🔴 Top Market Outstanding</h3><table><tr><th>Customer</th><th>Due Amount</th></tr>{% for o in out %}<tr><td><strong>{{ o.name }}</strong></td><td style="color:#e11d48; font-weight:bold;">₹{{ o.bal }}</td></tr>{% endfor %}</table></div><div class="card"><h3 style="color:#d97706;">💰 Pending COD to Collect</h3><table><tr><th>AWB</th><th>Consignee</th><th>COD Amt</th></tr>{% for c in cods %}<tr><td>{{ c.awb_no }}</td><td>{{ c.dest_name }}</td><td style="color:#d97706; font-weight:bold;">₹{{ c.cod_amount }}</td></tr>{% endfor %}</table></div></div>"""
     return render_page("All Reports", render_template_string(html, b=b, p=p, out=out, cods=cods, date=d))
 
 # ==========================================
@@ -323,8 +299,7 @@ def booking():
     if request.method == 'POST':
         d = request.form
         fr, tax = float(d['fr']), float(d['tax'])
-        gst = fr * (tax / 100)
-        tot = fr + gst
+        gst = fr * (tax / 100); tot = fr + gst
         cgst = sgst = igst = 0
         if d['ostate'] == d['dstate']: cgst = sgst = gst / 2
         else: igst = gst
@@ -332,7 +307,6 @@ def booking():
         with conn.cursor() as c:
             try:
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d['dstat'].upper(),))
-                
                 c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location) 
                              VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s)""",
                           (d['awb'].upper(), d.get('cust_id') or None, d['date'], session['branch'], d['ophone'], d['oaddr'], d['ostate'], d['dname'], d['dphone'], d['daddr'], d['dstate'], d['dstat'].upper(), d['wt'], d['pcs'], d['cod'], d['dec'], d['srv'], fr, tax, cgst, sgst, igst, tot, d['info'], session['branch']))
@@ -388,9 +362,6 @@ def booking():
     """
     return render_page("Complete Booking", render_template_string(html, custs=custs, stations=stations))
 
-# ==========================================
-# 🚚 6. SHIPMENTS (EDIT / DELETE / PRINT)
-# ==========================================
 @app.route('/shipments', methods=['GET', 'POST'])
 @login_required
 def shipments():
@@ -405,10 +376,8 @@ def shipments():
     with conn.cursor() as c:
         q = "SELECT s.*, c.phone as cphone FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id WHERE 1=1"
         params = []
-        if session.get('role') != 'ADMIN':
-            q += " AND s.origin_name=%s"; params.append(session['branch'])
-        if search: 
-            q += " AND (s.awb_no LIKE %s OR s.dest_station LIKE %s)"; params.extend([f"%{search}%", f"%{search}%"])
+        if session.get('role') != 'ADMIN': q += " AND s.origin_name=%s"; params.append(session['branch'])
+        if search: q += " AND (s.awb_no LIKE %s OR s.dest_station LIKE %s)"; params.extend([f"%{search}%", f"%{search}%"])
         q += " ORDER BY s.id DESC LIMIT 150"
         c.execute(q, params); rows = c.fetchall()
     conn.close()
@@ -431,7 +400,7 @@ def shipments():
     return render_page("Shipments Management", render_template_string(html, rows=rows, search=search))
 
 # ==========================================
-# 📤 7. HUB OPERATIONS (OUTWARD & INWARD)
+# 📤 7. PRO HUB OPERATIONS (FULL OUTWARD)
 # ==========================================
 @app.route('/outward', methods=['GET', 'POST'])
 @login_required
@@ -444,25 +413,34 @@ def outward():
 
     if request.method == 'POST' and 'scan_awb' in request.form:
         awbs = request.form.get('awbs').replace(',', '\n').split('\n')
+        dest_hub = request.form.get('dest_hub').upper()
+        network = request.form.get('network', 'SELF').upper()
+        network_awb = request.form.get('network_awb', '')
+        bag_no = request.form.get('bag_no', '')
+        info = request.form.get('info', '')
+        
         with conn.cursor() as c:
-            c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (request.form.get('dest_hub').upper(),))
+            c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest_hub,))
             for a in awbs:
                 awb = a.strip().upper()
                 if awb:
-                    s_row = c.execute("SELECT dest_station, weight_kg FROM shipments WHERE awb_no=%s", (awb,))
+                    s_row = c.execute("SELECT dest_station, weight_kg, quantity FROM shipments WHERE awb_no=%s", (awb,))
                     s = c.fetchone()
-                    wt = s['weight_kg'] if s else 1.0; dst = s['dest_station'] if s else 'Unknown'
-                    c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(CURDATE(), %s, %s, %s, %s, %s, %s, 0)", 
-                              (awb, session['branch'], request.form.get('dest_hub').upper(), dst, wt, request.form.get('info')))
-            conn.commit(); flash("✅ Added to Pending Outward.", "success")
+                    wt = s['weight_kg'] if s else 1.0; pcs = s['quantity'] if s else 1; dst = s['dest_station'] if s else 'Unknown'
+                    c.execute("""INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, pcs, network, network_awb, bag_no, info, finalized) 
+                                 VALUES(CURDATE(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)""", 
+                              (awb, session['branch'], dest_hub, dst, wt, pcs, network, network_awb, bag_no, info))
+            conn.commit(); flash("✅ Added to Pending Outward with Full Details.", "success")
             
     elif request.method == 'POST' and 'finalize_manifest' in request.form:
         vcl = request.form.get('vehicle')
+        d_ph = request.form.get('driver_phone')
+        seal = request.form.get('seal_no')
         with conn.cursor() as c:
             c.execute("SELECT id, awb_no, out_station FROM outward_register WHERE finalized=0 AND origin_station=%s", (session['branch'],))
             pending = c.fetchall()
             if pending:
-                c.execute("INSERT INTO manifests(manifest_type, from_location, to_location, vehicle_no, status) VALUES('OUTWARD', %s, %s, %s, 'CLOSED')", (session['branch'], pending[0]['out_station'], vcl))
+                c.execute("INSERT INTO manifests(manifest_type, from_location, to_location, vehicle_no, driver_phone, seal_no, status) VALUES('OUTWARD', %s, %s, %s, %s, %s, 'CLOSED')", (session['branch'], pending[0]['out_station'], vcl, d_ph, seal))
                 man_id = c.lastrowid
                 for p in pending:
                     c.execute("UPDATE outward_register SET finalized=1, manifest_no=%s WHERE id=%s", (f"MF-{man_id}", p['id']))
@@ -472,12 +450,11 @@ def outward():
                         c.execute("INSERT INTO manifest_items(manifest_id, shipment_id) VALUES(%s, %s)", (man_id, sid))
                         c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s WHERE id=%s", (f"To {pending[0]['out_station']}", sid))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'OUTWARD', %s)", (sid, session['branch']))
-                conn.commit(); flash(f"🚀 Manifest MF-{man_id} Generated!", "success")
+                conn.commit(); flash(f"🚀 Manifest MF-{man_id} Generated & Locked!", "success")
 
     with conn.cursor() as c:
         c.execute("SELECT * FROM outward_register WHERE finalized=0 AND origin_station=%s", (session['branch'],))
         pending_list = c.fetchall()
-        
         q_m = "SELECT * FROM manifests WHERE 1=1"
         if session.get('role') != 'ADMIN': q_m += f" AND from_location='{session['branch']}'"
         c.execute(q_m + " ORDER BY id DESC LIMIT 10")
@@ -487,39 +464,51 @@ def outward():
     conn.close()
     
     html = """
-    <div class="grid-2">
-        <div class="card" style="border-top-color: #d97706;"><h3 style="color:#d97706; margin-top:0;">1. Scan to Pending Outward</h3>
-            <form method="POST"><input type="hidden" name="scan_awb" value="1">
-                <label>To Hub / Station</label><input name="dest_hub" list="stations" required style="margin-bottom:10px; text-transform:uppercase;">
+    <div class="card" style="border-top-color: #d97706;"><h3 style="color:#d97706; margin-top:0;">1. Scan to Pending Outward (PRO)</h3>
+        <form method="POST">
+            <input type="hidden" name="scan_awb" value="1">
+            <div class="grid-4" style="background:#fef3c7; padding:15px; border-radius:8px; border:1px solid #fde68a; margin-bottom:15px;">
+                <div style="grid-column: span 2;"><label>To Hub / Station</label><input name="dest_hub" list="stations" required style="text-transform:uppercase;"></div>
                 <datalist id="stations">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
-                <label>Info / Notes</label><input name="info" style="margin-bottom:10px;">
-                <label>Scan AWBs</label><textarea name="awbs" rows="4" required></textarea>
-                <button type="submit" class="btn" style="margin-top:10px; width:100%;">Add to Pending Box</button>
-            </form>
-            <hr><h4>Pending Items (Not Dispatched)</h4>
-            <div style="max-height:150px; overflow-y:auto; background:#f8fafc;">
-                <table><tr><th>AWB</th><th>Dest</th><th>Wt</th><th>Del</th></tr>
-                {% for p in pending_list %}<tr><td>{{ p.awb_no }}</td><td>{{ p.destination }}</td><td>{{ p.weight }}</td>
-                <td><a href="/outward?delete={{ p.id }}" class="btn btn-red" style="padding:2px 5px; font-size:10px;">X</a></td></tr>{% endfor %}
-                </table>
+                
+                <div style="grid-column: span 2;"><label>Forwarding Network</label><select name="network"><option>SELF</option><option>BLUEDART</option><option>DELHIVERY</option><option>TRACKON</option><option>OTHER</option></select></div>
+                <div><label>Network AWB (If Any)</label><input name="network_awb" placeholder="Optional"></div>
+                <div><label>Bag / Sack No.</label><input name="bag_no" placeholder="Bag 1"></div>
+                <div style="grid-column: span 2;"><label>Info / Notes</label><input name="info" placeholder="Remarks"></div>
             </div>
+            <label>Scan AWBs (One per line)</label><textarea name="awbs" rows="4" required style="font-family:monospace; font-size:14px;"></textarea>
+            <button type="submit" class="btn btn-gold" style="margin-top:10px; width:100%; font-size:15px;">📥 Add to Pending Dispatch</button>
+        </form>
+        <hr><h4>Pending Items (Not Dispatched)</h4>
+        <div style="max-height:180px; overflow-y:auto; background:#f8fafc;">
+            <table><tr><th>AWB</th><th>Dest</th><th>Pcs</th><th>Wt</th><th>Network</th><th>Net AWB</th><th>Bag No</th><th>Del</th></tr>
+            {% for p in pending_list %}<tr>
+                <td><strong>{{ p.awb_no }}</strong></td><td>{{ p.destination }}</td><td>{{ p.pcs }}</td><td>{{ p.weight }}</td>
+                <td><span class="badge b-book">{{ p.network }}</span></td><td>{{ p.network_awb }}</td><td>{{ p.bag_no }}</td>
+                <td><a href="/outward?delete={{ p.id }}" class="btn btn-red" style="padding:2px 5px; font-size:10px;">X</a></td>
+            </tr>{% endfor %}</table>
         </div>
-        <div class="card" style="border-top-color: #be123c;"><h3 style="color:#be123c; margin-top:0;">2. Finalize Manifest</h3>
-            <form method="POST" style="background:#fee2e2; padding:15px; border-radius:8px;">
-                <input type="hidden" name="finalize_manifest" value="1">
-                <label>Vehicle / Driver Info</label><input name="vehicle" required style="margin-bottom:10px;">
-                <button type="submit" class="btn btn-red" style="width:100%;">🔒 Finalize {{ pending_list|length }} Items</button>
-            </form>
-            <hr><h4>Manifest History</h4>
-            <div style="max-height:200px; overflow-y:auto;">
-                <table><tr><th>MF #</th><th>Route</th><th>Vehicle</th><th>Action</th></tr>
-                {% for m in mans %}<tr><td><strong>MF-{{ m.id }}</strong></td><td>{{ m.from_location }} &rarr; {{ m.to_location }}</td><td>{{ m.vehicle_no }}</td>
-                <td><a href="/print/manifest/{{ m.id }}" target="_blank" class="btn btn-blue" style="padding:4px 8px; font-size:11px;">Print</a></td></tr>{% endfor %}</table>
+    </div>
+    <div class="card" style="border-top-color: #be123c;"><h3 style="color:#be123c; margin-top:0;">2. Finalize Manifest & Print</h3>
+        <form method="POST" style="background:#fee2e2; padding:15px; border-radius:8px;">
+            <input type="hidden" name="finalize_manifest" value="1">
+            <div class="grid-3">
+                <div><label>Vehicle No.</label><input name="vehicle" required placeholder="RJ-00-1234"></div>
+                <div><label>Driver Phone</label><input name="driver_phone" placeholder="10 Digits"></div>
+                <div><label>Master Seal No.</label><input name="seal_no" placeholder="Lock Seal"></div>
             </div>
+            <button type="submit" class="btn btn-red" style="width:100%; margin-top:15px; font-size:15px;">🔒 Finalize & Lock {{ pending_list|length }} Items</button>
+        </form>
+        <hr><h4>Manifest History</h4>
+        <div style="max-height:200px; overflow-y:auto;">
+            <table><tr><th>MF #</th><th>Route</th><th>Vehicle Details</th><th>Action</th></tr>
+            {% for m in mans %}<tr><td><strong>MF-{{ m.id }}</strong></td><td>{{ m.from_location }} &rarr; {{ m.to_location }}</td>
+            <td>{{ m.vehicle_no }}<br><small>Seal: {{ m.seal_no }}</small></td>
+            <td><a href="/print/manifest/{{ m.id }}" target="_blank" class="btn btn-blue" style="padding:4px 8px; font-size:11px;">🖨️ Print</a></td></tr>{% endfor %}</table>
         </div>
     </div>
     """
-    return render_page("Outward / Manifest Hub", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations))
+    return render_page("PRO Outward Hub", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations))
 
 @app.route('/inward', methods=['GET', 'POST'])
 @login_required
@@ -593,7 +582,6 @@ def drs():
                 conn.commit(); flash(f"✅ Delivered: {awb}", "success")
 
     with conn.cursor() as c:
-        # Branch isolation applies here generally by joining with shipments or just listing DRS created by users.
         c.execute("SELECT id, drs_date, rider_name FROM drs ORDER BY id DESC LIMIT 15")
         drss = c.fetchall()
     conn.close()
@@ -653,8 +641,7 @@ def accounts():
             c.execute("SELECT * FROM ledger WHERE customer_id=%s ORDER BY entry_date", (request.args.get('cust_id'),))
             l_data = c.fetchall()
             c.execute("SELECT COALESCE(SUM(debit-credit),0) b FROM ledger WHERE customer_id=%s", (request.args.get('cust_id'),))
-            r = c.fetchone()
-            c_bal = r['b'] if r and r['b'] else 0
+            r = c.fetchone(); c_bal = r['b'] if r and r['b'] else 0
     conn.close()
     
     html = """
@@ -676,7 +663,7 @@ def accounts():
     return render_page("Accounts & Ledger", render_template_string(html, custs=custs, pays=pays, l_data=l_data, c_bal=c_bal))
 
 # ==========================================
-# 🖨️ 9. PREMIUM PDF GENERATOR (ReportLab)
+# 🖨️ 9. PRO PDF GENERATOR (FULL COLUMNS)
 # ==========================================
 def hex_rgb(h): return tuple(int(h.lstrip("#")[i:i+2], 16)/255.0 for i in (0,2,4))
 def money(val): return f"{float(val or 0):,.2f}"
@@ -739,9 +726,7 @@ def print_label_pdf(awb):
     
     logo_drawn = False
     if os.path.exists("logo.png"):
-        try:
-            cv.drawImage("logo.png", 14, h - 45, width=65, height=30, preserveAspectRatio=True, mask="auto")
-            logo_drawn = True
+        try: cv.drawImage("logo.png", 14, h - 45, width=65, height=30, preserveAspectRatio=True, mask="auto"); logo_drawn = True
         except: pass
         
     cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 12)
@@ -854,31 +839,48 @@ def print_manifest_pdf(mid):
     with conn.cursor() as c:
         c.execute("SELECT * FROM manifests WHERE id=%s", (mid,))
         m = c.fetchone()
-        c.execute("SELECT s.awb_no, s.dest_station, s.weight_kg FROM manifest_items mi JOIN shipments s ON s.id=mi.shipment_id WHERE mi.manifest_id=%s", (mid,))
+        
+        # Safe fetch for all advanced outward columns
+        c.execute("""SELECT s.awb_no, s.dest_station, o.weight, o.pcs, o.network, o.network_awb, o.bag_no 
+                     FROM manifest_items mi 
+                     JOIN shipments s ON s.id=mi.shipment_id 
+                     JOIN outward_register o ON o.awb_no=s.awb_no
+                     WHERE mi.manifest_id=%s""", (mid,))
         items = c.fetchall()
     conn.close()
 
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
     y = draw_premium_header(cv, w, h, "OUTWARD MANIFEST", f"MF No: MF-{m['id']}")
+    
     cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.setStrokeColorRGB(*hex_rgb("#e2e8f0")); cv.roundRect(40, y - 45, w - 80, 45, 6, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 10); cv.drawString(55, y - 20, f"Route: {m['from_location'].upper()} -> {m['to_location'].upper()}")
-    cv.setFont("Helvetica", 9); cv.drawString(55, y - 35, f"Vehicle: {m['vehicle_no']}   |   Date: {m['created_at']}   |   Total Items: {len(items)}")
+    cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 10)
+    cv.drawString(55, y - 20, f"Route: {m['from_location'].upper()} -> {m['to_location'].upper()} | Driver Ph: {m.get('driver_phone','')}")
+    cv.setFont("Helvetica", 9)
+    cv.drawString(55, y - 35, f"Vehicle: {m['vehicle_no']}  |  Seal: {m.get('seal_no','')}  |  Date: {m['created_at']}  |  Items: {len(items)}")
     draw_barcode_safe(cv, f"MF-{m['id']}", w - 180, y - 38, 0.35 * inch)
     
     y -= 65
     cv.setFillColorRGB(*hex_rgb("#e2e8f0")); cv.rect(40, y - 20, w - 80, 20, fill=1, stroke=0)
     cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 8)
-    cv.drawString(45, y - 14, "S.No"); cv.drawString(80, y - 14, "AWB & BARCODE"); cv.drawString(250, y - 14, "DESTINATION STATION"); cv.drawString(450, y - 14, "WEIGHT")
+    cv.drawString(45, y - 14, "S.No"); cv.drawString(75, y - 14, "AWB & BARCODE"); cv.drawString(200, y - 14, "DESTINATION")
+    cv.drawString(330, y - 14, "NETWORK & BAG"); cv.drawString(460, y - 14, "PCS"); cv.drawString(500, y - 14, "WEIGHT")
     y -= 20
     
     for i, it in enumerate(items):
         if y < 40: cv.showPage(); y = h - 40
         if i % 2 == 1: cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.rect(40, y - 28, w - 80, 28, fill=1, stroke=0)
         cv.setStrokeColorRGB(*hex_rgb("#e2e8f0")); cv.rect(40, y - 28, w - 80, 28, fill=0, stroke=1)
+        
         cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 8)
-        cv.drawString(45, y - 14, str(i + 1)); cv.drawString(80, y - 10, it["awb_no"]); draw_barcode_safe(cv, it["awb_no"], 80, y - 25, 0.18 * inch)
-        cv.setFont("Helvetica-Bold", 9); cv.drawString(250, y - 16, str(it.get("dest_station", "")).upper()[:25])
-        cv.setFont("Helvetica-Bold", 8); cv.drawString(450, y - 16, f"{it['weight_kg']} KG")
+        cv.drawString(45, y - 14, str(i + 1)); cv.drawString(75, y - 10, it["awb_no"]); draw_barcode_safe(cv, it["awb_no"], 75, y - 25, 0.18 * inch)
+        cv.setFont("Helvetica-Bold", 9); cv.drawString(200, y - 16, str(it.get("dest_station", "")).upper()[:15])
+        
+        # Print Network & Bag
+        cv.setFont("Helvetica", 7); cv.drawString(330, y - 11, f"{it.get('network','')} / {it.get('network_awb','')}")
+        cv.setFont("Helvetica-Bold", 8); cv.drawString(330, y - 21, f"Bag: {it.get('bag_no','')}")
+        
+        cv.setFont("Helvetica-Bold", 9); cv.drawString(460, y - 16, str(it.get('pcs', 1)))
+        cv.drawString(500, y - 16, f"{it.get('weight', '1.0')} KG")
         y -= 28
 
     cv.showPage(); cv.save(); buf.seek(0)
