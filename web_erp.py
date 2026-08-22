@@ -26,7 +26,7 @@ except ImportError:
 logging.basicConfig(filename='agc_erp.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'agc_super_secret_erp_v18_cloud_key')
+app.secret_key = os.environ.get('SECRET_KEY', 'agc_super_secret_erp_v18_cloud_key_secure')
 
 config = configparser.ConfigParser()
 config.read('db_config.ini')
@@ -44,7 +44,7 @@ def get_db():
                 ssl={'ssl': {}}
             )
         else:
-            # Safe fallback for local testing
+            # Safe fallback for local testing or missing config
             return pymysql.connect(host='localhost', port=3306, user='root', password='', database='agc_erp', cursorclass=pymysql.cursors.DictCursor)
     except Exception as e:
         logging.error(f"DB Connection Failed: {e}")
@@ -79,15 +79,21 @@ def auto_heal_db():
                 c.execute(t)
             
             defs = {
-                "company_name": "AKASH GANGA COURIER", "company_address": "Head Office: Nohar, Rajasthan",
-                "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08",
-                "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN",
+                "company_name": "PANKAJ AGENCY", 
+                "company_address": "Head Office: Nohar, Rajasthan",
+                "company_gstin": "08ADQPC7585D1Z9", 
+                "company_phone": "+91 7357073316", 
+                "company_state_code": "08",
+                "company_website": "https://pagcerp.cgsmart.in", 
+                "company_email": "PANKAJNOHAR@YAHOO.CO.IN",
                 "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.",
-                "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"
+                "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", 
+                "fuel_surcharge": "0"
             }
             for k, v in defs.items():
                 c.execute("INSERT IGNORE INTO settings(key_name, value) VALUES(%s, %s)", (k, v))
-        conn.commit(); conn.close()
+        conn.commit()
+        conn.close()
     except Exception as e: 
         logging.error(f"Heal Error: {e}")
 
@@ -101,7 +107,8 @@ def get_setting(key, default=""):
             r = c.fetchone()
         conn.close()
         return r['value'] if r else default
-    except: return default
+    except: 
+        return default
 
 def sha(text): return hashlib.sha256(text.encode()).hexdigest()
 
@@ -124,7 +131,7 @@ def login_required(f):
     return decorated_function
 
 # ==========================================
-# 🛑 GLOBAL ERROR HANDLER
+# 🛑 GLOBAL ERROR HANDLER (Prevents generic 500 crashes)
 # ==========================================
 @app.errorhandler(Exception)
 def handle_exception(e):
@@ -132,7 +139,7 @@ def handle_exception(e):
     return render_template_string("""
     <!DOCTYPE html><html><head><title>Server Error</title>
     <style>body{font-family:sans-serif; background:#F5F7FA; display:flex; justify-content:center; align-items:center; height:100vh; color:#1A2433;} .box{background:white; padding:40px; border-radius:12px; text-align:center; box-shadow:0 10px 25px rgba(0,0,0,0.1); max-width:600px;} h1{color:#D64550;} pre{background:#1A2433; color:#0E8A6D; padding:15px; border-radius:6px; text-align:left; overflow-x:auto;}</style>
-    </head><body><div class="box"><h1>⚠️ Internal Server Error</h1><p>The application encountered an unexpected issue.</p><pre>{{ error }}</pre><a href="/" class="btn btn-blue" style="margin-top:20px; text-decoration:none; background:#0E8A6D; color:white; padding:10px 20px; border-radius:6px;">Go to Dashboard</a></div></body></html>
+    </head><body><div class="box"><h1>⚠️ Internal Server Error</h1><p>The application encountered an unexpected issue. Check logs for details.</p><pre>{{ error }}</pre><a href="/" style="margin-top:20px; text-decoration:none; background:#0E8A6D; color:white; padding:10px 20px; border-radius:6px; display:inline-block;">Go to Dashboard</a></div></body></html>
     """, error=str(e)), 500
 
 # ==========================================
@@ -188,7 +195,7 @@ BASE_HTML = """
             <a href="/rates" class="{{ 'active' if current_path == '/rates' else '' }}"><i class="fas fa-tags"></i> Rate Cards</a>
             <a href="/booking" class="{{ 'active' if current_path == '/booking' else '' }}"><i class="fas fa-box"></i> Booking</a>
             <a href="/shipments" class="{{ 'active' if current_path == '/shipments' else '' }}"><i class="fas fa-truck"></i> Shipments</a>
-            <a href="/track" target="_blank"><i class="fas fa-search-location"></i> Track Center</a>
+            <a href="/track" target="_blank" class="{{ 'active' if current_path == '/track' else '' }}"><i class="fas fa-search-location"></i> Track Center</a>
             
             <div class="menu-header">🏢 OPERATIONS (HUB)</div>
             <a href="/outward" class="{{ 'active' if current_path == '/outward' else '' }}"><i class="fas fa-sign-out-alt"></i> Outward</a>
@@ -249,7 +256,7 @@ def login():
                 return redirect(url_for('dashboard'))
             flash('Invalid Credentials!', 'error')
         conn.close()
-    return """<style>body{background:#0B1F3A; display:flex; justify-content:center; align-items:center; height:100vh; color:white; font-family:sans-serif;} .box{background:white; padding:40px; border-radius:12px; text-align:center; width:320px; box-shadow:0 10px 25px rgba(0,0,0,0.5);} input{width:100%; margin:10px 0; padding:12px; box-sizing:border-box; background:#F5F7FA; border:1px solid #E1E6EE; color:#1A2433; border-radius:6px;} button{width:100%; padding:12px; background:#0E8A6D; color:white; border:none; font-weight:bold; cursor:pointer; border-radius:6px; margin-top:10px;}</style><div class="box"><h2 style="color:#0B1F3A; margin-top:0;">AGC CLOUD ERP</h2><p style="color:#7A8699; font-size:13px;">Premium Logistics Suite</p><form method="POST"><input name="username" placeholder="Username" required autocomplete="off"><input type="password" name="password" placeholder="Password" required><button type="submit">SIGN IN</button></form></div>"""
+    return """<style>body{background:#0B1F3A; display:flex; justify-content:center; align-items:center; height:100vh; color:white; font-family:sans-serif;} .box{background:white; padding:40px; border-radius:12px; text-align:center; width:320px; box-shadow:0 10px 25px rgba(0,0,0,0.5);} input{width:100%; margin:10px 0; padding:12px; box-sizing:border-box; background:#F5F7FA; border:1px solid #E1E6EE; color:#1A2433; border-radius:6px;} button{width:100%; padding:12px; background:#0E8A6D; color:white; border:none; font-weight:bold; cursor:pointer; border-radius:6px; margin-top:10px;}</style><div class="box"><h2 style="color:#0B1F3A; margin-top:0;">AGC CLOUD ERP</h2><p style="color:#7A8699; font-size:13px;">Premium Logistics Suite v18</p><form method="POST"><input name="username" placeholder="Username" required autocomplete="off"><input type="password" name="password" placeholder="Password" required><button type="submit">SIGN IN</button></form></div>"""
 
 @app.route('/logout')
 def logout(): session.clear(); return redirect(url_for('login'))
@@ -431,7 +438,7 @@ def users():
     return render_page("Users & Branches", render_template_string(html, u_list=u_list, branches=branches))
 
 # ==========================================
-# 🌐 5. PUBLIC TRACKING PAGE 
+# 🌐 5. PUBLIC TRACKING PAGE (NO LOGIN REQUIRED)
 # ==========================================
 @app.route('/track', methods=['GET', 'POST'])
 def track():
@@ -486,7 +493,7 @@ def track():
         <div class="container">
             <div class="logo">
                 <h1>◆ AGC TRACKING</h1>
-                <p>Akash Ganga Courier - Premium Logistics Suite</p>
+                <p>PANKAJ AGENCY - Premium Logistics Suite</p>
             </div>
             <div class="card">
                 <h2 style="color:#0E8A6D; margin-top:0; text-align:center;"><i class="fas fa-search-location"></i> Track Your Shipment</h2>
@@ -591,8 +598,6 @@ def booking():
         with conn.cursor() as c:
             try:
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d['dstat'].upper(),))
-                
-                # 🚀 FIX: `d['oname']` directly maps to `origin_name`
                 c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location) 
                              VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s)""",
                           (d['awb'].upper(), d.get('cust_id') or None, d['date'], d['oname'], d['ophone'], d['oaddr'], d['ostate'], d['dname'], d['dphone'], d['daddr'], d['dstate'], d['dstat'].upper(), wt, d.get('pcs',1), d.get('cod',0), d.get('dec',0), d['srv'], taxable, tax, cgst, sgst, igst, tot, d['info'], session['branch']))
@@ -697,7 +702,7 @@ def shipments():
             <td><span class="badge">{{ r.status }}</span></td>
             <td>
                 {% set ph = r.dest_phone if r.dest_phone else r.cphone %}
-                {% if ph %}<a href="https://wa.me/91{{ ph|replace(' ', '')[-10:] }}?text=Track%20AGC%20Parcel:%20https://agconline.in/track?awb={{ r.awb_no }}" target="_blank" class="btn" style="background:#12B76A; padding:4px; font-size:11px;"><i class="fab fa-whatsapp"></i></a>{% endif %}
+                {% if ph %}<a href="https://wa.me/91{{ ph|replace(' ', '')|replace('-', '')[-10:] }}?text=Track%20AGC%20Parcel:%20https://pagcerp.cgsmart.in/track?awb={{ r.awb_no }}" target="_blank" class="btn" style="background:#12B76A; padding:4px; font-size:11px;"><i class="fab fa-whatsapp"></i></a>{% endif %}
                 <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn btn-ghost" style="padding:4px; font-size:11px;">🖨️ Lbl</a>
                 <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:4px; font-size:11px;">🧾 Rec</a>
                 <a href="/shipments?delete={{ r.id }}" onclick="return confirm('Delete this shipment?');" class="btn btn-red" style="padding:4px; font-size:11px;"><i class="fas fa-trash"></i></a>
@@ -735,7 +740,7 @@ def outward():
     if request.method == 'POST' and request.form.get('action') == 'save_entry':
         o_date = request.form.get('out_date', current_date)
         o_station = request.form.get('out_station', session.get('branch', 'NOHAR')).upper()
-        awb = request.form.get('awb').strip().upper()
+        awb = request.form.get('awb', '').strip().upper()
         dest_input = request.form.get('dest', '').strip().upper()
         wt_input = float(request.form.get('weight', '0') or 0)
         info = request.form.get('info', '')
@@ -768,7 +773,6 @@ def outward():
                     if c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (awb,)):
                         flash(f"AWB {awb} is already in pending list!", "error")
                     else:
-                        # 🚀 SMART FILL FIX (Fetch from Shipments if blank)
                         c.execute("SELECT id, dest_station, dest_name, weight_kg FROM shipments WHERE awb_no=%s", (awb,))
                         s = c.fetchone()
                         
@@ -831,23 +835,19 @@ def outward():
     <div style="display:flex; gap:5px; margin-bottom:15px; border-bottom: 1px solid #334155;">
         <button class="btn" onclick="switchTab('new')" id="tab-new" style="background:#0E8A6D; border-radius:8px 8px 0 0; padding:10px 20px;"><i class="fas fa-box-open"></i> New Entry Finalize</button>
         <button class="btn btn-ghost" onclick="switchTab('history')" id="tab-history" style="border:none; border-radius:8px 8px 0 0; padding:10px 20px;"><i class="fas fa-list-alt"></i> Manifests History</button>
-        <button class="btn btn-ghost" onclick="switchTab('tools')" id="tab-tools" style="border:none; border-radius:8px 8px 0 0; padding:10px 20px;"><i class="fas fa-cog"></i> Advanced Tools</button>
     </div>
 
-    <!-- MAIN OUTWARD PANEL -->
     <div class="card" id="content-new" style="padding:10px 15px;">
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:15px; padding-bottom:15px; border-bottom:1px solid #334155;">
             <label style="margin:0;">Date</label><input type="date" id="ui_date" value="{{ f_date }}" onchange="reloadPage()" style="width:130px;">
             <label style="margin:0; margin-left:10px;">Station</label><input list="station_list" id="ui_station" value="{{ f_station }}" onchange="reloadPage()" style="width:180px; text-transform:uppercase;">
-            <label style="margin:0; margin-left:10px;">Scan Mode</label><select id="ui_mode" style="width:120px;"><option>MANUAL</option><option>AUTO</option></select>
             <div style="flex:1;"></div>
-            <button class="btn btn-red" onclick="startVoice('awb_input')"><i class="fas fa-microphone"></i> Voice Entry</button>
             <button class="btn btn-blue" onclick="window.open('/master_bag', '_blank')">🎒 Create Master Bag</button>
         </div>
 
         <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px; background:#0F172A; padding:5px;">
             <label style="margin:0; color:#cbd5e1;">Network:</label>
-            <select id="ui_network" style="width:130px;"><option>SELF</option><option>BLUEDART</option><option>DELHIVERY</option><option>TRACKON</option></select>
+            <select id="ui_network" style="width:130px;"><option>SELF</option><option>BLUEDART</option><option>DELHIVERY</option></select>
             <label style="margin:0; color:#cbd5e1; margin-left:10px;">Net AWB:</label>
             <input type="text" id="ui_net_awb" placeholder="Optional" style="width:120px;">
             <label style="margin:0; color:#cbd5e1; margin-left:10px;">Bag No:</label>
@@ -866,10 +866,7 @@ def outward():
             <input type="hidden" name="pcs" id="hdn_pcs">
             
             <label style="margin:0; color:white;">AWB</label>
-            <div style="display:flex; flex:2;">
-                <input type="text" name="awb" id="awb_input" placeholder="Scan/type AWB then Enter..." required autofocus style="flex:1; border-radius:4px 0 0 4px; border-right:none;" onkeypress="checkEnter(event)">
-                <button type="button" class="btn btn-blue" style="border-radius:0 4px 4px 0; padding:8px 12px;"><i class="fas fa-camera"></i></button>
-            </div>
+            <input type="text" name="awb" id="awb_input" placeholder="Scan/type AWB then Enter..." required autofocus style="flex:2;" onkeypress="checkEnter(event)">
             <label style="margin:0; margin-left:5px; color:white;">Dest</label><input type="text" name="dest" id="dest_input" list="station_list" placeholder="Dest Station" style="flex:1.5; text-transform:uppercase;" onkeypress="checkEnter(event)">
             <label style="margin:0; margin-left:5px; color:white;">Weight</label><input type="number" step="0.01" name="weight" id="wt_input" placeholder="0.00" style="width:80px;" onkeypress="checkEnter(event)">
             <label style="margin:0; margin-left:5px; color:white;">Info</label><input type="text" name="info" id="info_input" style="flex:2;" onkeypress="checkEnter(event)">
@@ -900,10 +897,6 @@ def outward():
             </table>
         </div>
 
-        <div style="display:flex; gap:10px; margin-bottom:10px;">
-            <button class="btn btn-red" style="flex:1;" onclick="deleteSelected()">🗑 Delete Selected Entry</button>
-        </div>
-        
         <form method="POST" id="finalizeForm" style="display:flex; gap:10px; margin-bottom:10px;">
             <input type="hidden" name="action" value="finalize">
             <input type="hidden" name="out_date" id="fin_date" value="{{ f_date }}">
@@ -915,7 +908,6 @@ def outward():
         </form>
     </div>
 
-    <!-- HISTORY TAB -->
     <div class="card" id="content-history" style="display:none; padding:10px 15px;">
         <h3 style="margin-top:0;">Manifests History</h3>
         <table style="width:100%;">
@@ -933,34 +925,11 @@ def outward():
         </table>
     </div>
 
-    <!-- ADVANCED TOOLS TAB -->
-    <div id="content-tools" style="display:none;">
-        <div class="card" style="border-top-color: #38bdf8;"><h3 style="color:#0284c7; margin-top:0;">📊 Date Range Reports</h3>
-            <form action="/reports/outward-range" method="POST" class="grid-4" style="align-items:end;">
-                <div><label>From Date</label><input type="date" name="from_date" required style="width:100%;"></div>
-                <div><label>To Date</label><input type="date" name="to_date" required style="width:100%;"></div>
-                <div><button type="submit" name="export" value="csv" class="btn btn-blue" style="width:100%;">📄 Range CSV</button></div>
-                <div><button type="submit" name="export" value="pdf" class="btn btn-red" style="width:100%;">📕 Range PDF</button></div>
-            </form>
-        </div>
-        <div class="card" style="border-top-color: #d97706;"><h3 style="color:#d97706; margin-top:0;">⚙️ Admin Operations Tools</h3>
-            <div style="display:flex; flex-direction:column; gap:10px;">
-                <form action="/tools/auto-invoice" method="POST"><button type="submit" class="btn btn-gold" style="width:100%; text-align:left; padding:12px;"> Auto Invoice from Outward Info</button></form>
-                <form action="/tools/sync-shipments" method="POST"><button type="submit" class="btn" style="background:#10b981; width:100%; text-align:left; padding:12px;">🔄 Sync Shipments to Outward</button></form>
-                <form action="/tools/bulk-date-change" method="POST" style="display:flex; gap:10px;">
-                    <input type="date" name="old_date" required style="flex:1;">
-                    <input type="date" name="new_date" required style="flex:1;">
-                    <button type="submit" class="btn btn-blue" style="flex:1;">📅 Bulk Date Change</button>
-                </form>
-            </div>
-        </div>
-    </div>
-
     <script>
     let selectedId = null;
     function switchTab(tab) {
-        document.getElementById('content-new').style.display = 'none'; document.getElementById('content-history').style.display = 'none'; document.getElementById('content-tools').style.display = 'none';
-        document.getElementById('tab-new').style.background = 'transparent'; document.getElementById('tab-history').style.background = 'transparent'; document.getElementById('tab-tools').style.background = 'transparent';
+        document.getElementById('content-new').style.display = 'none'; document.getElementById('content-history').style.display = 'none';
+        document.getElementById('tab-new').style.background = 'transparent'; document.getElementById('tab-history').style.background = 'transparent';
         document.getElementById('content-' + tab).style.display = 'block'; document.getElementById('tab-' + tab).style.background = '#0E8A6D';
     }
     function reloadPage() {
@@ -970,35 +939,22 @@ def outward():
     function checkEnter(e) {
         if(e.key === 'Enter') {
             e.preventDefault();
-            let mode = document.getElementById('ui_mode').value;
-            if(mode === 'AUTO') { document.getElementById('entryForm').submit(); }
-            else {
-                let src = e.target.id;
-                if(src === 'awb_input') document.getElementById('dest_input').focus();
-                else if(src === 'dest_input') document.getElementById('wt_input').focus();
-                else if(src === 'wt_input') document.getElementById('info_input').focus();
-                else if(src === 'info_input') document.getElementById('entryForm').submit();
-            }
+            let src = e.target.id;
+            if(src === 'awb_input') document.getElementById('dest_input').focus();
+            else if(src === 'dest_input') document.getElementById('wt_input').focus();
+            else if(src === 'wt_input') document.getElementById('info_input').focus();
+            else if(src === 'info_input') document.getElementById('entryForm').submit();
         }
     }
     function selectRow(tr, id) {
         document.querySelectorAll('.tbl-row').forEach(r => r.style.background = 'transparent');
         tr.style.background = 'rgba(56,189,248,0.2)'; selectedId = id;
     }
-    function deleteSelected() {
-        if(!selectedId) { alert("Please select a row first!"); return; }
-        if(confirm("Delete this entry?")) {
-            let d = document.getElementById('ui_date').value; let s = document.getElementById('ui_station').value;
-            window.location.href = `/outward?delete=${selectedId}&date=${d}&station=${s}`;
-        }
-    }
     function confirmFinalize() {
         let count = {{ pending_list|length }};
         if(count === 0) { alert("No pending entries to finalize!"); return; }
         if(confirm(`Are you sure you want to finalize ${count} items and generate Manifest?`)) { document.getElementById('finalizeForm').submit(); }
     }
-    
-    // 🔥 VERY IMPORTANT: Sync ALL UI variables to hidden form fields before submit
     document.getElementById('entryForm').addEventListener('submit', function() {
         document.getElementById('hdn_date').value = document.getElementById('ui_date').value;
         document.getElementById('hdn_station').value = document.getElementById('ui_station').value;
@@ -1007,14 +963,6 @@ def outward():
         document.getElementById('hdn_bag_no').value = document.getElementById('ui_bag_no').value;
         document.getElementById('hdn_pcs').value = document.getElementById('ui_pcs').value;
     });
-    
-    function startVoice(targetId) {
-        let recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-        recognition.lang = 'en-IN';
-        recognition.onstart = function() { document.getElementById('awb_input').placeholder = "Listening..."; };
-        recognition.onresult = function(event) { let match = event.results[0][0].transcript.toLowerCase().match(/(awb|bill|parcel|number|bag)\\s*([a-z0-9]+)/); if(match) { let box = document.getElementById(targetId); box.value = match[2].toUpperCase(); document.getElementById('entryForm').submit(); }};
-        recognition.start();
-    }
     </script>
     """
     return render_page("OUTWARD HUB", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations, f_date=f_date, f_station=f_station))
@@ -1053,7 +1001,7 @@ def import_csv():
     return render_page("Excel Import", render_template_string(html))
 
 # ==========================================
-# 🖨️ 10. EXACT OFFLINE PDF ENGINE (LABEL / MANIFEST REPLICA)
+# 🖨️ 8. EXACT OFFLINE PDF ENGINE (LABEL / MANIFEST REPLICA)
 # ==========================================
 def draw_barcode_safe(cv, value, x, y, height):
     try: code128.Code128(str(value), barHeight=height, barWidth=0.011 * inch).drawOn(cv, x, y)
@@ -1095,37 +1043,29 @@ def print_label_pdf(awb):
     conn.close()
     if not s: return "Not found"
     
-    # EXACT 4x6 INCH LAYOUT (101.6 mm x 152.4 mm)[cite: 3]
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=(101.6*mm, 152.4*mm))
     cv.setLineWidth(1)
-    
-    # Outer Border
     cv.rect(4*mm, 4*mm, 93.6*mm, 144*mm) 
     
-    # 🌟 Top Header[cite: 3]
     draw_agc_logo(cv, 6*mm, 136*mm)
     cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 5.5)
     cv.drawString(6*mm, 129*mm, "ISO 9001:2008 Certified Company")
     
-    cv.setFont("Helvetica-Bold", 14); cv.drawRightString(95*mm, 141*mm, "PANKAJ AGENCY")
-    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, "AKASH GANGA COURIER, AGARSAIN MARKET, MAIN")
+    cv.setFont("Helvetica-Bold", 14); cv.drawRightString(95*mm, 141*mm, session.get('branch', 'HQ').upper())
+    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, get_setting("company_name", "PANKAJ AGENCY"))
     cv.setFont("Helvetica-Bold", 8); cv.setFillColor(HexColor("#D97706"))
     cv.drawRightString(95*mm, 132*mm, "PREMIUM EXPRESS")
     cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 6)
-    cv.drawRightString(95*mm, 128*mm, "GSTIN: 08ADQPC7585D1Z9 | Ph: +917357073316")
+    cv.drawRightString(95*mm, 128*mm, f"GSTIN: {get_setting('company_gstin', '')} | Ph: {get_setting('company_phone', '')}")
     
-    # Divider
     cv.line(4*mm, 126*mm, 97.6*mm, 126*mm)
     
-    # 🌟 AWB & QR[cite: 3]
     cv.setFont("Helvetica-Bold", 7); cv.drawString(6*mm, 122*mm, "AWB NUMBER")
     cv.setFont("Helvetica-Bold", 16); cv.drawString(6*mm, 115*mm, s['awb_no'])
     cv.setFont("Helvetica", 7); cv.drawString(6*mm, 110*mm, s['awb_no'])
     
     draw_barcode_safe(cv, s['awb_no'], 45*mm, 111*mm, 12*mm)
-    draw_qr(cv, s['awb_no'], 78*mm, 108*mm, 18*mm)
     
-    # 🌟 Grid 1: Origin/Service/Dest[cite: 3]
     cv.line(4*mm, 106*mm, 97.6*mm, 106*mm)
     cv.line(35*mm, 106*mm, 35*mm, 94*mm); cv.line(65*mm, 106*mm, 65*mm, 94*mm)
     
@@ -1138,7 +1078,6 @@ def print_label_pdf(awb):
     cv.setFont("Helvetica-Bold", 6); cv.drawString(66*mm, 103*mm, "DESTINATION")
     cv.setFont("Helvetica-Bold", 9); cv.drawString(66*mm, 97*mm, str(s.get('dest_station', s.get('dest_name', '')))[:14].upper())
     
-    # 🌟 Grid 2: Deliver To[cite: 3]
     cv.line(4*mm, 94*mm, 97.6*mm, 94*mm)
     cv.setFont("Helvetica-Bold", 6); cv.drawString(6*mm, 91*mm, "DELIVER TO")
     cv.setFont("Helvetica-Bold", 11); cv.drawString(6*mm, 85*mm, str(s.get('dest_name',''))[:40].upper())
@@ -1148,31 +1087,27 @@ def print_label_pdf(awb):
     for ln in addr_lines[:2]: cv.drawString(6*mm, y_addr*mm, ln); y_addr -= 4
     cv.setFont("Helvetica-Bold", 8); cv.drawString(6*mm, y_addr*mm, f"Ph: {s.get('dest_phone', '')}")
     
-    # 🌟 Grid 3: Weights[cite: 3]
     cv.line(4*mm, 69*mm, 97.6*mm, 69*mm)
     cv.setFont("Helvetica-Bold", 6)
     cv.drawString(6*mm, 66*mm, "WEIGHT"); cv.drawString(26*mm, 66*mm, "PIECES"); cv.drawString(46*mm, 66*mm, "COD"); cv.drawString(71*mm, 66*mm, "DECLARED")
     cv.setFont("Helvetica-Bold", 9)
     cv.drawString(6*mm, 61*mm, f"{s.get('weight_kg', 1)} KG"); cv.drawString(26*mm, 61*mm, f"{s.get('quantity', 1)}"); cv.drawString(46*mm, 61*mm, f"Rs {s.get('cod_amount', 0)}"); cv.drawString(71*mm, 61*mm, f"Rs {s.get('declared_value', 0)}")
     
-    # 🌟 Grid 4: Mode[cite: 3]
     cv.line(4*mm, 58*mm, 97.6*mm, 58*mm)
     cv.setFont("Helvetica-Bold", 6)
     cv.drawString(6*mm, 55*mm, "MODE"); cv.drawString(36*mm, 55*mm, "DEST CITY"); cv.drawString(66*mm, 55*mm, "BRANCH")
     cv.setFont("Helvetica-Bold", 8)
     cv.drawString(6*mm, 50*mm, str(s.get('service_type', 'SURFACE'))); cv.drawString(36*mm, 50*mm, str(s.get('dest_station', ''))[:14]); cv.drawString(66*mm, 50*mm, session.get('branch', 'Head Office')[:15])
     
-    # 🌟 Grid 5: Shipper[cite: 3]
     cv.line(4*mm, 47*mm, 97.6*mm, 47*mm)
     cv.setFont("Helvetica-Bold", 6); cv.drawString(6*mm, 44*mm, "SHIPPER")
     cv.setFont("Helvetica", 7); shipper = s.get('cname') if s.get('cname') else s.get('origin_name', '')
-    cv.drawString(6*mm, 40*mm, f"CASH BOOKING || {shipper[:35]}")
+    cv.drawString(6*mm, 40*mm, f"{shipper[:35]}")
     
-    # Footer[cite: 3]
     cv.line(4*mm, 35*mm, 97.6*mm, 35*mm)
     cv.setFont("Helvetica", 6)
     cv.drawCentredString(50.8*mm, 31*mm, get_setting("terms_note", "Liability limited to declared value only. Subject to local jurisdiction."))
-    cv.drawCentredString(50.8*mm, 27*mm, f"HTTPS://AGCONLINE.IN | PANKAJNOHAR@YAHOO.CO.IN | Computer Generated Label")
+    cv.drawCentredString(50.8*mm, 27*mm, f"{get_setting('company_website', 'https://pagcerp.cgsmart.in')} | Computer Generated Label")
     
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Label_{awb}.pdf", mimetype='application/pdf')
@@ -1233,7 +1168,7 @@ def print_receipt_pdf(awb):
     y_tbl -= 40; cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 10)
     cv.drawString(30, y_tbl, f"Amount to be collected: Rs {s.get('total_amount', 0)}")
     cv.setFont("Helvetica", 8); cv.drawString(30, y_tbl-50, get_setting("terms_note", "DECLARATION: Goods are carried at Owner's Risk. Cash, Jewelry, Narcotics strictly prohibited."))
-    cv.drawString(420, y_tbl-50, f"For {get_setting('company_name', 'AKASH GANGA COURIER')}"); cv.drawString(420, y_tbl-80, "Authorised Signatory")
+    cv.drawString(420, y_tbl-50, f"For {get_setting('company_name', 'PANKAJ AGENCY')}"); cv.drawString(420, y_tbl-80, "Authorised Signatory")
 
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Receipt_{awb}.pdf", mimetype='application/pdf')
@@ -1249,7 +1184,6 @@ def print_manifest_pdf(mid):
         items = c.fetchall()
     conn.close()
 
-    # 🚀 TWO-COLUMN PAPER SAVING MANIFEST
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
     cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{get_setting('company_name', 'AKASH GANGA')} - OUTWARD MANIFEST")
     cv.setFont("Helvetica", 10); cv.drawString(40, h - 65, f"Manifest No: {m['manifest_no']}   |   Route: {m['from_location']} -> {m['to_location']}")
@@ -1258,7 +1192,7 @@ def print_manifest_pdf(mid):
     
     y = h - 110
     def draw_headers(curr_y):
-        cv.setFillColorRGB(*hex_rgb("#F5F7FA")); cv.rect(40, curr_y - 16, 250, 16, fill=1, stroke=0); cv.rect(305, curr_y - 16, 250, 16, fill=1, stroke=0)
+        cv.setFillColorRGB(0.96, 0.97, 0.98); cv.rect(40, curr_y - 16, 250, 16, fill=1, stroke=0); cv.rect(305, curr_y - 16, 250, 16, fill=1, stroke=0)
         cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica-Bold", 7.5)
         cv.drawString(42, curr_y - 11, "#"); cv.drawString(60, curr_y - 11, "AWB & BARCODE"); cv.drawString(160, curr_y - 11, "DESTINATION"); cv.drawString(255, curr_y - 11, "WT")
         cv.drawString(307, curr_y - 11, "#"); cv.drawString(325, curr_y - 11, "AWB & BARCODE"); cv.drawString(425, curr_y - 11, "DESTINATION"); cv.drawString(520, curr_y - 11, "WT")
@@ -1284,4 +1218,5 @@ def print_manifest_pdf(mid):
 # 🛑 DO NOT TOUCH - FLASK RUN
 # ==========================================
 if __name__ == '__main__':
+    # For production, use: gunicorn -w 4 -b 0.0.0.0:5000 app:app
     app.run(host='0.0.0.0', debug=True, port=5000)
