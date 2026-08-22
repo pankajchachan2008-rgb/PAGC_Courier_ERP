@@ -12,10 +12,26 @@ config = configparser.ConfigParser()
 config.read('db_config.ini')
 
 def get_db():
+    # 🧹 AUTO-CLEANER: Copy-Paste ke hidden spaces ko saaf karega
+    db_host = config['CLOUD_DB']['host'].replace('"', '').replace("'", "").strip()
+    db_port = int(config['CLOUD_DB']['port'].replace('"', '').replace("'", "").strip())
+    db_user = config['CLOUD_DB']['user'].replace('"', '').replace("'", "").strip()
+    db_pass = config['CLOUD_DB']['password'].replace('"', '').replace("'", "").strip()
+    db_name = config['CLOUD_DB']['database'].replace('"', '').replace("'", "").strip()
+    
+    # 🚀 MAGIC TRICK 1: Aiven ke Internal (.i.) address ko Public (.a.) mein automatically badalna
+    if ".i.aivencloud" in db_host:
+        db_host = db_host.replace(".i.aivencloud", ".a.aivencloud")
+        
+    # 🔒 MAGIC TRICK 2: Aiven bina SSL ke connect nahi hota, hum automatically SSL force karenge
     return pymysql.connect(
-        host=config['CLOUD_DB']['host'], port=int(config['CLOUD_DB']['port']),
-        user=config['CLOUD_DB']['user'], password=config['CLOUD_DB']['password'],
-        database=config['CLOUD_DB']['database'], cursorclass=pymysql.cursors.DictCursor
+        host=db_host, 
+        port=db_port,
+        user=db_user, 
+        password=db_pass,
+        database=db_name, 
+        cursorclass=pymysql.cursors.DictCursor,
+        ssl={'ssl': {}}  # Yeh Aiven ko batayega ki connection 100% Secure (SSL) hai
     )
 
 # ==========================================
