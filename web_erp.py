@@ -668,5 +668,157 @@ def print_drs(did):
     </body></html>"""
     return render_template_string(html, d=d, items=items)
 
+# ==========================================
+# 🌐 PUBLIC TRACKING PAGE (No Login Required)
+# ==========================================
+@app.route('/track', methods=['GET', 'POST'])
+def track():
+    awb = request.args.get('awb') or request.form.get('awb')
+    awb = awb.strip().upper() if awb else ''
+    
+    shipment = None
+    timeline = []
+    
+    if awb:
+        try:
+            conn = get_db()
+            with conn.cursor() as c:
+                # Basic Shipment Data
+                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
+                shipment = c.fetchone()
+                
+                if shipment:
+                    # 1. Booking Event
+                    timeline.append({
+                        'date': str(shipment['booking_date']), 
+                        'title': '📦 Parcel Booked', 
+                        'desc': f"Origin: {shipment['origin_name']} | Dest: {shipment['dest_station']}"
+                    })
+                    
+                    # 2. Outward Events (Dispatched)
+                    c.execute("SELECT entry_date, out_station, info FROM outward_register WHERE awb_no=%s ORDER BY id", (awb,))
+                    for r in c.fetchall():
+                        timeline.append({
+                            'date': str(r['entry_date']), 
+                            'title': '📤 Dispatched (Outward)', 
+                            'desc': f"Forwarded to {r['out_station']}. {r['info']}"
+                        })
+                        
+                    # 3. Inward Events (Received at Hub)
+                    c.execute("SELECT entry_date, in_station, info FROM inward_register WHERE awb_no=%s ORDER BY id", (awb,))
+                    for r in c.fetchall():
+                        timeline.append({
+                            'date': str(r['entry_date']), 
+                            'title': '📥 Received at Hub (Inward)', 
+                            'desc': f"Arrived at {r['in_station']}. {r['info']}"
+                        })
+                        
+                    # 4. Delivery Events (DRS)
+                    c.execute("SELECT entry_date, delivery_boy, drs_no FROM delivery_register WHERE awb_no=%s ORDER BY id", (awb,))
+                    for r in c.fetchall():
+                        timeline.append({
+                            'date': str(r['entry_date']), 
+                            'title': '🛵 Out for Delivery', 
+                            'desc': f"Assigned to Rider: {r['delivery_boy']} (DRS: {r['drs_no']})"
+                        })
+                        
+                    # 5. Delivered Event (Final)
+                    if shipment['status'] == 'DELIVERED':
+                        timeline.append({
+                            'date': 'System Updated', 
+                            'title': '✅ Successfully Delivered', 
+                            'desc': f"Status: {shipment['current_location']}"
+                        })
+                        
+            conn.close()
+            # Sort timeline by date
+            timeline = sorted(timeline, key=lambda x: x['date'])
+        except Exception as e:
+            print("Tracking Error:", e)
+
+    # 🎨 Premium Mobile-Friendly UI (CSS & HTML)
+    html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Track Shipment - AGC Courier</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; margin: 0; color: #1e293b; }
+            .nav { background: #0f172a; padding: 15px 20px; color: white; text-align: center; font-size: 22px; font-weight: 900; letter-spacing: 1px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);}
+            .nav span { color: #38bdf8; }
+            .container { max-width: 600px; margin: 40px auto; padding: 20px; }
+            .card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+            .search-box { display: flex; gap: 10px; margin-bottom: 20px; }
+            input { flex: 1; padding: 15px; border: 2px solid #cbd5e1; border-radius: 8px; font-size: 16px; outline: none; text-transform: uppercase;}
+            input:focus { border-color: #0f766e; }
+            .btn { padding: 15px 25px; background: #0f766e; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.3s;}
+            .btn:hover { background: #0d9488; }
+            
+            /* Premium Vertical Timeline CSS */
+            .status-badge { display: inline-block; padding: 6px 12px; background: #fef08a; color: #b45309; border-radius: 20px; font-weight: bold; font-size: 14px; margin-bottom: 20px;}
+            .status-DELIVERED { background: #dcfce7; color: #166534; }
+            
+            .timeline { border-left: 3px solid #0f766e; margin-left: 15px; padding-left: 25px; margin-top: 25px; }
+            .event { position: relative; margin-bottom: 25px; }
+            .event::before { content: ''; position: absolute; left: -35px; top: 0; width: 14px; height: 14px; background: #fbbf24; border: 3px solid #0f766e; border-radius: 50%; }
+            .e-date { font-size: 13px; color: #0f766e; font-weight: bold; margin-bottom: 5px; }
+            .e-title { font-size: 16px; font-weight: bold; margin: 0 0 5px 0; color: #1e293b; }
+            .e-desc { font-size: 14px; color: #475569; margin: 0; line-height: 1.5; }
+            
+            .footer { text-align: center; margin-top: 40px; color: #94a3b8; font-size: 13px; }
+            @media (max-width: 600px) { .search-box { flex-direction: column; } .container { margin: 10px auto;} }
+        </style>
+    </head>
+    <body>
+        <div class="nav">AGC <span>COURIER</span></div>
+        <div class="container">
+            <div class="card">
+                <h2 style="margin-top:0; text-align:center;">Track Your Shipment</h2>
+                <p style="text-align:center; color:#64748b; margin-bottom:25px;">Enter your AWB / Bilti number below</p>
+                
+                <form method="GET" class="search-box">
+                    <input type="text" name="awb" value="{{ awb }}" placeholder="e.g. AWB00000123" required autocomplete="off">
+                    <button type="submit" class="btn">Track Live</button>
+                </form>
+                
+                {% if awb %}
+                    <hr style="border:0; border-top:1px dashed #cbd5e1; margin:25px 0;">
+                    {% if shipment %}
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <h3 style="margin:0; color:#0f766e;">AWB: {{ shipment.awb_no }}</h3>
+                            <div class="status-badge status-{{ shipment.status }}">{{ shipment.status }}</div>
+                        </div>
+                        
+                        <div style="background:#f8fafc; padding:15px; border-radius:8px; margin-bottom:20px; font-size:14px; border-left:4px solid #38bdf8;">
+                            <strong>To:</strong> {{ shipment.dest_name }}<br>
+                            <strong>Destination:</strong> {{ shipment.dest_station }}<br>
+                            <strong>Weight:</strong> {{ shipment.weight_kg }} KG
+                        </div>
+                        
+                        <div class="timeline">
+                            {% for t in timeline %}
+                            <div class="event">
+                                <div class="e-date">{{ t.date }}</div>
+                                <h4 class="e-title">{{ t.title }}</h4>
+                                <p class="e-desc">{{ t.desc }}</p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    {% else %}
+                        <div style="text-align:center; color:#be123c; padding:20px; background:#fee2e2; border-radius:8px;">
+                            <strong>No records found for AWB: {{ awb }}</strong><br>
+                            Please check the number and try again.
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+            <div class="footer">&copy; 2026 AGC Smart ERP Cloud. All rights reserved.</div>
+        </div>
+    </body>
+    </html>
+    """
+    return render_template_string(html, awb=awb, shipment=shipment, timeline=timeline)
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', debug=True, port=5000)
