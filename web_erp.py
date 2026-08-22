@@ -85,7 +85,6 @@ def auto_heal_db():
             for t in tables:
                 c.execute(t)
             
-            # 🛡️ FIX 1: Auto-Migrate Old Settings Table if it has 'key' instead of 'key_name'
             try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
             except: pass
 
@@ -109,7 +108,7 @@ def get_setting(key, default=""):
         conn = get_db()
         with conn.cursor() as c:
             try: c.execute("SELECT value FROM settings WHERE key_name=%s", (key,))
-            except: c.execute("SELECT value FROM settings WHERE `key`=%s", (key,)) # Safe fallback
+            except: c.execute("SELECT value FROM settings WHERE `key`=%s", (key,))
             r = c.fetchone()
         conn.close()
         return r['value'] if r else default
@@ -192,7 +191,7 @@ BASE_HTML = """
 </head>
 <body>
     <div class="sidebar">
-        <div class="logo">◆ AGC ERP<br><span style="font-size:12px; color:#8FA3BF;">{{ session.get('branch') or 'HQ' }}</span></div>
+        <div class="logo">◆ AGC ERP<br><span style="font-size:12px; color:#8FA3BF;">{{ session.get('branch', 'HQ') }}</span></div>
         <div class="menu">
             <div class="menu-header">📦 MAIN BOOKING</div>
             <a href="/" class="{{ 'active' if current_path == '/' else '' }}"><i class="fas fa-chart-pie"></i> Dashboard</a>
@@ -307,7 +306,7 @@ def dashboard():
     return render_page("Executive Dashboard", html)
 
 # ==========================================
-# ⚙️ 5. SETTINGS, RATES, STATIONERY & USERS
+# ⚙️ 4. SETTINGS, RATES, STATIONERY & USERS
 # ==========================================
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
@@ -317,7 +316,7 @@ def settings():
     if request.method == 'POST':
         with conn.cursor() as c:
             for key, val in request.form.items():
-                c.execute("INSERT INTO settings(key_name, value) VALUES(%s, %s) ON DUPLICATE KEY UPDATE value=VALUES(value)", (key, val))
+                c.execute("INSERT INTO settings(key_name, value) VALUES(%s, %s) ON DUPLICATE KEY UPDATE value=%s", (key, val, val))
             conn.commit(); flash("Settings Saved Successfully!", "success")
     with conn.cursor() as c:
         try: c.execute("SELECT * FROM settings")
@@ -411,25 +410,11 @@ def users():
         c.execute("SELECT * FROM users ORDER BY id DESC"); u_list = c.fetchall()
         c.execute("SELECT name FROM stations ORDER BY name"); branches = c.fetchall()
     conn.close()
-    
-    html = """<div class="card"><h3 style="margin-top:0; color:#0E8A6D;"><i class="fas fa-user-plus"></i> Add New User</h3>
-    <form method="POST" class="grid-4" style="align-items:end;">
-        <div><label>Username</label><input name="username" required></div>
-        <div><label>Password</label><input type="password" name="password" required></div>
-        <div><label>Full Name</label><input name="full_name" required></div>
-        <div><label>Role</label><select name="role"><option>ADMIN</option><option>OPERATOR</option><option>ACCOUNTANT</option></select></div>
-        <div style="grid-column: span 3;"><label>Branch / Station</label><input name="branch" list="brlist" required><datalist id="brlist">{% for b in branches %}<option value="{{ b.name }}">{% endfor %}</datalist></div>
-        <div><button type="submit" class="btn btn-blue" style="width:100%;"><i class="fas fa-save"></i> Save</button></div>
-    </form></div>
-    <div class="card"><h3><i class="fas fa-users-cog"></i> System Users</h3>
-    <table><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Branch</th><th>Status</th><th>Action</th></tr>
-    {% for u in u_list %}<tr><td><strong>{{ u.username }}</strong></td><td>{{ u.full_name }}</td><td><span class="badge">{{ u.role }}</span></td><td>{{ u.branch_name or 'HQ' }}</td><td>{% if u.active %}<span class="badge b-del">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td><td>{% if u.active %}<a href="/users?delete={{ u.id }}" class="btn btn-red" style="padding:4px 8px;"><i class="fas fa-trash"></i></a>{% endif %}</td></tr>
-    {% else %}<tr><td colspan="6" style="text-align:center; padding:20px; color:#7A8699;">No users found.</td></tr>{% endfor %}
-    </table></div>"""
+    html = """<div class="card"><h3 style="margin-top:0; color:#0E8A6D;"><i class="fas fa-user-plus"></i> Add New User</h3><form method="POST" class="grid-4" style="align-items:end;"><div><label>Username</label><input name="username" required></div><div><label>Password</label><input type="password" name="password" required></div><div><label>Full Name</label><input name="full_name" required></div><div><label>Role</label><select name="role"><option>ADMIN</option><option>OPERATOR</option><option>ACCOUNTANT</option></select></div><div style="grid-column: span 3;"><label>Branch / Station</label><input name="branch" list="brlist" required><datalist id="brlist">{% for b in branches %}<option value="{{ b.name }}">{% endfor %}</datalist></div><div><button type="submit" class="btn btn-blue" style="width:100%;"><i class="fas fa-save"></i> Save</button></div></form></div><div class="card"><h3><i class="fas fa-users-cog"></i> System Users</h3><table><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Branch</th><th>Status</th><th>Action</th></tr>{% for u in u_list %}<tr><td><strong>{{ u.username }}</strong></td><td>{{ u.full_name }}</td><td><span class="badge">{{ u.role }}</span></td><td>{{ u.branch_name or 'HQ' }}</td><td>{% if u.active %}<span class="badge b-del">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td><td>{% if u.active %}<a href="/users?delete={{ u.id }}" class="btn btn-red" style="padding:4px 8px;"><i class="fas fa-trash"></i></a>{% endif %}</td></tr>{% endfor %}</table></div>"""
     return render_page("Users & Branches", render_template_string(html, u_list=u_list, branches=branches))
 
 # ==========================================
-# 🌐 6. PUBLIC TRACKING PAGE (EXACT RESTORE)
+# 🌐 5. PUBLIC TRACKING PAGE (EXACT RESTORE)
 # ==========================================
 @app.route('/track', methods=['GET', 'POST'])
 def track():
@@ -538,7 +523,7 @@ def track():
     return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
 
 # ==========================================
-# 📦 7. BOOKING & SHIPMENTS
+# 📦 6. BOOKING & SHIPMENTS
 # ==========================================
 @app.route('/api/calc_rate', methods=['POST'])
 @login_required
@@ -691,7 +676,7 @@ def shipments():
     return render_page("Shipments Management", render_template_string(html, rows=rows, search=search))
 
 # ==========================================
-# 📤 8. OUTWARD HUB & EXCEL IMPORT
+# 📤 7. OUTWARD HUB & EXCEL IMPORT
 # ==========================================
 @app.route('/outward', methods=['GET', 'POST'])
 @login_required
@@ -707,16 +692,18 @@ def outward():
     if request.args.get('unfinalize'):
         mid = request.args.get('unfinalize')
         with conn.cursor() as c:
-            c.execute("SELECT manifest_no FROM manifests WHERE id=%s", (mid,)); m = c.fetchone()
+            c.execute("SELECT manifest_no FROM manifests WHERE id=%s", (mid,))
+            m = c.fetchone()
             if m:
                 c.execute("UPDATE outward_register SET finalized=0, manifest_no=NULL, outward_no=NULL WHERE manifest_no=%s", (m['manifest_no'],))
-                c.execute("DELETE FROM manifest_items WHERE manifest_id=%s", (mid,)); c.execute("DELETE FROM manifests WHERE id=%s", (mid,))
+                c.execute("DELETE FROM manifest_items WHERE manifest_id=%s", (mid,))
+                c.execute("DELETE FROM manifests WHERE id=%s", (mid,))
             conn.commit(); flash("✅ Manifest Unfinalized! Items moved back to pending.", "success")
         return redirect('/outward')
 
     if request.method == 'POST' and request.form.get('action') == 'save_entry':
         o_date = request.form.get('out_date', current_date)
-        o_station = str(request.form.get('out_station') or session.get('branch', 'HQ')).upper()
+        o_station = request.form.get('out_station', session.get('branch', 'HQ')).upper()
         awb = request.form.get('awb', '').strip().upper()
         dest_input = request.form.get('dest', '').strip().upper()
         wt_input = safe_float(request.form.get('weight'))
@@ -730,12 +717,14 @@ def outward():
             with conn.cursor() as c:
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (o_station,))
                 if awb.startswith("BAG"):
-                    c.execute("SELECT awb_no FROM master_bag_items WHERE bag_no=%s", (awb,)); b_items = c.fetchall()
+                    c.execute("SELECT awb_no FROM master_bag_items WHERE bag_no=%s", (awb,))
+                    b_items = c.fetchall()
                     if not b_items: flash(f"Bag {awb} is empty.", "error")
                     else:
                         for bi in b_items:
                             sub_awb = bi['awb_no']
-                            c.execute("SELECT dest_station, weight_kg FROM shipments WHERE awb_no=%s", (sub_awb,)); s = c.fetchone()
+                            c.execute("SELECT dest_station, weight_kg FROM shipments WHERE awb_no=%s", (sub_awb,))
+                            s = c.fetchone()
                             s_wt = safe_float(s['weight_kg']) if s else 1.0; s_dst = str(s['dest_station'] or 'UNKNOWN') if s else 'UNKNOWN'
                             if not c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (sub_awb,)):
                                 c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, pcs, network, network_awb, bag_no, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)", (o_date, sub_awb, session.get('branch','HQ'), o_station, s_dst, s_wt, 1, network, net_awb, awb, f"Unpacked {awb}"))
@@ -744,9 +733,9 @@ def outward():
                     if c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (awb,)):
                         flash(f"AWB {awb} already pending!", "error")
                     else:
-                        c.execute("SELECT id, dest_station, dest_name, weight_kg FROM shipments WHERE awb_no=%s", (awb,)); s = c.fetchone()
+                        c.execute("SELECT id, dest_station, dest_name, weight_kg FROM shipments WHERE awb_no=%s", (awb,))
+                        s = c.fetchone()
                         
-                        # 🚀 SMART FILL FIX (Fetch from Shipments if blank)
                         s_dest = str(s['dest_station'] or s['dest_name'] or 'UNKNOWN') if s else 'UNKNOWN'
                         final_dest = dest_input if dest_input else s_dest
                         final_wt = wt_input if wt_input > 0 else (safe_float(s['weight_kg']) if s else 1.0)
@@ -827,7 +816,12 @@ def outward():
     </div>
     <div class="card" id="content-tools" style="display:none;">
         <h3 style="color:#0284c7; margin-top:0;">📊 Date Range Reports</h3><form action="/reports/outward-range" method="POST" class="grid-4" style="align-items:end;"><div><label>From Date</label><input type="date" name="from_date" required></div><div><label>To Date</label><input type="date" name="to_date" required></div><div><button type="submit" name="export" value="csv" class="btn btn-blue">📄 Range CSV</button></div><div><button type="submit" name="export" value="pdf" class="btn btn-red">📕 Range PDF</button></div></form>
-        <h3 style="color:#d97706; margin-top:20px;">⚙️ Admin Tools</h3><form action="/tools/sync-shipments" method="POST"><button type="submit" class="btn" style="background:#10b981;">🔄 Sync Shipments</button></form>
+        <h3 style="color:#d97706; margin-top:20px;">⚙️ Admin Tools</h3>
+        <form action="/tools/sync-shipments" method="POST"><button type="submit" class="btn" style="background:#10b981;">🔄 Sync Shipments</button></form>
+        <br>
+        <form action="/tools/bulk-date-change" method="POST" style="display:flex; gap:10px;">
+            <input type="date" name="old_date" required style="flex:1;"><input type="date" name="new_date" required style="flex:1;"><button type="submit" class="btn btn-blue" style="flex:1;">📅 Bulk Date Change</button>
+        </form>
     </div>
     <script>
     function switchTab(tab) { document.getElementById('content-new').style.display = 'none'; document.getElementById('content-history').style.display = 'none'; document.getElementById('content-tools').style.display = 'none'; document.getElementById('tab-new').style.background = 'transparent'; document.getElementById('tab-history').style.background = 'transparent'; document.getElementById('tab-tools').style.background = 'transparent'; document.getElementById('content-' + tab).style.display = 'block'; document.getElementById('tab-' + tab).style.background = '#0E8A6D'; document.getElementById('tab-' + tab).style.color = 'white'; }
@@ -907,29 +901,22 @@ def print_label_pdf(awb):
     conn.close()
     if not s: return "Not found"
     
-    # EXACT 4x6 INCH LAYOUT (101.6 mm x 152.4 mm)[cite: 3]
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=(101.6*mm, 152.4*mm))
     cv.setLineWidth(1)
-    
-    # Outer Border
     cv.rect(4*mm, 4*mm, 93.6*mm, 144*mm) 
     
-    # 🌟 Top Header[cite: 3]
     draw_agc_logo(cv, 6*mm, 136*mm)
     cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 5.5)
     cv.drawString(6*mm, 129*mm, "ISO 9001:2008 Certified Company")
     
-    cv.setFont("Helvetica-Bold", 14); cv.drawRightString(95*mm, 141*mm, "PANKAJ AGENCY")
-    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, "AKASH GANGA COURIER, AGARSAIN MARKET, MAIN")
+    cv.setFont("Helvetica-Bold", 14); cv.drawRightString(95*mm, 141*mm, session.get('branch', 'HQ').upper())
+    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, get_setting("company_name", "AKASH GANGA COURIER"))
     cv.setFont("Helvetica-Bold", 8); cv.setFillColor(HexColor("#D97706"))
     cv.drawRightString(95*mm, 132*mm, "PREMIUM EXPRESS")
     cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 6)
     cv.drawRightString(95*mm, 128*mm, f"GSTIN: {get_setting('company_gstin', '')} | Ph: {get_setting('company_phone', '')}")
     
-    # Divider
     cv.line(4*mm, 126*mm, 97.6*mm, 126*mm)
-    
-    # 🌟 AWB & QR[cite: 3]
     cv.setFont("Helvetica-Bold", 7); cv.drawString(6*mm, 122*mm, "AWB NUMBER")
     cv.setFont("Helvetica-Bold", 16); cv.drawString(6*mm, 115*mm, s['awb_no'])
     cv.setFont("Helvetica", 7); cv.drawString(6*mm, 110*mm, s['awb_no'])
@@ -941,7 +928,6 @@ def print_label_pdf(awb):
         try: cv.drawImage(ImageReader(io.BytesIO(qr_buf.getvalue())), 78*mm, 108*mm, width=18*mm, height=18*mm)
         except: pass
     
-    # 🌟 Grid 1: Origin/Service/Dest[cite: 3]
     cv.line(4*mm, 106*mm, 97.6*mm, 106*mm)
     cv.line(35*mm, 106*mm, 35*mm, 94*mm); cv.line(65*mm, 106*mm, 65*mm, 94*mm)
     
@@ -954,9 +940,8 @@ def print_label_pdf(awb):
     cv.setFont("Helvetica-Bold", 6); cv.drawString(66*mm, 103*mm, "DESTINATION")
     cv.setFont("Helvetica-Bold", 9); cv.drawString(66*mm, 97*mm, str(s.get('dest_station') or s.get('dest_name') or '')[:14].upper())
     
-    # 🌟 Grid 2: Deliver To[cite: 3]
     cv.line(4*mm, 94*mm, 97.6*mm, 94*mm)
-    cv.setFont("Helvetica-Bold", 6); cv.drawString(6*mm, 91*mm, "DELIVER TO")
+    cv.setFont("Helvetica-Bold", 6); cv.drawString(6*mm, 91*mm, "DELIVER TO:")
     cv.setFont("Helvetica-Bold", 11); cv.drawString(6*mm, 85*mm, str(s.get('dest_name') or '')[:40].upper())
     cv.setFont("Helvetica", 8)
     addr_lines = wrap_lines(cv, str(s.get('dest_address') or ''), "Helvetica", 8, 90*mm)
@@ -964,27 +949,23 @@ def print_label_pdf(awb):
     for ln in addr_lines[:2]: cv.drawString(6*mm, y_addr*mm, ln); y_addr -= 4
     cv.setFont("Helvetica-Bold", 8); cv.drawString(6*mm, y_addr*mm, f"Ph: {str(s.get('dest_phone') or '')}")
     
-    # 🌟 Grid 3: Weights[cite: 3]
     cv.line(4*mm, 69*mm, 97.6*mm, 69*mm)
     cv.setFont("Helvetica-Bold", 6)
     cv.drawString(6*mm, 66*mm, "WEIGHT"); cv.drawString(26*mm, 66*mm, "PIECES"); cv.drawString(46*mm, 66*mm, "COD"); cv.drawString(71*mm, 66*mm, "DECLARED")
     cv.setFont("Helvetica-Bold", 9)
     cv.drawString(6*mm, 61*mm, f"{s.get('weight_kg', 1)} KG"); cv.drawString(26*mm, 61*mm, f"{s.get('quantity', 1)}"); cv.drawString(46*mm, 61*mm, f"Rs {s.get('cod_amount', 0)}"); cv.drawString(71*mm, 61*mm, f"Rs {s.get('declared_value', 0)}")
     
-    # 🌟 Grid 4: Mode[cite: 3]
     cv.line(4*mm, 58*mm, 97.6*mm, 58*mm)
     cv.setFont("Helvetica-Bold", 6)
     cv.drawString(6*mm, 55*mm, "MODE"); cv.drawString(36*mm, 55*mm, "DEST CITY"); cv.drawString(66*mm, 55*mm, "BRANCH")
     cv.setFont("Helvetica-Bold", 8)
     cv.drawString(6*mm, 50*mm, str(s.get('service_type') or 'SURFACE')[:10]); cv.drawString(36*mm, 50*mm, str(s.get('dest_station') or '')[:14]); cv.drawString(66*mm, 50*mm, str(session.get('branch') or 'HQ')[:15])
     
-    # 🌟 Grid 5: Shipper[cite: 3]
     cv.line(4*mm, 47*mm, 97.6*mm, 47*mm)
     cv.setFont("Helvetica-Bold", 6); cv.drawString(6*mm, 44*mm, "SHIPPER")
-    cv.setFont("Helvetica", 7); shipper = s.get('cname') or s.get('origin_name') or ''
-    cv.drawString(6*mm, 40*mm, f"CASH BOOKING || {str(shipper)[:35]}")
+    cv.setFont("Helvetica", 7); shipper = str(s.get('cname') or s.get('origin_name') or '')
+    cv.drawString(6*mm, 40*mm, f"CASH BOOKING || {shipper[:35]}")
     
-    # Footer[cite: 3]
     cv.line(4*mm, 35*mm, 97.6*mm, 35*mm)
     cv.setFont("Helvetica", 6)
     cv.drawCentredString(50.8*mm, 31*mm, get_setting("terms_note", "Liability limited to declared value only. Subject to local jurisdiction."))
@@ -1018,7 +999,7 @@ def print_receipt_pdf(awb):
     
     cv.setStrokeColor(HexColor("#E1E6EE")); cv.setLineWidth(1)
     cv.roundRect(30, 600, 255, 120, 4); cv.setFillColor(HexColor("#F5F7FA")); cv.rect(31, 700, 253, 20, fill=1, stroke=0)
-    cv.setFillColor(HexColor("#004B87")); cv.setFont("Helvetica-Bold", 10); cv.drawString(35, 706, "CONSIGNOR (SHIPPER DETAILS):")
+    cv.setFillColor(HexColor("#0B1F3A")); cv.setFont("Helvetica-Bold", 10); cv.drawString(35, 706, "CONSIGNOR (SHIPPER DETAILS):")
     cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 11)
     shipper_name = str(s.get('cname') or s.get('origin_name') or '')
     cv.drawString(35, 680, shipper_name[:40]); cv.setFont("Helvetica", 10); y_sh = 665
@@ -1027,7 +1008,7 @@ def print_receipt_pdf(awb):
     cv.drawString(35, y_sh, f"Ph: {str(s.get('origin_phone') or '')}"); cv.drawString(35, y_sh-15, f"State: {str(s.get('origin_state_code') or '')}")
     
     cv.roundRect(305, 600, 255, 120, 4); cv.setFillColor(HexColor("#F5F7FA")); cv.rect(306, 700, 253, 20, fill=1, stroke=0)
-    cv.setFillColor(HexColor("#004B87")); cv.setFont("Helvetica-Bold", 10); cv.drawString(310, 706, "CONSIGNEE (RECEIVER DETAILS):")
+    cv.setFillColor(HexColor("#0B1F3A")); cv.setFont("Helvetica-Bold", 10); cv.drawString(310, 706, "CONSIGNEE (RECEIVER DETAILS):")
     cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 11); cv.drawString(310, 680, str(s.get('dest_name') or '')[:40])
     cv.setFont("Helvetica", 10); y_cn = 665
     for ln in wrap_lines(cv, str(s.get('dest_address') or ''), "Helvetica", 10, 240)[:2]:
@@ -1048,7 +1029,7 @@ def print_receipt_pdf(awb):
 
     y_tbl -= 40; cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 10)
     cv.drawString(30, y_tbl, f"Amount to be collected: Rs {safe_float(s.get('total_amount')):,.2f}")
-    cv.setFont("Helvetica", 8); cv.drawString(30, y_tbl-50, get_setting("terms_note", "DECLARATION: Goods are carried at Owner's Risk. Cash, Jewelry, Narcotics strictly prohibited."))
+    cv.setFont("Helvetica", 8); cv.drawString(30, y_tbl-50, get_setting("terms_note", "DECLARATION: Goods are carried at Owner's Risk."))
     cv.drawString(420, y_tbl-50, f"For {get_setting('company_name', 'AKASH GANGA COURIER')}"); cv.drawString(420, y_tbl-80, "Authorised Signatory")
 
     cv.showPage(); cv.save(); buf.seek(0)
@@ -1061,7 +1042,7 @@ def print_manifest_pdf(mid):
     with conn.cursor() as c:
         c.execute("SELECT * FROM manifests WHERE id=%s", (mid,))
         m = c.fetchone()
-        c.execute("SELECT s.awb_no, s.dest_station, o.weight, o.pcs, o.network, o.network_awb, o.bag_no, o.info FROM manifest_items mi JOIN shipments s ON s.id=mi.shipment_id JOIN outward_register o ON o.awb_no=s.awb_no WHERE mi.manifest_id=%s", (mid,))
+        c.execute("SELECT s.awb_no, s.dest_station, o.weight, o.pcs, o.network, o.bag_no, o.info FROM manifest_items mi JOIN shipments s ON s.id=mi.shipment_id JOIN outward_register o ON o.awb_no=s.awb_no WHERE mi.manifest_id=%s", (mid,))
         items = c.fetchall()
     conn.close()
 
