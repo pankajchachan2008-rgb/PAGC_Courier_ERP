@@ -578,6 +578,49 @@ def wrap_lines(cv, text, font, size, max_width):
 def num_to_words_inr(amount):
     return f"Rupees {money(amount)} Only"
 
+# 🌟 PREMIUM HEADER FOR ALL A4 DOCUMENTS 🌟
+def draw_premium_header(cv, w, h, title, subtitle):
+    logo_drawn = False
+    if os.path.exists("logo.png"):
+        try:
+            cv.drawImage("logo.png", 40, h - 60, width=120, height=40, preserveAspectRatio=True, mask="auto")
+            logo_drawn = True
+        except: pass
+    
+    cv.setFillColorRGB(*hex_rgb("#0f172a"))
+    cv.setFont("Helvetica-Bold", 16)
+    if not logo_drawn:
+        cv.drawString(40, h - 35, "AKASH GANGA COURIER")
+        
+    cv.setFillColorRGB(*hex_rgb("#64748b"))
+    cv.setFont("Helvetica", 9)
+    y_text = h - 50 if not logo_drawn else h - 75
+    cv.drawString(40, y_text, "Premium Logistics & Supply Chain")
+    
+    # 🌟 Live Branch Name from Login Session 🌟
+    cv.setFillColorRGB(*hex_rgb("#0f766e"))
+    cv.setFont("Helvetica-Bold", 9)
+    cv.drawString(40, y_text - 12, f"Authorized Branch / Hub: {session.get('branch', 'Head Office').upper()}")
+    
+    # Right Side Document Box
+    cv.setStrokeColorRGB(*hex_rgb("#d97706"))
+    cv.setLineWidth(1.5)
+    cv.roundRect(w - 200, h - 65, 160, 40, 6, fill=0, stroke=1)
+    
+    cv.setFillColorRGB(*hex_rgb("#d97706"))
+    cv.setFont("Helvetica-Bold", 12)
+    cv.drawCentredString(w - 120, h - 45, title)
+    
+    cv.setFillColorRGB(*hex_rgb("#475569"))
+    cv.setFont("Helvetica", 8)
+    cv.drawCentredString(w - 120, h - 58, subtitle)
+    
+    cv.setStrokeColorRGB(*hex_rgb("#d97706"))
+    cv.setLineWidth(2)
+    cv.line(40, y_text - 25, w - 40, y_text - 25)
+    
+    return y_text - 45
+
 @app.route('/print/label/<awb>')
 @login_required
 def print_label_pdf(awb):
@@ -592,32 +635,46 @@ def print_label_pdf(awb):
     w, h = 4 * inch, 6 * inch
     cv = canvas.Canvas(buf, pagesize=(w, h))
     cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
-    cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
+    cv.setStrokeColorRGB(*hex_rgb("#cbd5e1")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
     
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11); cv.drawString(14, h - 26, "AGC PREMIUM COURIER")
-    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2); cv.drawString(14, h - 36, "Head Office: Nohar, Rajasthan")
+    logo_drawn = False
+    if os.path.exists("logo.png"):
+        try:
+            cv.drawImage("logo.png", 14, h - 45, width=65, height=30, preserveAspectRatio=True, mask="auto")
+            logo_drawn = True
+        except: pass
+        
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 12)
+    if not logo_drawn:
+        cv.drawString(14, h - 26, "AKASH GANGA COURIER")
+    else:
+        cv.drawString(85, h - 24, "AKASH GANGA COURIER")
+        
+    x_text = 85 if logo_drawn else 14
+    cv.setFillColorRGB(*hex_rgb("#0f766e")); cv.setFont("Helvetica-Bold", 7.5)
+    cv.drawString(x_text, h - 36, f"Branch: {session.get('branch', 'Head Office').upper()}")
     
-    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.2); cv.rect(w - 90, h - 42, 80, 16) 
-    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawCentredString(w - 50, h - 37, "PREMIUM EXPRESS")
-    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(10, h - 62, w - 10, h - 62)
+    cv.setStrokeColorRGB(*hex_rgb("#d97706")); cv.setLineWidth(1.2); cv.rect(w - 90, h - 42, 80, 16) 
+    cv.setFillColorRGB(*hex_rgb("#d97706")); cv.setFont("Helvetica-Bold", 6.5); cv.drawCentredString(w - 50, h - 37, "PREMIUM EXPRESS")
+    cv.setStrokeColorRGB(*hex_rgb("#d97706")); cv.setLineWidth(1.5); cv.line(10, h - 60, w - 10, h - 60)
 
-    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(14, h - 74, "AWB NUMBER")
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, s["awb_no"])
+    cv.setFillColorRGB(*hex_rgb("#64748b")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(14, h - 74, "AWB NUMBER")
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, s["awb_no"])
     draw_barcode_safe(cv, s["awb_no"], 18, h - 128, 0.40 * inch)
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, s["awb_no"])
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, s["awb_no"])
 
     draw_qr(cv, f"AWB:{s['awb_no']}|WT:{s['weight_kg']}", w - 74, h - 138, 58)
 
-    cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawString(20, h - 158, "ORIGIN"); cv.drawRightString(w - 20, h - 158, "DESTINATION")
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 13)
+    cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.setStrokeColorRGB(*hex_rgb("#cbd5e1")); cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#64748b")); cv.setFont("Helvetica-Bold", 6); cv.drawString(20, h - 158, "ORIGIN"); cv.drawRightString(w - 20, h - 158, "DESTINATION")
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 13)
     cv.drawString(20, h - 172, str(s["origin_name"])[:12].upper())
     cv.drawRightString(w - 20, h - 170, str(s["dest_station"] or s["dest_name"])[:12].upper())
 
-    cv.setFillColorRGB(*hex_rgb("#FFFFFF")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, h - 254, w - 24, 70, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.rect(12, h - 254, 4, 70, fill=1, stroke=0)
+    cv.setFillColorRGB(*hex_rgb("#ffffff")); cv.setStrokeColorRGB(*hex_rgb("#cbd5e1")); cv.rect(12, h - 254, w - 24, 70, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#0f766e")); cv.rect(12, h - 254, 4, 70, fill=1, stroke=0)
     cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, h - 194, "DELIVER TO")
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 10)
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 10)
     
     yy = h - 206
     for line in wrap_lines(cv, s["dest_name"] or "", "Helvetica-Bold", 10, w - 50)[:2]:
@@ -631,14 +688,14 @@ def print_label_pdf(awb):
     cw = (w - 24) / 4; chh = 19; y0 = h - 258
     for i, (label, value) in enumerate(cells):
         cx = 12 + i * cw; cy = y0 - chh
-        cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(cx, cy, cw, chh, fill=1, stroke=1)
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 5.6); cv.drawString(cx + 4, cy + chh - 7, label)
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, cy + 4, str(value))
+        cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.setStrokeColorRGB(*hex_rgb("#cbd5e1")); cv.rect(cx, cy, cw, chh, fill=1, stroke=1)
+        cv.setFillColorRGB(*hex_rgb("#64748b")); cv.setFont("Helvetica-Bold", 5.6); cv.drawString(cx + 4, cy + chh - 7, label)
+        cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, cy + 4, str(value))
 
     st = y0 - chh - 6
-    cv.setFillColorRGB(*hex_rgb("#FFFFFF")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, st - 40, w - 24, 40, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(20, st - 10, "SHIPPER")
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 6.8)
+    cv.setFillColorRGB(*hex_rgb("#ffffff")); cv.setStrokeColorRGB(*hex_rgb("#cbd5e1")); cv.rect(12, st - 40, w - 24, 40, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#d97706")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(20, st - 10, "SHIPPER")
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica", 6.8)
     yy = st - 20
     for line in wrap_lines(cv, f"{s['cname'] or s['origin_name']} | {s['caddr'] or s['origin_address']}", "Helvetica", 6.8, w - 44)[:2]:
         cv.drawString(20, yy, line); yy -= 9
@@ -660,46 +717,44 @@ def print_receipt_pdf(awb):
     buf = io.BytesIO()
     w, h = A4
     cv = canvas.Canvas(buf, pagesize=A4)
-    x = 30
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 16); cv.drawString(x, h - 40, "AGC PREMIUM COURIER")
-    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 8); cv.drawString(x, h - 55, "Head Office: Nohar, Rajasthan")
     
-    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.roundRect(w - 175, h - 52, 145, 30, 8, fill=0, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 11); cv.drawCentredString(w - 102, h - 41, "BOOKING RECEIPT")
-    cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 7); cv.drawRightString(w - 30, h - 62, f"Date: {s['booking_date']}")
-    cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(20, h - 70, w - 20, h - 70)
+    y = draw_premium_header(cv, w, h, "BOOKING RECEIPT", f"AWB: {s['awb_no']}")
 
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 16); cv.drawString(30, h - 90, s["awb_no"])
-    draw_barcode_safe(cv, s["awb_no"], 34, h - 125, 0.30 * inch)
-    cv.setFont("Courier-Bold", 8); cv.drawString(34, h - 135, s["awb_no"])
-    draw_qr(cv, f"AWB:{s['awb_no']}|WT:{s['weight_kg']}|COD:{money(s['cod_amount'])}", w - 95, h - 135, 60)
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 16); cv.drawString(40, y - 20, s["awb_no"])
+    draw_barcode_safe(cv, s["awb_no"], 44, y - 55, 0.30 * inch)
+    cv.setFont("Courier-Bold", 8); cv.drawString(44, y - 65, s["awb_no"])
+    draw_qr(cv, f"AWB:{s['awb_no']}|WT:{s['weight_kg']}|COD:{money(s['cod_amount'])}", w - 100, y - 65, 60)
 
-    bw = (w - 70) / 2; yb = h - 235
-    cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setFillColorRGB(*hex_rgb("#F7F8FA"))
-    cv.roundRect(30, yb, bw, 90, 6, fill=1, stroke=1); cv.roundRect(40 + bw, yb, bw, 90, 6, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 7)
-    cv.drawString(38, yb + 80, "SHIPPER"); cv.drawString(48 + bw, yb + 80, "CONSIGNEE")
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 8)
+    bw = (w - 90) / 2; yb = y - 170
+    cv.setStrokeColorRGB(*hex_rgb("#cbd5e1")); cv.setFillColorRGB(*hex_rgb("#f8fafc"))
+    cv.roundRect(40, yb, bw, 90, 6, fill=1, stroke=1); cv.roundRect(50 + bw, yb, bw, 90, 6, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#d97706")); cv.setFont("Helvetica-Bold", 8)
+    cv.drawString(48, yb + 78, "SHIPPER DETAILS"); cv.drawString(58 + bw, yb + 78, "CONSIGNEE DETAILS")
+    cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica", 9)
     
-    yy = yb + 65
-    for ln in wrap_lines(cv, f"{s['cname'] or s['origin_name']} {s['caddr'] or s['origin_address']}", "Helvetica", 8, bw - 16)[:3]:
-        cv.drawString(38, yy, ln); yy -= 11
+    yy = yb + 62
+    for ln in wrap_lines(cv, f"{s['cname'] or s['origin_name']}", "Helvetica-Bold", 9, bw - 16)[:1]:
+        cv.setFont("Helvetica-Bold", 9); cv.drawString(48, yy, ln); yy -= 12
+    for ln in wrap_lines(cv, f"{s['caddr'] or s['origin_address']}", "Helvetica", 8, bw - 16)[:3]:
+        cv.setFont("Helvetica", 8); cv.drawString(48, yy, ln); yy -= 11
     
-    yy = yb + 65
-    for ln in wrap_lines(cv, f"{s['dest_name'] or ''} {s['dest_address'] or ''}", "Helvetica", 8, bw - 16)[:3]:
-        cv.drawString(48 + bw, yy, ln); yy -= 11
-    cv.drawString(48 + bw, yy - 2, f"Ph: {s['dest_phone'] or '-'}")
+    yy = yb + 62
+    for ln in wrap_lines(cv, f"{s['dest_name'] or ''}", "Helvetica-Bold", 9, bw - 16)[:1]:
+        cv.setFont("Helvetica-Bold", 9); cv.drawString(58 + bw, yy, ln); yy -= 12
+    for ln in wrap_lines(cv, f"{s['dest_address'] or ''}", "Helvetica", 8, bw - 16)[:3]:
+        cv.setFont("Helvetica", 8); cv.drawString(58 + bw, yy, ln); yy -= 11
+    cv.drawString(58 + bw, yy - 2, f"Ph: {s['dest_phone'] or '-'}")
 
     vals = [("WEIGHT", f"{s['weight_kg']} KG"), ("PIECES", s["quantity"]), ("TAXABLE", f"Rs {money(s['taxable_amount'])}"), ("GST", f"Rs {money((s['cgst'] or 0) + (s['sgst'] or 0) + (s['igst'] or 0))}"), ("TOTAL", f"Rs {money(s['total_amount'])}")]
-    cw2 = (w - 60) / len(vals); yc = yb - 18
+    cw2 = (w - 80) / len(vals); yc = yb - 25
     for i, (lb, vl) in enumerate(vals):
-        cx = 30 + i * cw2
-        cv.setFillColorRGB(*hex_rgb("#EEF1F4")); cv.rect(cx, yc - 26, cw2 - 4, 26, fill=1, stroke=0)
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 5.5); cv.drawString(cx + 4, yc - 8, lb)
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, yc - 19, str(vl))
+        cx = 40 + i * cw2
+        cv.setFillColorRGB(*hex_rgb("#f1f5f9")); cv.rect(cx, yc - 26, cw2 - 4, 26, fill=1, stroke=0)
+        cv.setFillColorRGB(*hex_rgb("#64748b")); cv.setFont("Helvetica-Bold", 6); cv.drawString(cx + 4, yc - 8, lb)
+        cv.setFillColorRGB(*hex_rgb("#0f172a")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, yc - 19, str(vl))
 
-    cv.setFont("Helvetica", 7); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(30, yc - 38, num_to_words_inr(s['total_amount']))
-    cv.line(w - 170, yc - 30, w - 30, yc - 30); cv.drawString(w - 170, yc - 40, "Authorised Signatory")
+    cv.setFont("Helvetica-Bold", 8); cv.setFillColorRGB(*hex_rgb("#64748b")); cv.drawString(40, yc - 45, num_to_words_inr(s['total_amount']))
+    cv.line(w - 180, yc - 30, w - 40, yc - 30); cv.drawString(w - 180, yc - 42, "Authorised Signatory")
     
     cv.showPage(); cv.save()
     buf.seek(0)
@@ -717,28 +772,33 @@ def print_manifest_pdf(mid):
     conn.close()
 
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 14); cv.drawString(40, h - 40, "OUTWARD MANIFEST")
-    cv.setFont("Helvetica", 9); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(40, h - 55, f"Date: {m['created_at']} | Route: {m['from_location']} -> {m['to_location']}")
-    draw_barcode_safe(cv, f"MF-{m['id']}", w - 150, h - 50, 0.35 * inch)
+    y = draw_premium_header(cv, w, h, "OUTWARD MANIFEST", f"MF No: MF-{m['id']}")
     
-    cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.roundRect(40, h - 100, w - 80, 35, 6, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 9); cv.drawString(55, h - 80, f"Vehicle: {m['vehicle_no']} | Total Items: {len(items)}")
+    # Manifest Info Box
+    cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.setStrokeColorRGB(*hex_rgb("#e2e8f0")); cv.roundRect(40, y - 45, w - 80, 45, 6, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 10)
+    cv.drawString(55, y - 20, f"Route: {m['from_location'].upper()} -> {m['to_location'].upper()}")
+    cv.setFont("Helvetica", 9)
+    cv.drawString(55, y - 35, f"Vehicle: {m['vehicle_no']}   |   Date: {m['created_at']}   |   Total Items: {len(items)}")
+    draw_barcode_safe(cv, f"MF-{m['id']}", w - 180, y - 38, 0.35 * inch)
     
-    y = h - 120
-    cv.setFillColorRGB(*hex_rgb("#EEF1F4")); cv.rect(40, y - 16, w - 80, 16, fill=1, stroke=0)
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
-    cv.drawString(45, y - 11, "S.No"); cv.drawString(80, y - 11, "AWB & BARCODE"); cv.drawString(250, y - 11, "DESTINATION"); cv.drawString(450, y - 11, "WEIGHT")
-    y -= 16
+    y -= 65
+    cv.setFillColorRGB(*hex_rgb("#e2e8f0")); cv.rect(40, y - 20, w - 80, 20, fill=1, stroke=0)
+    cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 8)
+    cv.drawString(45, y - 14, "S.No"); cv.drawString(80, y - 14, "AWB & BARCODE"); cv.drawString(250, y - 14, "DESTINATION STATION"); cv.drawString(450, y - 14, "WEIGHT")
+    y -= 20
     
     for i, it in enumerate(items):
         if y < 40: cv.showPage(); y = h - 40
-        if i % 2 == 1: cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(40, y - 24, w - 80, 24, fill=1, stroke=0)
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
-        cv.drawString(45, y - 10, str(i + 1)); cv.drawString(80, y - 9, it["awb_no"])
-        draw_barcode_safe(cv, it["awb_no"], 80, y - 21, 0.16 * inch)
-        cv.setFont("Helvetica", 8); cv.drawString(250, y - 14, str(it.get("dest_station", ""))[:20])
-        cv.setFont("Helvetica-Bold", 8); cv.drawString(450, y - 14, f"{it['weight_kg']} KG")
-        y -= 24
+        if i % 2 == 1: cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.rect(40, y - 28, w - 80, 28, fill=1, stroke=0)
+        cv.setStrokeColorRGB(*hex_rgb("#e2e8f0")); cv.rect(40, y - 28, w - 80, 28, fill=0, stroke=1)
+        
+        cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(45, y - 14, str(i + 1)); cv.drawString(80, y - 10, it["awb_no"])
+        draw_barcode_safe(cv, it["awb_no"], 80, y - 25, 0.18 * inch)
+        cv.setFont("Helvetica-Bold", 9); cv.drawString(250, y - 16, str(it.get("dest_station", "")).upper()[:25])
+        cv.setFont("Helvetica-Bold", 8); cv.drawString(450, y - 16, f"{it['weight_kg']} KG")
+        y -= 28
 
     cv.showPage(); cv.save()
     buf.seek(0); return send_file(buf, download_name=f"Manifest_{mid}.pdf", mimetype='application/pdf')
@@ -750,40 +810,48 @@ def print_drs_pdf(did):
     with conn.cursor() as c:
         c.execute("SELECT * FROM drs WHERE id=%s", (did,))
         d = c.fetchone()
-        c.execute("SELECT s.awb_no, s.dest_name, di.receiver_name FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (did,))
+        c.execute("SELECT s.awb_no, s.dest_name, s.dest_address, s.dest_phone FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (did,))
         items = c.fetchall()
     conn.close()
 
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 14); cv.drawString(40, h - 40, "DELIVERY RUN SHEET (DRS)")
-    cv.setFont("Helvetica", 9); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(40, h - 55, f"Date: {d['drs_date']} | Rider: {d['rider_name']}")
+    y = draw_premium_header(cv, w, h, "DELIVERY RUN SHEET", f"DRS No: DRS-{d['id']}")
     
-    cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.roundRect(40, h - 100, w - 80, 35, 6, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 9); cv.drawString(55, h - 80, f"DRS No: DRS-{d['id']} | Total Items: {len(items)}")
+    cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.setStrokeColorRGB(*hex_rgb("#e2e8f0")); cv.roundRect(40, y - 45, w - 80, 45, 6, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 11)
+    cv.drawString(55, y - 20, f"Rider Name: {d['rider_name'].upper()}")
+    cv.setFont("Helvetica", 9)
+    cv.drawString(55, y - 35, f"DRS Date: {d['drs_date']}   |   Total Parcels: {len(items)}")
+    draw_qr(cv, f"DRS:{d['id']}|RIDER:{d['rider_name']}", w - 100, y - 40, 35)
     
-    y = h - 120
-    cv.setFillColorRGB(*hex_rgb("#EEF1F4")); cv.rect(40, y - 20, w - 80, 20, fill=1, stroke=1)
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
-    cv.drawString(45, y - 14, "#"); cv.drawString(75, y - 14, "AWB & BARCODE"); cv.drawString(220, y - 14, "CONSIGNEE"); cv.drawString(380, y - 14, "SIGNATURE & MOBILE")
+    y -= 65
+    cv.setFillColorRGB(*hex_rgb("#e2e8f0")); cv.rect(40, y - 20, w - 80, 20, fill=1, stroke=1)
+    cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 8)
+    cv.drawString(45, y - 14, "#"); cv.drawString(75, y - 14, "AWB & BARCODE"); cv.drawString(220, y - 14, "CONSIGNEE DETAILS"); cv.drawString(400, y - 14, "SIGNATURE & MOBILE")
     y -= 20
 
     for i, it in enumerate(items):
         if y < 60: cv.showPage(); y = h - 40
-        if i % 2 == 1: cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(40, y - 40, w - 80, 40, fill=1, stroke=0)
-        cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(40, y - 40, w - 80, 40, fill=0, stroke=1)
+        if i % 2 == 1: cv.setFillColorRGB(*hex_rgb("#f8fafc")); cv.rect(40, y - 40, w - 80, 40, fill=1, stroke=0)
+        cv.setStrokeColorRGB(*hex_rgb("#e2e8f0")); cv.rect(40, y - 40, w - 80, 40, fill=0, stroke=1)
         
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
+        cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 8)
         cv.drawString(45, y - 25, str(i + 1)); cv.drawString(75, y - 12, it["awb_no"])
         draw_barcode_safe(cv, it["awb_no"], 75, y - 36, 0.28 * inch)
-        cv.setFont("Helvetica-Bold", 9); cv.drawString(220, y - 25, str(it.get("dest_name", ""))[:20].upper())
         
-        cv.setStrokeColorRGB(*hex_rgb("#6B7280")); cv.setDash(1, 2)
-        cv.line(410, y - 15, w - 50, y - 15); cv.line(410, y - 32, w - 50, y - 32); cv.setDash()
-        cv.setFont("Helvetica", 8); cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.drawString(385, y - 15, "Sign:"); cv.drawString(385, y - 32, "Mob:")
+        cv.setFont("Helvetica-Bold", 9); cv.drawString(220, y - 14, str(it.get("dest_name", ""))[:25].upper())
+        cv.setFont("Helvetica", 7)
+        address_lines = wrap_lines(cv, it.get("dest_address", ""), "Helvetica", 7, 160)
+        if address_lines: cv.drawString(220, y - 24, address_lines[0])
+        cv.drawString(220, y - 34, f"Ph: {it.get('dest_phone', '')}")
+        
+        cv.setStrokeColorRGB(*hex_rgb("#94a3b8")); cv.setDash(1, 2)
+        cv.line(420, y - 15, w - 50, y - 15); cv.line(420, y - 32, w - 50, y - 32); cv.setDash()
+        cv.setFont("Helvetica", 8); cv.setFillColorRGB(*hex_rgb("#64748b")); cv.drawString(395, y - 15, "Sign:"); cv.drawString(395, y - 32, "Mob:")
         y -= 40
 
-    cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 9); cv.line(60, y - 40, 200, y - 40); cv.drawString(60, y - 55, "Rider Signature")
-    cv.line(350, y - 40, 500, y - 40); cv.drawString(350, y - 55, "Hub Manager Signature")
+    cv.setFillColorRGB(*hex_rgb("#1e293b")); cv.setFont("Helvetica-Bold", 9); cv.line(60, y - 40, 200, y - 40); cv.drawString(60, y - 55, "Rider Signature")
+    cv.line(350, y - 40, 500, y - 40); cv.drawString(350, y - 55, "Branch / Hub Manager Signature")
     
     cv.showPage(); cv.save()
     buf.seek(0); return send_file(buf, download_name=f"DRS_{did}.pdf", mimetype='application/pdf')
