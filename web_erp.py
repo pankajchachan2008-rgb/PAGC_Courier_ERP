@@ -31,7 +31,6 @@ config.read('db_config.ini')
 
 def send_whatsapp_async(phone, message):
     try:
-        # WA logic yahan uncomment kar sakte hain
         logging.info(f"Auto-WhatsApp Sent to {phone}: {message}")
     except Exception as e:
         logging.error(f"WhatsApp Error: {e}")
@@ -93,7 +92,7 @@ def auto_heal_db():
             try: c.execute("ALTER TABLE users ADD COLUMN customer_id INT")
             except: pass
 
-            defs = {"company_name": "AKASH GANGA COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
+            defs = {"company_name": "PANKAJ AGENCY COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
             for k, v in defs.items(): c.execute("INSERT IGNORE INTO settings(key_name, value) VALUES(%s, %s)", (k, v))
         conn.commit(); c.close(); conn.close()
     except Exception as e: logging.error(f"Heal Error: {e}")
@@ -213,11 +212,11 @@ AGCS_BASE_HTML = """
     <div class="top-banner">
         <h1>CourierInfo</h1>
         <div class="logo-center">
-            <i class="fas fa-paper-plane" style="color:#D67A00;"></i> AGC Akash Ganga<br>
+            <i class="fas fa-paper-plane" style="color:#D67A00;"></i> AGC PANKAJ AGENCY<br>
             <span style="font-size:10px; font-style:italic; font-weight:normal; color:#555;">Integrity at work</span>
         </div>
         <div style="color:#116B7A; font-weight:bold; font-size:14px; text-align:right;">
-            By InfoSoft
+            By PANKAJ AGENCY
         </div>
     </div>
 
@@ -325,7 +324,7 @@ AGCS_BASE_HTML = """
         </div>
     </div>
 
-    <!-- BOTTOM BAR (Log Off & Tracking) Yahan replace karein -->
+    <!-- BOTTOM BAR: Fixed Links & Form Submission -->
     <div class="bottom-bar">
         <a href="/logout" title="Log Off"><div class="log-off"></div></a>
         
@@ -336,7 +335,6 @@ AGCS_BASE_HTML = """
             <input type="text" name="awb" id="track_awb" required>
             <input type="hidden" name="doc_type" id="doc_type" value="">
             
-            <!-- JavaScript attached to buttons to set doc_type and submit -->
             <button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='c_note'; document.getElementById('trackForm').submit();">C.Note</button>
             <button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='drs'; document.getElementById('trackForm').submit();">D.R.S.</button>
             <button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='m_fest'; document.getElementById('trackForm').submit();">M.Fest</button>
@@ -348,9 +346,15 @@ AGCS_BASE_HTML = """
         </form>
         
         <div style="margin-left: auto; font-style: italic; color: #116B7A; font-weight: bold; text-align:right; font-size:12px;">
-            By InfoSoft<br><span style="font-size: 9px; color: #000; font-style:normal;">www.infosoftsolution.in</span>
+            By PANKAJAGENCY<br><span style="font-size: 9px; color: #000; font-style:normal;">www.pagcerp.cgsmart.in</span>
         </div>
     </div>
+</body>
+</html>
+"""
+
+def render_page(title, content):
+    return render_template_string(AGCS_BASE_HTML, title=title, content=content)
 
 # ==========================================
 # 📱 2. PWA (MOBILE APP) ROUTES
@@ -476,56 +480,55 @@ def dashboard():
 # 🌐 4. BRANDED PUBLIC TRACKING PAGE & AGCS BOTTOM BAR LOGIC
 # ==========================================
 
-# Yeh naya route bottom bar ke sabhi buttons ko handle karega aur sahi PDF par redirect karega
+# Yeh naya route bottom bar ke sabhi buttons ko handle karega aur sahi PDF/Page par redirect karega
 @app.route('/track_doc', methods=['POST'])
 @login_required
 def track_doc():
     doc_no = request.form.get('awb', '').strip().upper()
     doc_type = request.form.get('doc_type', '')
     
+    error_html = "<html><body style='font-family:Tahoma; padding:20px; background:#FFCCCC; color:red; border:1px solid red; text-align:center;'><h2>Error!</h2><p>{}</p><button onclick='window.close()'>Close Tab</button></body></html>"
+    
     if not doc_no:
-        flash("Please enter a document number to track/print.", "error")
-        return redirect(request.referrer)
+        return error_html.format("Please enter a Document Number in the bottom bar to track or print.")
 
-    # 1. C.Note / Pkg.Slip: Redirects to tracking page
-    if doc_type in ['c_note', 'pkg_slip']:
-        return redirect(url_for('track', awb=doc_no))
-        
-    # 2. D.R.S. Button: Finds DRS ID and opens PDF
-    elif doc_type == 'drs':
-        conn = get_db()
+    conn = get_db()
+    try:
         with conn.cursor() as c:
-            c.execute("SELECT id FROM drs WHERE drs_no=%s", (doc_no,))
-            drs = c.fetchone()
+            # 1. C.Note / Pkg.Slip: Opens tracking page or receipt
+            if doc_type == 'c_note':
+                return redirect(url_for('track', awb=doc_no))
+            elif doc_type == 'pkg_slip':
+                return redirect(f"/print/receipt/{doc_no}")
+                
+            # 2. D.R.S. Button
+            elif doc_type == 'drs':
+                doc_no_clean = doc_no.replace('DRS', '').strip()
+                c.execute("SELECT id FROM drs WHERE drs_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                drs = c.fetchone()
+                if drs: return redirect(f"/print/drs/{drs['id']}")
+                else: return error_html.format(f"DRS '{doc_no}' not found in system.")
+                
+            # 3. M.Fest Button
+            elif doc_type == 'm_fest':
+                doc_no_clean = doc_no.replace('MF', '').strip()
+                c.execute("SELECT id FROM manifests WHERE manifest_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                m = c.fetchone()
+                if m: return redirect(f"/print/manifest/{m['id']}")
+                else: return error_html.format(f"Manifest '{doc_no}' not found in system.")
+                
+            # 4. Invoice Button
+            elif doc_type == 'invoice':
+                doc_no_clean = doc_no.replace('INV/', '').strip()
+                c.execute("SELECT id FROM invoices WHERE invoice_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                inv = c.fetchone()
+                if inv: return error_html.format(f"Invoice '{doc_no}' found! (Invoice PDF module link pending)")
+                else: return error_html.format(f"Invoice '{doc_no}' not found in system.")
+    finally:
         conn.close()
-        if drs: return redirect(f"/print/drs/{drs['id']}")
-        else: flash(f"DRS {doc_no} not found in system.", "error"); return redirect(request.referrer)
         
-    # 3. M.Fest Button: Finds Manifest ID and opens PDF
-    elif doc_type == 'm_fest':
-        conn = get_db()
-        with conn.cursor() as c:
-            c.execute("SELECT id FROM manifests WHERE manifest_no=%s", (doc_no,))
-            m = c.fetchone()
-        conn.close()
-        if m: return redirect(f"/print/manifest/{m['id']}")
-        else: flash(f"Manifest {doc_no} not found in system.", "error"); return redirect(request.referrer)
-        
-    # 4. Invoice Button: Search and open Invoice PDF (Aapka custom invoice PDF route ho toh wahan redirect kare)
-    elif doc_type == 'invoice':
-        conn = get_db()
-        with conn.cursor() as c:
-            c.execute("SELECT id FROM invoices WHERE invoice_no=%s", (doc_no,))
-            inv = c.fetchone()
-        conn.close()
-        # Note: Agar aapne '/print/invoice/' route banaya hai toh wahan bhej dein
-        if inv: flash(f"Invoice {doc_no} found, PDF logic integration in progress.", "success")
-        else: flash(f"Invoice {doc_no} not found.", "error")
-        return redirect(request.referrer)
-        
-    return redirect(request.referrer)
+    return error_html.format("Invalid document type requested.")
 
-# Yeh aapka purana track route hai, jise classic AGCSInfo look me update kiya gaya hai
 @app.route('/track', methods=['GET', 'POST'])
 def track():
     awb = request.args.get('awb') or request.form.get('awb')
@@ -618,12 +621,10 @@ def track():
     </div>
     """
     
-    # Check if rendering within app base or standalone
     try:
         from flask import render_template_string
         return render_page(f"Tracking {awb}", render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg))
     except Exception:
-        # Fallback for standalone tracking (no base.html layout)
         return render_template_string("<html><body>" + html + "</body></html>", awb=awb, shipment=shipment, events=events, error_msg=error_msg)
 
 # ==========================================
@@ -720,7 +721,21 @@ def api_calc_rate():
     fuel = safe_float(get_setting("fuel_surcharge", "0")); taxable = fr * (1 + (fuel/100)); gst_amt = taxable * (tx/100); total = taxable + gst_amt
     return jsonify({"freight": round(fr,2), "taxable": round(taxable,2), "gst": round(gst_amt,2), "total": round(total,2), "tax_rate": tx})
 
-# Is code ko apne web_erp.py me /customers route se replace karein
+# ---------------------------------------------------------
+# NEW AJAX ROUTE: To Fetch Dest City & Weight on AWB Scan
+# ---------------------------------------------------------
+@app.route('/api/get_awb_info/<awb>', methods=['GET'])
+@login_required
+def api_get_awb_info(awb):
+    conn = get_db()
+    with conn.cursor() as c:
+        c.execute("SELECT dest_station, dest_name, weight_kg FROM shipments WHERE awb_no=%s", (awb.upper(),))
+        s = c.fetchone()
+    conn.close()
+    if s:
+        return jsonify({"success": True, "dest_station": s['dest_station'], "dest_name": s['dest_name'], "weight": s['weight_kg']})
+    return jsonify({"success": False})
+
 @app.route('/customers', methods=['GET', 'POST'])
 @login_required
 def customers():
@@ -733,8 +748,9 @@ def customers():
     if request.method == 'POST':
         d = request.form
         with conn.cursor() as c: 
-            # Original columns use kar rahe hain
-            c.execute("INSERT INTO customers(code, name, gstin, phone, email, state, state_code, address, credit_limit, is_active) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,1)", (d.get('code',''), d.get('name',''), d.get('gstin',''), d.get('phone1',''), d.get('email',''), d.get('state',''), d.get('scode',''), d.get('address',''), safe_float(d.get('limit')))); conn.commit(); flash("Master Data Saved Successfully!", "success")
+            # Saare field names theek tarah se fetch honge
+            c.execute("INSERT INTO customers(code, name, gstin, phone, email, state, state_code, address, credit_limit, is_active) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,1)", (d.get('code',''), d.get('name',''), d.get('gstin',''), d.get('phone1',''), d.get('email',''), d.get('state',''), d.get('scode',''), d.get('address',''), safe_float(d.get('limit'))))
+            conn.commit(); flash("Master Data Saved Successfully!", "success")
             
     with conn.cursor() as c: c.execute("SELECT * FROM customers WHERE is_active=1 ORDER BY id DESC"); custs = c.fetchall()
     conn.close()
@@ -777,7 +793,7 @@ def customers():
                     </tr>
                     <tr>
                         <td class="agcs-label">Address</td>
-                        <td colspan="3"><input type="text" name="address" class="agcs-input" style="width: 40%; margin-bottom: 2px;"><br><input type="text" class="agcs-input" style="width: 40%; margin-bottom: 2px;"><br><input type="text" class="agcs-input" style="width: 40%;"></td>
+                        <td colspan="3"><input type="text" name="address" class="agcs-input" style="width: 40%; margin-bottom: 2px;"></td>
                     </tr>
                     <tr>
                         <td class="agcs-label">Area</td>
@@ -786,8 +802,7 @@ def customers():
                     <tr>
                         <td class="agcs-label">City</td>
                         <td style="width:30%;">
-                            <input type="text" class="agcs-input" style="width: 25%; margin-right: 2px; background:white; border:1px solid #116B7A;">
-                            <select class="agcs-input" style="width: 60%; background-color: #FFFFCC; border:1px solid #009933;"><option>NOHAR</option><option>JAIPUR</option></select>
+                            <input type="text" name="city" class="agcs-input" style="width: 25%; margin-right: 2px; background:white; border:1px solid #116B7A;">
                         </td>
                         <td class="agcs-label" style="width:10%; text-align:right; padding-right:10px;">PinCode</td>
                         <td><input type="text" name="pincode" class="agcs-input" style="width: 30%;"></td>
@@ -795,11 +810,11 @@ def customers():
                     <tr>
                         <td class="agcs-label">State</td>
                         <td>
-                            <input type="text" name="scode" class="agcs-input" style="width: 25%; margin-right: 2px; background:white; border:1px solid #116B7A;" placeholder="">
-                            <select class="agcs-input" style="width: 60%; background-color: #FFFFCC; border:1px solid #009933;"><option>RAJASTHAN</option><option>HARYANA</option></select>
+                            <input type="text" name="scode" class="agcs-input" style="width: 25%; margin-right: 2px; background:white; border:1px solid #116B7A;" placeholder="Code">
+                            <select name="state" class="agcs-input" style="width: 60%; background-color: #FFFFCC; border:1px solid #009933;"><option value="RAJASTHAN">RAJASTHAN</option><option value="HARYANA">HARYANA</option><option value="DELHI">DELHI</option></select>
                         </td>
                         <td class="agcs-label" style="text-align:right; padding-right:10px;">Country</td>
-                        <td><select class="agcs-input" style="width: 30%; background-color: #FFFFCC; border:1px solid #009933;"><option>INDIA</option></select></td>
+                        <td><select name="country" class="agcs-input" style="width: 30%; background-color: #FFFFCC; border:1px solid #009933;"><option value="INDIA">INDIA</option></select></td>
                     </tr>
                     <tr>
                         <td class="agcs-label">Phone 1</td>
@@ -1120,16 +1135,62 @@ def outward():
     if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db(); current_date = datetime.now().strftime('%Y-%m-%d')
     
-    # ... (Puraana delete, unfinalize, save_entry, finalize logic as-it-is rahega) ...
+    if request.args.get('delete'):
+        with conn.cursor() as c: c.execute("DELETE FROM outward_register WHERE id=%s", (request.args.get('delete'),)); conn.commit(); flash("Deleted", "success"); return redirect(f"/outward?date={request.args.get('date', current_date)}")
+    
+    if request.args.get('unfinalize'):
+        mid = request.args.get('unfinalize')
+        with conn.cursor() as c:
+            c.execute("SELECT manifest_no FROM manifests WHERE id=%s", (mid,)); m = c.fetchone()
+            if m: c.execute("UPDATE outward_register SET finalized=0, manifest_no=NULL, outward_no=NULL WHERE manifest_no=%s", (m['manifest_no'],)); c.execute("DELETE FROM manifest_items WHERE manifest_id=%s", (mid,)); c.execute("DELETE FROM manifests WHERE id=%s", (mid,))
+            conn.commit(); flash("Unfinalized!", "success")
+        return redirect('/outward')
 
-    # Fetch Data for the View
+    if request.method == 'POST' and request.form.get('action') == 'save_entry':
+        o_date = request.form.get('out_date', current_date); o_station = str(request.form.get('out_station') or session.get('branch', 'HQ')).upper(); awb = request.form.get('awb', '').strip().upper()
+        dest_input = request.form.get('dest', '').strip().upper(); wt_input = safe_float(request.form.get('weight')); info = request.form.get('info', '')
+        
+        if awb:
+            with conn.cursor() as c:
+                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (o_station,))
+                if dest_input: c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest_input,))
+                if c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (awb,)): flash(f"{awb} already pending!", "error")
+                else:
+                    c.execute("SELECT id, dest_station, dest_name, weight_kg, dest_phone FROM shipments WHERE awb_no=%s", (awb,)); s = c.fetchone()
+                    s_dest = str(s['dest_station'] or s['dest_name'] or 'UNKNOWN') if s else 'UNKNOWN'
+                    final_dest = dest_input if dest_input else s_dest
+                    final_wt = wt_input if wt_input > 0 else (safe_float(s['weight_kg']) if s else 1.0)
+                    if s:
+                        c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, info=%s, dest_station=%s, weight_kg=%s WHERE id=%s", (o_station, info, final_dest, final_wt, s['id']))
+                        c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, 'Scanned at Outward')", (s['id'], o_station))
+                    else:
+                        c.execute("INSERT INTO shipments(awb_no, booking_date, origin_name, dest_station, dest_name, weight_kg, service_type, status, current_location, taxable_amount, total_amount, info, is_synced) VALUES(%s, %s, %s, %s, %s, %s, 'SURFACE', 'OUTWARD', %s, 0, 0, %s, 0)", (awb, o_date, session.get('branch','HQ'), final_dest, final_dest, final_wt, o_station, info))
+                        new_sid = c.lastrowid
+                        c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, 'Auto-linked from Outward')", (new_sid, o_station))
+                    c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, %s, 0)", (o_date, awb, session.get('branch','HQ'), o_station, final_dest, final_wt, info))
+                conn.commit()
+            return redirect(f"/outward?date={o_date}&station={o_station}")
+
+    if request.method == 'POST' and request.form.get('action') == 'finalize':
+        o_date = request.form.get('out_date', current_date); o_station = request.form.get('out_station', session.get('branch', 'HQ')).upper()
+        with conn.cursor() as c:
+            c.execute("SELECT id, awb_no FROM outward_register WHERE entry_date=%s AND out_station=%s AND origin_station=%s AND finalized=0", (o_date, o_station, session.get('branch','HQ'))); pending = c.fetchall()
+            if pending:
+                ono = get_seq("outward", "OUT", 6); mno = get_seq("manifest", "MF", 7)
+                c.execute("INSERT INTO manifests(manifest_no, manifest_type, from_location, to_location, vehicle_no, driver_phone, seal_no, status) VALUES(%s, 'OUTWARD', %s, %s, %s, %s, %s, 'OPEN')", (mno, session.get('branch','HQ'), o_station, request.form.get('vehicle_no',''), '', ''))
+                mid = c.lastrowid
+                for p in pending:
+                    c.execute("UPDATE outward_register SET finalized=1, outward_no=%s, manifest_no=%s WHERE id=%s", (ono, mno, p['id']))
+                    c.execute("SELECT id FROM shipments WHERE awb_no=%s", (p['awb_no'],)); s_row = c.fetchone()
+                    if s_row: c.execute("INSERT INTO manifest_items(manifest_id, shipment_id) VALUES(%s, %s)", (mid, s_row['id'])); c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'OUTWARD', %s)", (s_row['id'], session.get('branch','HQ')))
+                conn.commit(); flash(f"Locked! Manifest Generated: {mno}", "success")
+        return redirect(f"/outward?date={o_date}&station={o_station}")
+
     f_date = request.args.get('date', current_date); f_station = request.args.get('station', session.get('branch', 'HQ')).upper()
     with conn.cursor() as c:
         c.execute("SELECT id, awb_no, destination, weight, info FROM outward_register WHERE entry_date=%s AND out_station=%s AND origin_station=%s AND finalized=0 ORDER BY id DESC", (f_date, f_station, session.get('branch','HQ'))); pending_list = c.fetchall()
-        
         c.execute("SELECT name FROM stations ORDER BY name"); stations = [r['name'] for r in c.fetchall()]
         
-        # NAYA LOGIC: Franchise (Customers) aur Cargo (Branches) ko database se fetch karna
         c.execute("SELECT name FROM customers WHERE is_active=1 ORDER BY name"); franch_list = [r['name'] for r in c.fetchall()]
         c.execute("SELECT name FROM branches ORDER BY name"); cargo_list = [r['name'] for r in c.fetchall()]
         
@@ -1139,7 +1200,6 @@ def outward():
         c.execute(q_m + " ORDER BY id DESC LIMIT 10", tuple(params_m)); mans = c.fetchall()
     conn.close()
     
-    # HTML me Jinja templating se dropdowns populate karenge
     html = """
     <style>
         .agcs-form { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; border: 1px solid #009933; margin-bottom: 10px;}
@@ -1169,7 +1229,6 @@ def outward():
             <input type="hidden" name="out_date" id="hdn_date">
             <input type="hidden" name="out_station" id="hdn_station">
 
-            <!-- UPPER SECTION: VOUCHER DETAILS -->
             <div class="section-box">
                 <div class="agcs-header">Outward Voucher Detail [Transhipment Outward]</div>
                 <table class="agcs-form">
@@ -1178,8 +1237,7 @@ def outward():
                         <td style="width:20%;"><input type="date" id="ui_date" value="{{ f_date }}" onchange="reloadPage()" class="agcs-input" style="font-weight:bold; color:blue;"></td>
                         <td class="agcs-label" style="width:10%; text-align:right;">Frnch A/c</td>
                         <td style="width:20%;">
-                            <!-- NAYA LOGIC YAHAN LAGA HAI -->
-                            <select class="agcs-select">
+                            <select name="franchise_ac" class="agcs-select">
                                 <option value="">Select One</option>
                                 {% for f in franch_list %}<option value="{{ f }}">{{ f }}</option>{% endfor %}
                             </select>
@@ -1198,8 +1256,7 @@ def outward():
                         <td><input list="stlist" id="ui_station" value="{{ f_station }}" onchange="reloadPage()" class="agcs-input"><datalist id="stlist">{% for s in stations %}<option value="{{ s }}">{% endfor %}</datalist></td>
                         <td class="agcs-label" style="text-align:right;">Cargo A/c</td>
                         <td>
-                            <!-- NAYA LOGIC YAHAN LAGA HAI -->
-                            <select class="agcs-select">
+                            <select name="cargo_ac" class="agcs-select">
                                 <option value="">Select One</option>
                                 {% for c in cargo_list %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
                             </select>
@@ -1217,13 +1274,13 @@ def outward():
                 </table>
             </div>
 
-            <!-- LOWER SECTION: CONSIGNMENT DETAILS -->
             <div class="section-box">
                 <div class="agcs-header">Outward Consignment Details</div>
                 <table class="agcs-form">
                     <tr>
                         <td class="agcs-label" style="width:8%;">Cons. No.</td>
-                        <td style="width:18%;"><input type="text" name="awb" required autofocus class="agcs-input" style="color:red; font-weight:bold; text-transform:uppercase;"></td>
+                        <!-- AJAX onblur attached here to fetch AWB info -->
+                        <td style="width:18%;"><input type="text" name="awb" id="out_awb_input" required autofocus class="agcs-input" style="color:red; font-weight:bold; text-transform:uppercase;" onblur="fetchAwbInfo()"></td>
                         <td class="agcs-label" style="width:8%; text-align:right;">Origin City</td>
                         <td style="width:18%;"><input type="text" class="agcs-input" value="{{ session.branch | default('NOHAR') }}" readonly style="background:#FFFFCC;"></td>
                         <td class="agcs-label" style="width:5%; text-align:right;">D/P</td>
@@ -1241,9 +1298,9 @@ def outward():
                         <td class="agcs-label">Ref. No.</td>
                         <td><input type="text" class="agcs-input"></td>
                         <td class="agcs-label" style="text-align:right;">Dest. City</td>
-                        <td><input type="text" name="dest" list="stlist" class="agcs-input"></td>
+                        <td><input type="text" name="dest" id="out_dest_input" list="stlist" class="agcs-input"></td>
                         <td class="agcs-label" style="text-align:right;">Normal Wgt.</td>
-                        <td><input type="number" step="0.01" name="weight" class="agcs-input" value="1.0"></td>
+                        <td><input type="number" step="0.01" name="weight" id="out_wt_input" class="agcs-input" value="1.0"></td>
                         <td class="agcs-label" style="text-align:right;">Cros. Amt.</td>
                         <td colspan="3"><input type="text" class="agcs-input" style="background:#FFFFCC;"></td>
                     </tr>
@@ -1261,7 +1318,6 @@ def outward():
             </div>
         </form>
 
-        <!-- TABLE SECTION (Pending Shipments) -->
         <div style="border: 1px solid #CCC; background: white; margin-top: 5px; height: 180px; overflow-y: scroll;">
             <table class="datatable" style="margin:0; border:none; width:100%;">
                 <thead style="position: sticky; top: 0;">
@@ -1285,7 +1341,6 @@ def outward():
             </table>
         </div>
         
-        <!-- FINALIZE MANIFEST SECTION -->
         <div style="text-align: right; padding: 5px 0;">
             <form method="POST" id="finalizeForm" style="display:inline;">
                 <input type="hidden" name="action" value="finalize">
@@ -1297,7 +1352,6 @@ def outward():
             </form>
         </div>
         
-        <!-- MANIFEST HISTORY -->
         <div style="margin-top: 20px;">
             <div class="agcs-header" style="text-align:left;">Previous Manifest Register</div>
             <div style="border: 1px solid #CCC; background: white; height: 120px; overflow-y: scroll;">
@@ -1326,6 +1380,21 @@ def outward():
         document.getElementById('hdn_date').value = document.getElementById('ui_date').value; 
         document.getElementById('hdn_station').value = document.getElementById('ui_station').value; 
     });
+    
+    // AJAX to fetch AWB info (Dest & Weight) automatically when AWB is typed
+    function fetchAwbInfo() {
+        let awb = document.getElementById('out_awb_input').value.trim();
+        if(awb.length > 3) {
+            fetch('/api/get_awb_info/' + awb)
+            .then(r => r.json())
+            .then(data => {
+                if(data.success) {
+                    document.getElementById('out_dest_input').value = data.dest_station || data.dest_name;
+                    document.getElementById('out_wt_input').value = data.weight;
+                }
+            });
+        }
+    }
     </script>
     """
     return render_page("Outward Entry [Transhipment]", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations, franch_list=franch_list, cargo_list=cargo_list, f_date=f_date, f_station=f_station, str=str))
@@ -1756,7 +1825,7 @@ def print_label_pdf(awb):
     cv.rect(4*mm, 4*mm, 93.6*mm, 144*mm) 
     draw_agc_logo(cv, 6*mm, 136*mm); cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 5.5); cv.drawString(6*mm, 129*mm, "ISO 9001:2008 Certified Company")
     cv.setFont("Helvetica-Bold", 14); cv.drawRightString(95*mm, 141*mm, str(session.get('branch', 'HQ')).upper())
-    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, str(get_setting("company_name", "AKASH GANGA COURIER")))
+    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, str(get_setting("company_name", "PANKAJ AGENCY COURIER")))
     cv.setFont("Helvetica-Bold", 8); cv.setFillColor(HexColor("#D97706")); cv.drawRightString(95*mm, 132*mm, "PREMIUM EXPRESS")
     cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 128*mm, f"GSTIN: {get_setting('company_gstin', '')} | Ph: {get_setting('company_phone', '')}")
     cv.line(4*mm, 126*mm, 97.6*mm, 126*mm); cv.setFont("Helvetica-Bold", 7); cv.drawString(6*mm, 122*mm, "AWB NUMBER")
@@ -1829,7 +1898,7 @@ def print_receipt_pdf(awb):
     cv.drawString(320, y_tbl+6, f"{gst_tot:,.2f}"); cv.drawString(390, y_tbl+6, f"{safe_float(s.get('cod_amount')):,.2f}"); cv.setFillColor(HexColor("#D97706")); cv.setFont("Helvetica-Bold", 14); cv.drawString(470, y_tbl+4, f"{safe_float(s.get('total_amount')):,.2f}")
 
     y_tbl -= 40; cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 10); cv.drawString(30, y_tbl, f"Amount to be collected: Rs {safe_float(s.get('total_amount')):,.2f}")
-    cv.setFont("Helvetica", 8); cv.drawString(30, y_tbl-50, str(get_setting("terms_note", "DECLARATION: Goods are carried at Owner's Risk."))); cv.drawString(420, y_tbl-50, f"For {str(get_setting('company_name', 'AKASH GANGA'))}"); cv.drawString(420, y_tbl-80, "Authorised Signatory")
+    cv.setFont("Helvetica", 8); cv.drawString(30, y_tbl-50, str(get_setting("terms_note", "DECLARATION: Goods are carried at Owner's Risk."))); cv.drawString(420, y_tbl-50, f"For {str(get_setting('company_name', 'PANKAJ AGENCY'))}"); cv.drawString(420, y_tbl-80, "Authorised Signatory")
 
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Receipt_{awb}.pdf", mimetype='application/pdf')
@@ -1843,7 +1912,7 @@ def print_manifest_pdf(mid):
     c.close(); conn.close()
 
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'AKASH GANGA'))} - OUTWARD MANIFEST")
+    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'PANKAJ AGENCY'))} - OUTWARD MANIFEST")
     cv.setFont("Helvetica", 10); cv.drawString(40, h - 65, f"Manifest No: {m['manifest_no']}   |   Route: {m['from_location']} -> {m['to_location']}")
     cv.drawString(40, h - 80, f"Vehicle: {str(m.get('vehicle_no') or '-')}   |   Driver Ph: {str(m.get('driver_phone') or '-')}   |   Seal: {str(m.get('seal_no') or '-')}   |   Items: {len(items)}")
     draw_barcode_safe(cv, m['manifest_no'], w - 180, h - 70, 0.4 * inch)
@@ -1875,7 +1944,7 @@ def print_drs_pdf(did):
     c.close(); conn.close()
 
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'AKASH GANGA'))} - DELIVERY RUN SHEET")
+    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'PANKAJ AGENCY'))} - DELIVERY RUN SHEET")
     cv.setFont("Helvetica", 10); cv.drawString(40, h - 65, f"DRS No: {d['drs_no']}   |   Rider: {d['rider_name']}   |   Date: {d['drs_date']}")
     draw_barcode_safe(cv, d['drs_no'], w - 180, h - 70, 0.4 * inch)
     
