@@ -226,11 +226,15 @@ AGCS_BASE_HTML = """
             <li>Master Entries
                 <ul>
                     <li><a href="/customers">Franchisee Master SetUp</a></li>
-                    <li><a href="/customers">Geographical Location Master</a></li>
-                    <li><a href="/customers">Cargo Party A/c. Master</a></li>
+                    <li><a href="#">Geographical Location Master</a></li>
+                    <li><a href="#">Cargo Party A/c. Master</a></li>
+                    <li><a href="/customers">Franchisee A/c Master</a></li>
+                    <li><a href="#">Credit Party A/c Master</a></li>
+                    <li><a href="#">General A/c Master</a></li>
                     <li><a href="/rates">Rate Master</a></li>
                     <li><a href="/stationery">Shipper/Barcode Issue</a></li>
-                    <li><a href="/users">Delivery Boy Master</a></li>
+                    <li><a href="#">Doc.Return Reason Master</a></li>
+                    <li><a href="#">Delivery Boy Master</a></li>
                     <li><a href="/users">User Login SetUp</a></li>
                     <li><a href="/settings">Misc. SetUp</a></li>
                 </ul>
@@ -243,9 +247,16 @@ AGCS_BASE_HTML = """
                     <li><a href="/outward">Outward Entry [Transhipment]</a></li>
                     <li><a href="/outward">Outward Entry [Local]</a></li>
                     <li><a href="/master_bag">Outward Manifest Generator</a></li>
+                    <li><a href="#">Packing Slip [Cargo Outward]</a></li>
                     <li><a href="/drs">D.R.S. Entry</a></li>
                     <li><a href="/drs">D.R.S. Delivery Status/Scan</a></li>
-                    <li><a href="/accounts">Cash Book / Bank Book</a></li>
+                    <li><a href="#">POD Entry / Del Status</a></li>
+                    <li><a href="#">Bulk POD Entry</a></li>
+                    <li><a href="#">C.Note Return Voucher</a></li>
+                    <li><a href="#">Account Bill Section</a></li>
+                    <li><a href="#">Quotation</a></li>
+                    <li><a href="/accounts">Cash Book</a></li>
+                    <li><a href="/accounts">Bank Book</a></li>
                     <li><a href="/expenses">Journal Voucher Entry</a></li>
                 </ul>
             </li>
@@ -254,8 +265,20 @@ AGCS_BASE_HTML = """
                     <li><a href="/reports">Shipper Issue Register</a></li>
                     <li><a href="/reports">Cargo Pkt Inward Register</a></li>
                     <li><a href="/reports">Credit Billing Data Register</a></li>
+                    <li><a href="#">Cash Billing Data Register</a></li>
                     <li><a href="/reports">Outward Data Register</a></li>
                     <li><a href="/reports">Manifest Data Register</a></li>
+                    <li><a href="#">Transhipment Charges Regist</a></li>
+                    <li><a href="#">Repeate C.Note Register</a></li>
+                    <li><a href="#">Inward - Outward Pending</a></li>
+                    <li><a href="#">Inward - Outward Wgt. Diff.</a></li>
+                    <li><a href="/reports">Invoice Data Register</a></li>
+                    <li><a href="#">Bill Pending Data</a></li>
+                    <li><a href="#">Franchisee Invoice Audit</a></li>
+                    <li><a href="#">DRS Status Register</a></li>
+                    <li><a href="#">DRS Summary Register</a></li>
+                    <li><a href="#">Inward C.Note History</a></li>
+                    <li><a href="#">Outward C.Note History</a></li>
                     <li><a href="/shipments">Delivery Status Register</a></li>
                 </ul>
             </li>
@@ -263,24 +286,60 @@ AGCS_BASE_HTML = """
                 <ul>
                     <li><a href="/my_ledger">Party A/c Ledger</a></li>
                     <li><a href="/my_ledger">Cash Book Ledger</a></li>
+                    <li><a href="/my_ledger">Bank Book Ledger</a></li>
+                    <li><a href="#">Service Tax Ledger</a></li>
                 </ul>
             </li>
             <li>Info. Reports
                 <ul>
                     <li><a href="/reports">Master Reports</a></li>
+                    <li><a href="#">Shipper Issue Report</a></li>
+                    <li><a href="#">Cargo Packet Inward Report</a></li>
+                    <li><a href="#">Shipper Inward Report</a></li>
                     <li><a href="/reports">Counter Booking Report</a></li>
+                    <li><a href="#">Outward Report [Trnspmnt]</a></li>
+                    <li><a href="#">Outward Report [Local]</a></li>
+                    <li><a href="#">Manifest Report</a></li>
+                    <li><a href="#">Packing Slip Report</a></li>
+                    <li><a href="#">D.R.S. Register</a></li>
+                    <li><a href="#">P.O.D Register</a></li>
+                    <li><a href="#">C.Note Return Register</a></li>
+                    <li><a href="#">Account Bill Register</a></li>
+                    <li><a href="#">Inward M.Fest Summary</a></li>
+                    <li><a href="#">Cash Book Register</a></li>
+                    <li><a href="#">Bank Book Register</a></li>
+                    <li><a href="#">Journal Voucher Register</a></li>
                 </ul>
             </li>
             <li>Audit Reports
                 <ul>
                     <li><a href="#">DAILY REQ. REPORTS</a></li>
+                    <li><a href="#">Daily Collection Report</a></li>
+                    <li><a href="#">Shipper Stock Anylysis</a></li>
+                    <li><a href="#">Fuel Surcharge Anylysis</a></li>
+                    <li><a href="#">Pending Outward Anylysis</a></li>
+                    <li><a href="#">Cargo Inward Anylysis</a></li>
+                    <li><a href="#">Local Inward Anylysis</a></li>
+                    <li><a href="#">Counter Booking Anylysis</a></li>
+                    <li><a href="#">Outward Anylysis</a></li>
+                    <li><a href="#">FRANCHISEE SUMMARY</a></li>
+                    <li><a href="#">DRS Scan Pending</a></li>
+                    <li><a href="#">POD Scan Pending</a></li>
+                    <li><a href="#">Duplicate C.Note Outward</a></li>
+                    <li><a href="#">CHARTS</a></li>
                 </ul>
             </li>
             <li>Utilities
                 <ul>
-                    <li><a href="/import_csv">Download Updated AGCSInfo</a></li>
-                    <li><a href="/import_csv">Bulk Data Import</a></li>
                     <li><a href="/settings">Password Change</a></li>
+                    <li><a href="#">Circular Issue</a></li>
+                    <li><a href="#">Account Code Updator</a></li>
+                    <li><a href="#">Bulk Print</a></li>
+                    <li><a href="#">Mail Box</a></li>
+                    <li><a href="#">Account / City Merging</a></li>
+                    <li><a href="#">DATA MANAGER</a></li>
+                    <li><a href="/import_csv">Download Updated AGCSInfo</a></li>
+                    <li><a href="/import_csv">Export C.Note History</a></li>
                 </ul>
             </li>
         </ul>
