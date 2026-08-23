@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>{{ title }} - AGC Enterprise ERP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- PWA / Mobile App Meta Tags -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0B1F3A">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3063/3063822.png">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <style>
+        body{font-family:'Inter',sans-serif;background:#F1F5F9;margin:0;color:#1E293B;}
+        .sidebar{width:260px;background:#0B1F3A;color:white;position:fixed;height:100%;overflow-y:auto;box-shadow:4px 0 15px rgba(0,0,0,0.1);z-index:100;transition:0.3s;}
+        .logo{padding:25px 20px;font-size:24px;font-weight:800;color:#C9A24B;border-bottom:1px solid rgba(255,255,255,0.05);text-align:center;letter-spacing:1px;}
+        .menu a{display:flex;align-items:center;gap:12px;padding:14px 25px;color:#94A3B8;text-decoration:none;font-weight:600;font-size:14px;transition:0.3s;border-left:4px solid transparent;}
+        .menu a i{width:20px;text-align:center;font-size:16px;}
+        .menu a:hover,.menu a.active{background:rgba(201,162,75,0.1);color:#C9A24B;border-left:4px solid #C9A24B;}
+        .menu-header{color:#64748B;padding:20px 25px 8px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:1.5px;}
+        .main-content{margin-left:260px;padding:30px;}
+        .header{display:flex;justify-content:space-between;align-items:center;background:white;padding:16px 25px;border-radius:12px;margin-bottom:25px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);border:1px solid #E2E8F0;}
+        .card{background:white;padding:25px;border-radius:12px;margin-bottom:25px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);border:1px solid #E2E8F0;border-top:4px solid #0B1F3A;transition:0.3s;}
+        input,select,textarea{background:#F8FAFC;border:1px solid #CBD5E1;color:#0F172A;padding:10px 14px;border-radius:8px;box-sizing:border-box;font-family:inherit;font-size:14px;width:100%;transition:0.2s;}
+        input:focus,select:focus,textarea:focus{border-color:#C9A24B;outline:none;background:#FFFFFF;box-shadow:0 0 0 3px rgba(201,162,75,0.15);}
+        label{font-weight:700;color:#64748B;margin-right:5px;font-size:12px;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;}
+        .btn{border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;color:white;transition:0.3s;box-shadow:0 2px 4px rgba(0,0,0,0.1);}
+        .btn-blue{background:#0B1F3A;color:#C9A24B;}.btn-red{background:#EF4444;}
+        .btn-gold{background:#C9A24B;color:#0B1F3A;}.btn-green{background:#10B981;}
+        .btn-ghost{background:#F1F5F9;border:1px solid #CBD5E1;color:#475569;}
+        table{width:100%;border-collapse:separate;border-spacing:0;margin-top:15px;font-size:13px;color:#334155;}
+        th,td{padding:12px 10px;text-align:left;border-bottom:1px solid #E2E8F0;}
+        th{background:#F8FAFC;font-weight:700;color:#64748B;text-transform:uppercase;font-size:12px;letter-spacing:0.5px;}
+        .badge{padding:4px 10px;border-radius:20px;font-size:11px;font-weight:800;background:#E2E8F0;color:#475569;}
+        .b-del{background:#D1FAE5;color:#059669;}
+        .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+        .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;}
+        .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:20px;}
+        .grid-6{display:grid;grid-template-columns:repeat(6,1fr);gap:15px;}
+        .dataTables_wrapper .dataTables_paginate .paginate_button {padding: 0.2em 0.8em; margin-left: 2px; border-radius: 4px; border: 1px solid #E2E8F0;}
+        .dataTables_wrapper .dataTables_paginate .paginate_button.current {background: #0B1F3A; color: white !important; border: none;}
+        .dataTables_wrapper .dataTables_filter input {border: 2px solid #C9A24B; border-radius: 6px; padding: 6px 12px; outline: none; margin-bottom: 10px;}
+        .modal-overlay {display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:1000; align-items:center; justify-content:center;}
+        .modal-content {background:white; padding:20px; border-radius:12px; width:100%; max-width:500px;}
+        
+        /* Mobile Responsiveness */
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .main-content { margin-left: 0; padding: 15px; }
+            .grid-2, .grid-3, .grid-4, .grid-6 { grid-template-columns: 1fr; }
+        }
+    </style>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
+<body>
+    <div class="sidebar" id="sidebar">
+        <div class="logo">◆ AGC ERP<br><span style="font-size:13px; color:#94A3B8; font-weight:600;">{{ session.get('branch', 'HQ') }}</span></div>
+        <div class="menu">
+            {% if session.get('role') == 'CUSTOMER' %}
+                <div class="menu-header">My Panel</div>
+                <a href="/" class="{{ 'active' if current_path == '/' else '' }}"><i class="fas fa-chart-pie"></i> Dashboard</a>
+                <a href="/booking" class="{{ 'active' if current_path == '/booking' else '' }}"><i class="fas fa-box-open"></i> New Booking</a>
+                <a href="/shipments" class="{{ 'active' if current_path == '/shipments' else '' }}"><i class="fas fa-truck-fast"></i> My Shipments</a>
+                <a href="/my_ledger" class="{{ 'active' if current_path == '/my_ledger' else '' }}"><i class="fas fa-wallet"></i> My Ledger</a>
+                <a href="/track" target="_blank" class="{{ 'active' if current_path == '/track' else '' }}"><i class="fas fa-search-location"></i> Track Center</a>
+            {% else %}
+                <div class="menu-header">Master Operations</div>
+                <a href="/" class="{{ 'active' if current_path == '/' else '' }}"><i class="fas fa-chart-pie"></i> Dashboard</a>
+                <a href="/booking" class="{{ 'active' if current_path == '/booking' else '' }}"><i class="fas fa-box-open"></i> Fast Booking</a>
+                <a href="/shipments" class="{{ 'active' if current_path == '/shipments' or '/edit_shipment' in current_path else '' }}"><i class="fas fa-truck-fast"></i> Shipments</a>
+                <a href="/track" target="_blank" class="{{ 'active' if current_path == '/track' else '' }}"><i class="fas fa-search-location"></i> Track Center</a>
+                <div class="menu-header">Hub Management</div>
+                <a href="/outward" class="{{ 'active' if current_path == '/outward' else '' }}"><i class="fas fa-plane-departure"></i> Outward Hub</a>
+                <a href="/inward" class="{{ 'active' if current_path == '/inward' else '' }}"><i class="fas fa-plane-arrival"></i> Inward Hub</a>
+                <a href="/drs" class="{{ 'active' if current_path == '/drs' else '' }}"><i class="fas fa-motorcycle"></i> DRS / Delivery</a>
+                <a href="/master_bag" class="{{ 'active' if current_path == '/master_bag' else '' }}"><i class="fas fa-shopping-bag"></i> Master Bag</a>
+                <div class="menu-header">Accounts & CRM</div>
+                <a href="/customers" class="{{ 'active' if current_path == '/customers' else '' }}"><i class="fas fa-users"></i> Customers</a>
+                <a href="/rates" class="{{ 'active' if current_path == '/rates' else '' }}"><i class="fas fa-tags"></i> Rate Cards</a>
+                <a href="/accounts" class="{{ 'active' if current_path == '/accounts' else '' }}"><i class="fas fa-wallet"></i> Ledger & Payments</a>
+                <a href="/expenses" class="{{ 'active' if current_path == '/expenses' else '' }}"><i class="fas fa-receipt"></i> Expenses</a>
+                <a href="/reports" class="{{ 'active' if current_path == '/reports' else '' }}"><i class="fas fa-chart-line"></i> Master Reports</a>
+                {% if session.get('role') == 'ADMIN' %}
+                    <div class="menu-header">Administration</div>
+                    <a href="/stationery" class="{{ 'active' if current_path == '/stationery' else '' }}"><i class="fas fa-barcode"></i> Stationery AWB</a>
+                    <a href="/users" class="{{ 'active' if current_path == '/users' else '' }}"><i class="fas fa-user-shield"></i> Users & Branch</a>
+                    <a href="/settings" class="{{ 'active' if current_path == '/settings' else '' }}"><i class="fas fa-cogs"></i> System Settings</a>
+                    <a href="/import_csv" class="{{ 'active' if current_path == '/import_csv' else '' }}"><i class="fas fa-file-import"></i> Excel Import</a>
+                {% endif %}
+            {% endif %}
+            <a href="/logout" style="color:#EF4444; margin-top:20px; border-top:1px solid rgba(255,255,255,0.05); padding-top:20px;"><i class="fas fa-power-off"></i> Secure Logout</a>
+        </div>
+    </div>
+    <div class="main-content" id="main-content">
+        <div class="header">
+            <div style="font-size:20px; font-weight:800; color:#0B1F3A; display:flex; align-items:center;">
+                <i class="fas fa-bars" id="menu-toggle" style="display:none; color:#C9A24B; margin-right:15px; cursor:pointer;"></i>
+                <i class="fas fa-cube" style="color:#C9A24B; margin-right:8px;"></i> {{ title }}
+            </div>
+            <div style="display:flex; gap:15px; align-items:center;">
+                <div style="background:#F1F5F9; color:#0B1F3A; padding:8px 18px; border-radius:20px; font-weight:700; font-size:13px; border:1px solid #E2E8F0;">
+                    <i class="fas fa-user-circle" style="color:#C9A24B;"></i> {{ session.get('full_name', '') }} <span style="color:#64748b;">({{ session.get('role', '') }})</span>
+                </div>
+            </div>
+        </div>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <script>
+            $(document).ready(function() {
+                {% for category, message in messages %}
+                    Swal.fire({
+                        toast: true, position: 'top-end', showConfirmButton: false, timer: 3000,
+                        icon: '{{ "success" if category == "success" else "error" }}',
+                        title: '{{ message }}'
+                    });
+                {% endfor %}
+            });
+            </script>
+          {% endif %}
+        {% endwith %}
+        
+        {% block content %}{% endblock %}
+        
+        <!-- PWA Service Worker & Datatables Init -->
+        <script>
+            $(document).ready(function() {
+                if ($.fn.DataTable.isDataTable('.datatable')) { $('.datatable').DataTable().destroy(); }
+                $('.datatable').DataTable({"pageLength": 25, "ordering": true, "order": [], "language": {"search": "<i class='fas fa-search'></i> Search:"}, "scrollX": true});
+                
+                // Mobile Menu Toggle
+                if(window.innerWidth <= 768) {
+                    $('#menu-toggle').show();
+                    $('#menu-toggle').click(function() {
+                        let sidebar = $('#sidebar');
+                        if(sidebar.css('transform') === 'matrix(1, 0, 0, 1, 0, 0)') { sidebar.css('transform', 'translateX(-100%)'); }
+                        else { sidebar.css('transform', 'translateX(0)'); }
+                    });
+                }
+            });
+            
+            // PWA Registration
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                    navigator.serviceWorker.register('/sw.js').then(function(registration) {
+                        console.log('ServiceWorker registration successful');
+                    }, function(err) {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+                });
+            }
+        </script>
+    </div>
+</body>
+</html>
