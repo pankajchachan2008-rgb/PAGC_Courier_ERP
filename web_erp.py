@@ -379,7 +379,6 @@ def booking():
         d = request.form; fr = safe_float(d.get('fr')); tax = safe_float(d.get('tax', 18)); wt = safe_float(d.get('wt', 1))
         fuel = safe_float(get_setting("fuel_surcharge", "0")); taxable = fr * (1 + (fuel/100)); gst = taxable * (tax / 100); tot = taxable + gst
         cgst = sgst = igst = 0
-        
         if str(d.get('ostate','')).strip().upper() == str(d.get('dstate','')).strip().upper(): cgst = sgst = gst / 2
         else: igst = gst
         
@@ -391,16 +390,12 @@ def booking():
                 c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location, is_synced) 
                              VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s, 0)""", 
                           (d.get('awb','').upper(), cid, d.get('date',''), d.get('oname',''), d.get('ophone',''), d.get('oaddr',''), d.get('ostate',''), d.get('dname',''), d.get('dphone',''), d.get('daddr',''), d.get('dstate',''), d.get('dstat','').upper(), wt, safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')), d.get('srv','SURFACE'), taxable, tax, cgst, sgst, igst, tot, d.get('info',''), session.get('branch','HQ')))
-                
                 sid = c.lastrowid
                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session.get('branch','HQ')))
-                
-                if cid: 
-                    c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, d.get('date',''), d.get('awb','').upper(), tot, f"Booking {d.get('awb','').upper()}"))
+                if cid: c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, d.get('date',''), d.get('awb','').upper(), tot, f"Booking {d.get('awb','').upper()}"))
                 conn.commit()
                 flash(f"✅ AWB Booked! Total: ₹{tot:.2f}", "success")
-            except Exception as e: 
-                flash(f"Error: {e}", "error")
+            except Exception as e: flash(f"Error: {e}", "error")
                 
     with conn.cursor() as c:
         c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1")
@@ -408,11 +403,20 @@ def booking():
         c.execute("SELECT name FROM stations ORDER BY name")
         stations = c.fetchall()
         
+        # 🛠️ EXACT DESKTOP V37 COLUMN STRUCTURE
         q_recent = """SELECT s.id, s.awb_no, COALESCE(c.name,'') as customer_name, COALESCE(s.dest_station,'') as dest_station, 
                       CONCAT(COALESCE(s.dest_name,''), ' (', COALESCE(s.dest_state_code,''), ')') as destination, 
                       s.weight_kg, COALESCE(s.cgst+s.sgst+s.igst,0) as gst, s.total_amount, s.status, s.booking_date 
-                      FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id ORDER BY s.id DESC LIMIT 50"""
-        c.execute(q_recent)
+                      FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id"""
+        
+        # Role Filtering to match operator logic
+        params_recent = []
+        if session.get('role') != 'ADMIN':
+            q_recent += " WHERE s.origin_name = %s"
+            params_recent.append(session.get('branch', 'HQ'))
+        q_recent += " ORDER BY s.id DESC LIMIT 100"
+        
+        c.execute(q_recent, tuple(params_recent))
         recent = c.fetchall()
     conn.close()
     
@@ -449,9 +453,9 @@ def booking():
         </form>
     </div>
     <div class="card" style="margin-top:20px;">
-        <h3 style="margin-top:0;">Recent Bookings (Matching Desktop Columns)</h3>
+        <h3 style="margin-top:0;">Recent Bookings</h3>
         <table><tr><th>ID</th><th>AWB No</th><th>Customer</th><th>Station</th><th>Destination</th><th>Weight</th><th>GST</th><th>Total</th><th>Status</th><th>Date</th></tr>
-        {% for r in recent %}<tr><td>{{ r.id }}</td><td style="color:#0E8A6D; font-weight:bold;">{{ r.awb_no }}</td><td>{{ r.customer_name }}</td><td>{{ r.dest_station }}</td><td>{{ r.destination }}</td><td style="font-weight:bold;">{{ r.weight_kg }} KG</td><td style="color:#C9A24B;">₹{{ r.gst }}</td><td style="font-weight:bold; color:#10B981;">₹{{ r.total_amount }}</td><td><span class="badge b-del">{{ r.status }}</span></td><td>{{ r.booking_date }}</td></tr>{% endfor %}
+        {% for r in recent %}<tr><td>{{ r.id }}</td><td style="color:#0E8A6D; font-weight:bold;">{{ r.awb_no }}</td><td>{{ r.customer_name }}</td><td>{{ r.dest_station }}</td><td>{{ r.destination }}</td><td style="font-weight:bold;">{{ r.weight_kg }} KG</td><td style="color:#C9A24B;">₹{{ "%.2f"|format(r.gst|float) }}</td><td style="font-weight:bold; color:#10B981;">₹{{ r.total_amount }}</td><td><span class="badge b-del">{{ r.status }}</span></td><td>{{ r.booking_date }}</td></tr>{% endfor %}
         </table>
     </div>
     <script>document.getElementById('bdt').valueAsDate = new Date(); function fetchRate() { let cid = document.getElementById('cid').value; if(cid) { let opt = document.getElementById('cid').options[document.getElementById('cid').selectedIndex]; document.getElementById('ost').value = opt.getAttribute('data-state'); } let data = { cust_id: cid, ostate: document.getElementById('ost').value, dstate: document.getElementById('dst').value, wt: document.getElementById('wt').value, fr: 0 }; fetch('/api/calc_rate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }).then(r => r.json()).then(res => { document.getElementById('fr').value = res.freight; document.getElementById('tax').value = res.tax_rate; document.getElementById('amt').value = res.total; document.getElementById('calc_hint').innerText = `API Hit: Taxable ₹${res.taxable} + GST ₹${res.gst}`; }); } function manualCalc() { let fr = parseFloat(document.getElementById('fr').value)||0; let tx = parseFloat(document.getElementById('tax').value)||0; document.getElementById('amt').value = (fr + (fr * tx / 100)).toFixed(2); document.getElementById('calc_hint').innerText = "Manual Override Active"; }</script>
