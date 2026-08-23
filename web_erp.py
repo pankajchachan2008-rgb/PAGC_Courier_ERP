@@ -1705,6 +1705,7 @@ def dynamic_module(category, action):
     data_found = False; table_headers = []; table_rows = []
     conn = get_db()
     with conn.cursor() as c:
+
     q_map = {
         'cash_billing_register': ("SELECT awb_no, booking_date, dest_name, weight_kg, total_amount FROM shipments WHERE customer_id IS NULL LIMIT 100", ["AWB", "Date", "Dest", "Weight", "Total Amount"]),
         'credit_billing': ("SELECT s.awb_no, s.booking_date, c.name, s.total_amount FROM shipments s JOIN customers c ON s.customer_id=c.id WHERE s.customer_id IS NOT NULL LIMIT 100", ["AWB", "Date", "Customer", "Amount"]),
