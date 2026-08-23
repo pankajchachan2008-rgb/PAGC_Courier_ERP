@@ -370,10 +370,7 @@ def manifest():
 
 @app.route('/sw.js')
 def service_worker():
-    sw_js = """
-    self.addEventListener('install', function(event) { console.log('PWA Service Worker Installed'); });
-    self.addEventListener('fetch', function(event) { event.respondWith(fetch(event.request)); });
-    """
+    sw_js = "self.addEventListener('install', function(event) { console.log('PWA Service Worker Installed'); });\nself.addEventListener('fetch', function(event) { event.respondWith(fetch(event.request)); });"
     return app.response_class(sw_js, mimetype='application/javascript')
 
 # ==========================================
