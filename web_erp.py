@@ -470,10 +470,8 @@ def shipments():
 
     search = request.form.get('search', '').strip() if request.method == 'POST' else (request.args.get('search', '').strip() if request.args.get('search') else '')
     with conn.cursor() as c:
-        q = """SELECT s.id, s.awb_no, COALESCE(c.name,'') as cname, 
-               CONCAT(COALESCE(s.dest_name,''), ' (', COALESCE(s.dest_state_code,''), ')') as destination, 
-               s.dest_station, s.status, s.current_location, s.dest_phone, c.phone as cphone, 
-               s.weight_kg, s.total_amount, s.booking_date, s.origin_name, s.info 
+        q = """SELECT s.id, s.awb_no, s.booking_date, s.dest_name, s.dest_station, 
+               s.weight_kg, s.status, s.info, s.total_amount, s.dest_phone, c.phone as cphone 
                FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id WHERE 1=1"""
         params = []
         if session.get('role') != 'ADMIN': q += " AND s.origin_name=%s"; params.append(session.get('branch', 'HQ'))
@@ -487,27 +485,30 @@ def shipments():
     conn.close()
     
     html = """
-    <div class="card" style="padding:20px; background:#F8FAFC;"><form method="POST" style="display:flex; gap:10px;"><input name="search" value="{{ search }}" placeholder="Search AWB, Station, Name or Info..." style="flex:1; padding:12px; font-size:15px; border-radius:8px;"><button type="submit" class="btn btn-blue" style="padding:12px 25px;"><i class="fas fa-search"></i> Search</button></form></div>
-    <div class="card"><table style="font-size:13px;"><tr><th>ID</th><th>AWB No</th><th>Customer</th><th>Destination</th><th>Status</th><th>Location</th><th>Weight</th><th>Total</th><th>Date</th><th>Actions</th></tr>
+    <div class="card" style="padding:20px; background:#F8FAFC;"><form method="POST" style="display:flex; gap:10px;"><input name="search" value="{{ search }}" placeholder="Global Search AWB..." style="flex:1; padding:12px; font-size:15px; border-radius:8px;"><button type="submit" class="btn btn-blue" style="padding:12px 25px;"><i class="fas fa-search"></i> Search</button></form></div>
+    <div class="card"><table style="font-size:13px; text-align:left;"><tr>
+        <th>ID</th><th>AWB</th><th>Date</th><th>Dest</th><th>Station</th><th>Weight</th><th>Status</th><th>Info</th><th>Total</th><th>Actions</th></tr>
         {% for r in rows %}<tr>
-            <td>{{ r.id }}</td><td style="color:#0B1F3A; font-weight:800; font-size:14px;">{{ r.awb_no }}<br><small style="color:#64748b; font-weight:normal;">{{ str(r.info or '')[:15] }}</small></td>
-            <td><strong>{{ str(r.cname or r.origin_name or '')[:20] }}</strong></td>
-            <td>{{ str(r.destination or '')[:25] }}<br><span style="color:#0E8A6D; font-weight:bold;">{{ r.dest_station or '-' }}</span></td>
-            <td><span class="badge b-del">{{ r.status }}</span></td>
-            <td>{{ str(r.current_location or '-')[:15] }}</td>
-            <td style="font-weight:bold;">{{ r.weight_kg }} KG</td>
-            <td style="color:#0E8A6D; font-weight:bold;">₹{{ r.total_amount or 0 }}</td>
+            <td>{{ r.id }}</td>
+            <td style="color:#0B1F3A; font-weight:800;">{{ r.awb_no }}</td>
             <td>{{ r.booking_date }}</td>
+            <td>{{ str(r.dest_name or '') }}</td>
+            <td>{{ str(r.dest_station or '') }}</td>
+            <td>{{ r.weight_kg }} KG</td>
+            <td><span class="badge b-del">{{ r.status }}</span></td>
+            <td>{{ str(r.info or '') }}</td>
+            <td>₹{{ r.total_amount or 0 }}</td>
             <td>
                 {% set ph = r.dest_phone if r.dest_phone else r.cphone %}
-                {% if ph %}<a href="https://wa.me/91{{ (ph|string|replace(' ', '')|replace('-', ''))[-10:] }}?text=Track%20AGC%20Parcel:%20https://agconline.in/track?awb={{ r.awb_no }}" target="_blank" class="btn" style="background:#10B981; padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fab fa-whatsapp"></i></a>{% endif %}
-                <a href="/edit_shipment/{{ r.id }}" class="btn btn-blue" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-edit"></i></a>
-                <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-file-invoice-dollar"></i></a>
-                <a href="/shipments?delete={{ r.id }}" onclick="return confirm('Delete this shipment?');" class="btn btn-red" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-trash"></i></a>
+                {% if ph %}<a href="https://wa.me/91{{ (ph|string|replace(' ', '')|replace('-', ''))[-10:] }}?text=Track%20AGC%20Parcel:%20https://agconline.in/track?awb={{ r.awb_no }}" target="_blank" class="btn" style="background:#10B981; padding:6px 10px; font-size:11px; border-radius:6px;" title="WhatsApp"><i class="fab fa-whatsapp"></i></a>{% endif %}
+                <a href="/edit_shipment/{{ r.id }}" class="btn btn-blue" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Edit"><i class="fas fa-edit"></i></a>
+                <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn btn-ghost" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Print Label"><i class="fas fa-print"></i> Lbl</a>
+                <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Print Receipt"><i class="fas fa-file-invoice-dollar"></i> Rec</a>
+                <a href="/shipments?delete={{ r.id }}" onclick="return confirm('Delete this shipment?');" class="btn btn-red" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Delete"><i class="fas fa-trash"></i></a>
             </td>
         </tr>{% endfor %}</table></div>
     """
-    return render_page("Shipments Management", render_template_string(html, rows=rows, search=search, str=str))
+    return render_page("Shipments", render_template_string(html, rows=rows, search=search, str=str))
 
 @app.route('/edit_shipment/<int:sid>', methods=['GET', 'POST'])
 @login_required
