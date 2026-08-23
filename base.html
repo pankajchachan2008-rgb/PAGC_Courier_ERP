@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{{ title }} - CourierInfo</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Exact AGCSInfo Color Palette & Reset */
+        body { margin: 0; padding: 0; font-family: Tahoma, Arial, sans-serif; background-color: #E8F5F5; color: #000; font-size: 12px; }
+        a { text-decoration: none; color: inherit; }
+
+        /* TOP BANNER (CourierInfo Logo Area) */
+        .top-banner { background-color: #167B82; height: 60px; display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #E69138; padding: 0 20px;}
+        .top-banner h1 { margin: 0; color: #FFF; font-style: italic; font-family: "Times New Roman", Times, serif; font-size: 32px; text-shadow: 2px 2px 2px #000; }
+        .top-banner img { height: 50px; background: white; padding: 5px; border-radius: 5px; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
+
+        /* NAVBAR (Menu) */
+        .navbar { background-color: #F8F8F8; border-bottom: 2px solid #E69138; display: flex; font-size: 11px; font-weight: bold; position: relative; z-index: 100;}
+        .navbar ul { list-style-type: none; margin: 0; padding: 0; display: flex; }
+        .navbar li { position: relative; padding: 8px 15px; color: #000; cursor: pointer; border-right: 1px solid #CCC; }
+        .navbar li:hover { background-color: #E69138; color: #FFF; }
+        
+        /* DROPDOWN MENU */
+        .navbar ul ul { display: none; position: absolute; top: 100%; left: 0; background-color: #E8FAFA; border: 1px solid #167B82; flex-direction: column; min-width: 200px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); }
+        .navbar li:hover > ul { display: flex; }
+        .navbar ul ul li { border-right: none; border-bottom: 1px solid #CCC; padding: 6px 12px; font-weight: normal; color: #000; }
+        .navbar ul ul li:hover { background-color: #167B82; color: #FFF; }
+
+        /* MAIN CONTENT AREA */
+        .main-container { display: flex; margin: 20px; gap: 20px; min-height: 500px;}
+        
+        /* LEFT SIDEBAR (Welcome Info) */
+        .sidebar { width: 250px; }
+        .welcome-box { background-color: #E69138; color: white; padding: 15px; border-radius: 5px; font-weight: bold; line-height: 1.8; box-shadow: inset 0 0 10px rgba(0,0,0,0.2); }
+        
+        /* CENTER CONTENT */
+        .content { flex: 1; background-color: transparent; }
+        
+        /* RIGHT FRANCHISEE BOX */
+        .franchise-box { width: 250px; background: transparent; border: 1px solid #167B82; border-radius: 5px; padding: 10px; }
+        .f-title { background-color: #E8FAFA; text-align: center; font-weight: bold; border-bottom: 1px solid #167B82; padding-bottom: 5px; margin-bottom: 10px; }
+        .f-select { width: 100%; background: #FFFECC; border: 1px solid #000; font-weight: bold; }
+        .f-list { margin-top: 10px; background: white; height: 200px; border: 1px solid #CCC; border-radius: 5px; }
+        .f-list-row { border-bottom: 1px solid #EEE; height: 25px; }
+
+        /* BOTTOM TRACKING BAR */
+        .bottom-bar { background-color: #8CCBCC; padding: 10px 20px; border-top: 2px solid #FFF; border-bottom: 2px solid #FFF; display: flex; align-items: center; gap: 10px; position: fixed; bottom: 0; width: 100%; box-sizing: border-box;}
+        .bottom-bar img { height: 40px; cursor: pointer; } /* Log Off Button */
+        .track-box { border: 1px solid #E00; padding: 5px 15px; display: flex; align-items: center; gap: 10px; background: transparent; }
+        .track-box input { width: 200px; padding: 3px; border: 1px solid #000; }
+        .t-btn { background-color: #167B82; color: white; border: none; padding: 3px 10px; cursor: pointer; font-size: 11px; }
+
+        /* TABLES & FORMS (AGCSInfo Style) */
+        .grid-view { width: 100%; border-collapse: collapse; margin-top: 10px; background: white; border: 1px solid #167B82; }
+        .grid-view th { background-color: #167B82; color: white; padding: 5px; text-align: left; font-size: 11px; border: 1px solid #CCC; }
+        .grid-view td { padding: 4px; border: 1px solid #CCC; font-size: 11px; }
+        .grid-view tr:nth-child(even) { background-color: #F8F8F8; }
+        
+        .classic-form { background: white; border: 1px solid #167B82; padding: 15px; margin-bottom: 20px;}
+        .classic-form label { display: inline-block; width: 120px; font-weight: bold; font-size: 11px;}
+        .classic-form input, .classic-form select { border: 1px solid #999; padding: 3px; font-size: 11px; margin-bottom: 5px; background: #FFFECC;}
+        .btn-classic { background: #E0E0E0; border: 1px solid #999; padding: 4px 15px; font-weight: bold; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <!-- TOP BANNER -->
+    <div class="top-banner">
+        <h1>CourierInfo</h1>
+        <!-- Yahan aap apna logo laga sakte hain -->
+        <div style="background: white; padding: 5px; color: #167B82; font-weight: bold; font-size: 20px;">
+            <i class="fas fa-paper-plane"></i> AGC Akash Ganga
+        </div>
+        <div style="color:white; font-size:10px;">By InfoSoft</div>
+    </div>
+
+    <!-- NAVBAR BASED ON SCREENSHOTS -->
+    <div class="navbar">
+        <ul>
+            <li><a href="/">CourierInfo</a></li>
+            <li>Master Entries
+                <ul>
+                    <li><a href="/customers">Franchisee Master SetUp</a></li>
+                    <li><a href="/customers">Geographical Location Master</a></li>
+                    <li><a href="/customers">Cargo Party A/c. Master</a></li>
+                    <li><a href="/rates">Rate Master</a></li>
+                    <li><a href="/stationery">Shipper/Barcode Issue</a></li>
+                    <li><a href="/users">Delivery Boy Master</a></li>
+                    <li><a href="/users">User Login SetUp</a></li>
+                    <li><a href="/settings">Misc. SetUp</a></li>
+                </ul>
+            </li>
+            <li>Transactions
+                <ul>
+                    <li><a href="/inward">Cargo Packet Inward</a></li>
+                    <li><a href="/inward">Local Packet Inward</a></li>
+                    <li><a href="/booking">Counter Booking</a></li>
+                    <li><a href="/outward">Outward Entry [Transhipment]</a></li>
+                    <li><a href="/outward">Outward Entry [Local]</a></li>
+                    <li><a href="/master_bag">Outward Manifest Generator</a></li>
+                    <li><a href="/drs">D.R.S. Entry</a></li>
+                    <li><a href="/drs">D.R.S. Delivery Status/Scan</a></li>
+                    <li><a href="/accounts">Cash Book / Bank Book</a></li>
+                </ul>
+            </li>
+            <li>Main Reports
+                <ul>
+                    <li><a href="/reports">Shipper Issue Register</a></li>
+                    <li><a href="/reports">Cargo Pkt Inward Register</a></li>
+                    <li><a href="/reports">Credit Billing Data Register</a></li>
+                    <li><a href="/reports">Outward Data Register</a></li>
+                    <li><a href="/reports">Manifest Data Register</a></li>
+                    <li><a href="/reports">Delivery Status Register</a></li>
+                </ul>
+            </li>
+            <li>FAS Reports
+                <ul>
+                    <li><a href="/ledger">Party A/c Ledger</a></li>
+                    <li><a href="/ledger">Cash Book Ledger</a></li>
+                </ul>
+            </li>
+            <li>Info. Reports
+                <ul>
+                    <li><a href="/reports">Master Reports</a></li>
+                    <li><a href="/reports">Counter Booking Report</a></li>
+                </ul>
+            </li>
+            <li>Audit Reports</li>
+            <li>Utilities</li>
+        </ul>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-container">
+        <!-- LEFT SIDEBAR -->
+        <div class="sidebar">
+            <div class="welcome-box">
+                Wel Come &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{{ session.branch | default('NOHAR') }}<br>
+                Acc. Year &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;2026-2027<br>
+                Date Period &nbsp;&nbsp;From 01/04/2026 To 31/03/2027
+            </div>
+            
+            <!-- Dashboard Image Placeholder from Screenshot -->
+            <div style="text-align: right; margin-top: 50px;">
+                <button style="background:#FFF; border:1px solid #CCC; padding:2px 5px; font-size:10px;">DashBoard</button>
+            </div>
+        </div>
+
+        <!-- DYNAMIC CENTER CONTENT (Jahan forms/tables aayenge) -->
+        <div class="content">
+            <!-- Flask Flash Messages -->
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    {% for category, message in messages %}
+                        <div style="padding: 10px; margin-bottom: 10px; border: 1px solid #000; background: {% if category == 'error' %}#FFCCCC{% else %}#CCFFCC{% endif %}; font-weight: bold;">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            {% endwith %}
+
+            <!-- Yahan Flask page ka actual content inject hoga -->
+            {% block content %}{% endblock %}
+        </div>
+
+        <!-- RIGHT FRANCHISEE LIST -->
+        <div class="franchise-box">
+            <div class="f-title">CURRENT FRANCHISEE</div>
+            <select class="f-select">
+                <option>{{ session.branch | default('NOHAR') }}/{{ session.branch | default('NOHAR') }}-PANKAJ AG</option>
+            </select>
+            <div class="f-list">
+                <div class="f-list-row"></div>
+                <div class="f-list-row"></div>
+                <div class="f-list-row"></div>
+                <div class="f-list-row"></div>
+                <div class="f-list-row"></div>
+                <div class="f-list-row"></div>
+                <div class="f-list-row"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTTOM BAR (Log Off & Tracking) -->
+    <div class="bottom-bar">
+        <a href="/logout" title="Log Off">
+            <div style="background:#167B82; color:white; padding:10px; font-weight:bold; border-radius:5px; border-bottom:3px solid #E69138;">
+                <i class="fas fa-sign-out-alt"></i> Log Off
+            </div>
+        </a>
+        
+        <form action="/track" method="GET" class="track-box">
+            <b><i class="fas fa-user-tie"></i> Track Your Data</b>
+            <input type="text" name="awb" required>
+            <button type="submit" class="t-btn">C.Note</button>
+            <button type="button" class="t-btn">D.R.S.</button>
+            <button type="button" class="t-btn">M.Fest</button>
+            <button type="button" class="t-btn">Pkg.Slip</button>
+            <button type="button" class="t-btn">Invoice</button>
+        </form>
+        
+        <div style="margin-left: auto; font-style: italic; color: #167B82; font-weight: bold;">
+            By InfoSoft<br><span style="font-size: 9px; color: #000;">www.infosoftsolution.in</span>
+        </div>
+    </div>
+
+</body>
+</html>
