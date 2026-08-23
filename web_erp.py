@@ -468,58 +468,31 @@ var myChart = new Chart(ctx, {{ type: 'bar', data: {{ labels: {chart_labels}, da
     return render_page("Dashboard", html)
 
 # ==========================================
-# 🌐 4. BRANDED PUBLIC TRACKING PAGE & AGCS BOTTOM BAR LOGIC
-# ==========================================
-@app.route('/track_doc', methods=['POST'])
-@login_required
-def track_doc():
-    doc_no = request.form.get('awb', '').strip().upper()
-    doc_type = request.form.get('doc_type', '')
-    error_html = "<html><body style='font-family:Tahoma; padding:20px; background:#FFCCCC; color:red; border:1px solid red; text-align:center;'><h2>Error!</h2><p>{}</p><button onclick='window.close()'>Close Tab</button></body></html>"
-    if not doc_no: return error_html.format("Please enter a Document Number in the bottom bar to track or print.")
-    conn = get_db()
-    try:
-        with conn.cursor() as c:
-            if doc_type == 'c_note': return redirect(url_for('track', awb=doc_no))
-            elif doc_type == 'pkg_slip': return redirect(f"/print/receipt/{doc_no}")
-            elif doc_type == 'drs':
-                doc_no_clean = doc_no.replace('DRS', '').strip()
-                c.execute("SELECT id FROM drs WHERE drs_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
-                drs = c.fetchone()
-                if drs: return redirect(f"/print/drs/{drs['id']}")
-                else: return error_html.format(f"DRS '{doc_no}' not found in system.")
-            elif doc_type == 'm_fest':
-                doc_no_clean = doc_no.replace('MF', '').strip()
-                c.execute("SELECT id FROM manifests WHERE manifest_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
-                m = c.fetchone()
-                if m: return redirect(f"/print/manifest/{m['id']}")
-                else: return error_html.format(f"Manifest '{doc_no}' not found in system.")
-            elif doc_type == 'invoice':
-                doc_no_clean = doc_no.replace('INV/', '').strip()
-                c.execute("SELECT id FROM invoices WHERE invoice_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
-                inv = c.fetchone()
-                if inv: return redirect(f"/print/invoice/{inv['id']}")
-                else: return error_html.format(f"Invoice '{doc_no}' not found in system.")
-    finally: conn.close()
-    return error_html.format("Invalid document type requested.")
-
-# ==========================================
 # 🎯 LUXURIOUS STANDALONE TRACKING PAGE (NO LOGIN REQUIRED)
 # ==========================================
 @app.route('/track', methods=['GET', 'POST'])
 def track():
     awb = request.args.get('awb') or request.form.get('awb')
     awb = str(awb).strip().upper() if awb else ''
-    events = []; shipment = None; error_msg = None
+    events = []
+    shipment = None
+    error_msg = None
+    
     if awb:
         try:
-            conn = get_db(); c = conn.cursor()
-            c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,)); shipment = c.fetchone()
-            if shipment:
-                c.execute("SELECT scan_type, location, remarks, created_at FROM scan_events WHERE shipment_id=%s ORDER BY id DESC", (shipment['id'],))
-                events = c.fetchall()
-            c.close(); conn.close()
-        except Exception as e: error_msg = str(e)
+            conn = get_db()
+            with conn.cursor() as c:
+                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
+                shipment = c.fetchone()
+                if shipment:
+                    # History fetch karega (Newest at top)
+                    c.execute("SELECT scan_type, location, remarks, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM scan_events WHERE shipment_id=%s ORDER BY id DESC", (shipment['id'],))
+                    events = c.fetchall()
+        except Exception as e: 
+            error_msg = str(e)
+        finally:
+            if 'conn' in locals() and conn.open: 
+                conn.close()
     
     html = """
 <!DOCTYPE html>
@@ -829,7 +802,7 @@ def track():
     <div class="container">
         <div class="header">
             <div class="logo-container">
-                <div class="logo-icon"></div>
+                <div class="logo-icon">📦</div>
                 <div class="logo-text">AGC Pankaj Agency</div>
             </div>
             <h1>Track Your Shipment</h1>
@@ -901,7 +874,7 @@ def track():
                 <div class="info-value">{{ shipment.booking_date or 'N/A' }}</div>
             </div>
             <div class="info-card">
-                <div class="info-icon">️</div>
+                <div class="info-icon">⚖️</div>
                 <div class="info-label">Weight</div>
                 <div class="info-value">{{ shipment.weight_kg or 0 }} KG</div>
             </div>
@@ -911,7 +884,7 @@ def track():
                 <div class="info-value">{{ shipment.quantity or 1 }}</div>
             </div>
             <div class="info-card">
-                <div class="info-icon"></div>
+                <div class="info-icon">🚀</div>
                 <div class="info-label">Service</div>
                 <div class="info-value">{{ shipment.service_type or 'STANDARD' }}</div>
             </div>
@@ -922,8 +895,14 @@ def track():
             </div>
             <div class="info-card highlight">
                 <div class="info-icon">💰</div>
-                <div class="info-label">Total Amount</div>
-                <div class="info-value">₹ {{ shipment.total_amount or 0 }}</div>
+                <div class="info-label">Payment Mode</div>
+                <div class="info-value">
+                    {% if shipment.cod_amount and shipment.cod_amount > 0 %}
+                        COD: ₹{{ shipment.cod_amount }}
+                    {% else %}
+                        PREPAID
+                    {% endif %}
+                </div>
             </div>
         </div>
         
@@ -942,7 +921,7 @@ def track():
                         <div class="timeline-content">
                             <div class="timeline-header">
                                 <span class="timeline-title">{{ e.scan_type.replace('_', ' ').title() }}</span>
-                                <span class="timeline-time">{{ e.created_at or 'Just now' }}</span>
+                                <span class="timeline-time">{{ e.f_date or 'Recent' }}</span>
                             </div>
                             <div class="timeline-location">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
