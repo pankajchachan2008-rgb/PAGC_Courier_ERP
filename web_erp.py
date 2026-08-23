@@ -1145,6 +1145,234 @@ def api_get_awb_info(awb):
     if s: return jsonify({"success": True, "dest_station": s['dest_station'], "dest_name": s['dest_name'], "weight": s['weight_kg']})
     return jsonify({"success": False})
 
+# ==========================================
+# 📤 WEB OUTWARD ENTRY MODULE
+# ==========================================
+@app.route('/outward', methods=['GET', 'POST'])
+@login_required
+def outward():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    
+    if request.method == 'POST':
+        awb = request.form.get('awb', '').strip().upper()
+        dest = request.form.get('dest', '').strip().upper()
+        wt = request.form.get('wt', '1')
+        info = request.form.get('info', '')
+        date = datetime.now().strftime('%Y-%m-%d')
+        st = session.get('branch', 'HQ')
+        
+        with conn.cursor() as c:
+            c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND entry_date=%s AND out_station=%s", (awb, date, st))
+            if c.fetchone():
+                flash(f"AWB {awb} is branch se pehle hi Outward ho chuka hai!", "error")
+            else:
+                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest,))
+                
+                # Update Shipment
+                c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
+                s = c.fetchone()
+                if s:
+                    c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, dest_station=%s, weight_kg=%s, info=%s WHERE id=%s", (st, dest, wt, info, s['id']))
+                    sid = s['id']
+                else:
+                    c.execute("INSERT INTO shipments(awb_no, booking_date, dest_station, weight_kg, service_type, status, current_location, info) VALUES(%s, %s, %s, %s, 'SURFACE', 'OUTWARD', %s, %s)", (awb, date, dest, wt, st, info))
+                    sid = c.lastrowid
+                
+                # Save Tracking Event & Register
+                c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, %s)", (sid, st, "Web Outward Entry"))
+                c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, %s, 0)", (date, awb, 'HQ', st, dest, wt, info))
+                
+                conn.commit()
+                flash(f"✅ AWB {awb} Outward Saved!", "success")
+
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM outward_register WHERE out_station=%s AND finalized=0 ORDER BY id DESC", (session.get('branch', 'HQ'),))
+        pending = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name")
+        stations = c.fetchall()
+    conn.close()
+
+    html = """
+    <style>
+    .agcs-form-table { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; margin-bottom: 5px; background: #E2FAFA;}
+    .agcs-form-table td { padding: 3px 5px; vertical-align: middle; border: none;}
+    .agcs-label { color: #003366; font-weight: bold; font-size: 11px; text-align:right;}
+    .agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 4px 6px; font-size: 12px; width: 100%; box-sizing: border-box; font-family: Tahoma;}
+    .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
+    .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 4px 20px; font-weight: bold; cursor: pointer; color: #000; font-family: Tahoma; text-transform:uppercase;}
+    .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 14px; margin: 0 0 5px 0; background:white; padding:5px;}
+    .datatable { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; border: 1px solid #116B7A; background:white;}
+    .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: #FFF; padding: 5px; border: 1px solid #000; text-align:left;}
+    .datatable td { padding: 4px 6px; border: 1px solid #CCC; color: #000;}
+    </style>
+    
+    <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+    <h2 class="page-title-green">OUTWARD ENTRY [TRANSHIPMENT]</h2>
+    <form method="POST" style="margin:0;">
+        <div class="agcs-top-bar">
+            <button type="submit" class="agcs-btn-grey">SAVE ENTRY</button>
+            <button type="button" class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button>
+            <div style="margin-left: auto; color: #D67A00; font-weight: bold; font-size:14px; padding-right:10px;">Center : {{ session.branch | default('NOHAR') }}</div>
+        </div>
+        
+        <table class="agcs-form-table" style="border:1px solid #116B7A; background:white; margin-bottom:10px; padding:10px;">
+            <tr>
+                <td class="agcs-label" style="color:red; font-size:12px;">AWB No.</td>
+                <td><input type="text" name="awb" required autofocus class="agcs-input" style="color:red; font-weight:bold; text-transform:uppercase; width:150px;" autocomplete="off"></td>
+                <td class="agcs-label">Destination</td>
+                <td>
+                    <input type="text" name="dest" list="st_list" required class="agcs-input" style="text-transform:uppercase; width:150px;" autocomplete="off">
+                    <datalist id="st_list">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
+                </td>
+                <td class="agcs-label">Weight (KG)</td>
+                <td><input type="number" step="0.01" name="wt" value="1.0" required class="agcs-input" style="width:80px; font-weight:bold;"></td>
+                <td class="agcs-label">Info/Remarks</td>
+                <td><input type="text" name="info" class="agcs-input" autocomplete="off"></td>
+            </tr>
+        </table>
+    </form>
+
+    <div style="border: 1px solid #116B7A; background: white; margin-top: 15px;">
+        <div style="background: #116B7A; color: white; font-weight: bold; padding: 5px;">Pending Outward (Unfinalized Entries)</div>
+        <div style="height: 350px; overflow-y: auto;">
+            <table class="datatable">
+                <thead style="position: sticky; top: 0;">
+                    <tr><th>ID</th><th>AWB No</th><th>Destination</th><th>Weight</th><th>Info</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                {% for p in pending %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td style="font-weight:bold; color:red;">{{ p.awb_no }}</td>
+                    <td style="font-weight:bold; color:blue;">{{ p.destination }}</td>
+                    <td>{{ p.weight }} KG</td>
+                    <td>{{ p.info }}</td>
+                    <td>{{ p.entry_date }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+    """
+    try:
+        from flask import render_template_string
+        return render_page("Outward Entry", render_template_string(html, pending=pending, stations=stations, session=session))
+    except Exception as e:
+        return str(e)
+
+# ==========================================
+# 📥 WEB INWARD ENTRY MODULE
+# ==========================================
+@app.route('/inward', methods=['GET', 'POST'])
+@login_required
+def inward():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    
+    if request.method == 'POST':
+        awb = request.form.get('awb', '').strip().upper()
+        orig = request.form.get('orig', '').strip().upper()
+        wt = request.form.get('wt', '1')
+        info = request.form.get('info', '')
+        date = datetime.now().strftime('%Y-%m-%d')
+        st = session.get('branch', 'HQ')
+        
+        with conn.cursor() as c:
+            c.execute("SELECT id FROM inward_register WHERE awb_no=%s AND entry_date=%s AND in_station=%s", (awb, date, st))
+            if c.fetchone():
+                flash(f"AWB {awb} aaj Inward ho chuka hai!", "error")
+            else:
+                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (orig,))
+                c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
+                s = c.fetchone()
+                if s:
+                    c.execute("UPDATE shipments SET status='INWARD', current_location=%s WHERE id=%s", (st, s['id']))
+                    c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'INWARD', %s, %s)", (s['id'], st, "Web Inward Entry"))
+                
+                c.execute("INSERT INTO inward_register(entry_date, awb_no, origin_station, in_station, weight, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, 0)", (date, awb, orig, st, wt, info))
+                conn.commit()
+                flash(f"✅ AWB {awb} Inward Saved!", "success")
+
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM inward_register WHERE in_station=%s AND finalized=0 ORDER BY id DESC", (session.get('branch', 'HQ'),))
+        pending = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name")
+        stations = c.fetchall()
+    conn.close()
+
+    html = """
+    <style>
+    .agcs-form-table { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; margin-bottom: 5px; background: #E2FAFA;}
+    .agcs-form-table td { padding: 3px 5px; vertical-align: middle; border: none;}
+    .agcs-label { color: #003366; font-weight: bold; font-size: 11px; text-align:right;}
+    .agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 4px 6px; font-size: 12px; width: 100%; box-sizing: border-box; font-family: Tahoma;}
+    .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
+    .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 4px 20px; font-weight: bold; cursor: pointer; color: #000; font-family: Tahoma; text-transform:uppercase;}
+    .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 14px; margin: 0 0 5px 0; background:white; padding:5px;}
+    .datatable { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; border: 1px solid #116B7A; background:white;}
+    .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: #FFF; padding: 5px; border: 1px solid #000; text-align:left;}
+    .datatable td { padding: 4px 6px; border: 1px solid #CCC; color: #000;}
+    </style>
+    
+    <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+    <h2 class="page-title-green">CARGO PACKET INWARD</h2>
+    <form method="POST" style="margin:0;">
+        <div class="agcs-top-bar">
+            <button type="submit" class="agcs-btn-grey">SAVE ENTRY</button>
+            <button type="button" class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button>
+            <div style="margin-left: auto; color: #D67A00; font-weight: bold; font-size:14px; padding-right:10px;">Center : {{ session.branch | default('NOHAR') }}</div>
+        </div>
+        
+        <table class="agcs-form-table" style="border:1px solid #116B7A; background:white; margin-bottom:10px; padding:10px;">
+            <tr>
+                <td class="agcs-label" style="color:red; font-size:12px;">AWB No.</td>
+                <td><input type="text" name="awb" required autofocus class="agcs-input" style="color:red; font-weight:bold; text-transform:uppercase; width:150px;" autocomplete="off"></td>
+                <td class="agcs-label">Coming From (Origin)</td>
+                <td>
+                    <input type="text" name="orig" list="st_list" required class="agcs-input" style="text-transform:uppercase; width:150px;" autocomplete="off">
+                    <datalist id="st_list">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
+                </td>
+                <td class="agcs-label">Weight (KG)</td>
+                <td><input type="number" step="0.01" name="wt" value="1.0" required class="agcs-input" style="width:80px; font-weight:bold;"></td>
+                <td class="agcs-label">Info/Remarks</td>
+                <td><input type="text" name="info" class="agcs-input" autocomplete="off"></td>
+            </tr>
+        </table>
+    </form>
+
+    <div style="border: 1px solid #116B7A; background: white; margin-top: 15px;">
+        <div style="background: #116B7A; color: white; font-weight: bold; padding: 5px;">Pending Inward (Hub Entries)</div>
+        <div style="height: 350px; overflow-y: auto;">
+            <table class="datatable">
+                <thead style="position: sticky; top: 0;">
+                    <tr><th>ID</th><th>AWB No</th><th>Coming From</th><th>Weight</th><th>Info</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                {% for p in pending %}
+                <tr>
+                    <td>{{ p.id }}</td>
+                    <td style="font-weight:bold; color:red;">{{ p.awb_no }}</td>
+                    <td style="font-weight:bold; color:blue;">{{ p.origin_station }}</td>
+                    <td>{{ p.weight }} KG</td>
+                    <td>{{ p.info }}</td>
+                    <td>{{ p.entry_date }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    </div>
+    """
+    try:
+        from flask import render_template_string
+        return render_page("Packet Inward", render_template_string(html, pending=pending, stations=stations, session=session))
+    except Exception as e:
+        return str(e)
+
 @app.route('/booking', methods=['GET', 'POST'])
 @login_required
 def booking():
