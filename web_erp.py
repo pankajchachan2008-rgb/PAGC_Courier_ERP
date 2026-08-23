@@ -42,28 +42,49 @@ def auto_heal_db():
     try:
         conn = get_db()
         with conn.cursor() as c:
+            # Core Users & Master Tables
             c.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password_hash VARCHAR(100), full_name VARCHAR(100), role VARCHAR(50), branch_name VARCHAR(100), active INT DEFAULT 1)")
+            c.execute("CREATE TABLE IF NOT EXISTS branches (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(100), city VARCHAR(100), phone VARCHAR(50), gstin VARCHAR(50))")
             c.execute("CREATE TABLE IF NOT EXISTS customers (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(255), gstin VARCHAR(50), phone VARCHAR(50), email VARCHAR(100), state VARCHAR(100), state_code VARCHAR(10), address TEXT, credit_limit DOUBLE DEFAULT 0, is_active INT DEFAULT 1)")
             c.execute("CREATE TABLE IF NOT EXISTS rates (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, origin_state_code VARCHAR(10), dest_state_code VARCHAR(10), min_weight DOUBLE, max_weight DOUBLE, fixed_charge DOUBLE, per_kg_rate DOUBLE, gst_rate DOUBLE, active INT DEFAULT 1)")
             c.execute("CREATE TABLE IF NOT EXISTS settings (key_name VARCHAR(100) PRIMARY KEY, value TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS sequences (name VARCHAR(50) PRIMARY KEY, value INT)")
+            c.execute("CREATE TABLE IF NOT EXISTS stations (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) UNIQUE)")
+
+            # Accounts & Finance
             c.execute("CREATE TABLE IF NOT EXISTS expenses (id INT AUTO_INCREMENT PRIMARY KEY, expense_date DATE, category VARCHAR(100), amount DOUBLE, paid_to VARCHAR(255), notes TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS ledger (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, entry_date DATE, voucher_type VARCHAR(50), reference VARCHAR(100), debit DOUBLE DEFAULT 0, credit DOUBLE DEFAULT 0, narration TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS payments (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, invoice_id INT, payment_date DATE, amount DOUBLE, mode VARCHAR(50), reference VARCHAR(100))")
-            c.execute("CREATE TABLE IF NOT EXISTS shipments (id INT AUTO_INCREMENT PRIMARY KEY, awb_no VARCHAR(100) UNIQUE, customer_id INT, booking_date DATE, origin_name VARCHAR(100), origin_phone VARCHAR(50), origin_address TEXT, origin_state_code VARCHAR(10), dest_name VARCHAR(100), dest_phone VARCHAR(50), dest_address TEXT, dest_state_code VARCHAR(10), dest_station VARCHAR(100), weight_kg DOUBLE, quantity INT, cod_amount DOUBLE, declared_value DOUBLE, service_type VARCHAR(50), taxable_amount DOUBLE, tax_rate DOUBLE, cgst DOUBLE, sgst DOUBLE, igst DOUBLE, total_amount DOUBLE, status VARCHAR(50), current_location VARCHAR(100), info TEXT)")
+            c.execute("CREATE TABLE IF NOT EXISTS ledger (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, entry_date DATE, voucher_type VARCHAR(50), reference VARCHAR(100), debit DOUBLE DEFAULT 0, credit DOUBLE DEFAULT 0, narration TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS payments (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, invoice_id INT, payment_date DATE, amount DOUBLE, mode VARCHAR(50), reference VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS invoices (id INT AUTO_INCREMENT PRIMARY KEY, invoice_no VARCHAR(100), invoice_date DATE, customer_id INT, place_of_supply_state_code VARCHAR(10), taxable_amount DOUBLE DEFAULT 0, cgst DOUBLE DEFAULT 0, sgst DOUBLE DEFAULT 0, igst DOUBLE DEFAULT 0, total DOUBLE DEFAULT 0, status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS invoice_lines (id INT AUTO_INCREMENT PRIMARY KEY, invoice_id INT, description TEXT, hsn_sac VARCHAR(50), shipment_id INT, quantity INT DEFAULT 1, rate DOUBLE DEFAULT 0, taxable_amount DOUBLE DEFAULT 0, cgst DOUBLE DEFAULT 0, sgst DOUBLE DEFAULT 0, igst DOUBLE DEFAULT 0, total DOUBLE DEFAULT 0)")
+
+            # Shipments & Core Operations
+            c.execute("CREATE TABLE IF NOT EXISTS shipments (id INT AUTO_INCREMENT PRIMARY KEY, awb_no VARCHAR(100) UNIQUE, customer_id INT, booking_date DATE, origin_name VARCHAR(100), origin_phone VARCHAR(50), origin_address TEXT, origin_state_code VARCHAR(10), dest_name VARCHAR(100), dest_phone VARCHAR(50), dest_address TEXT, dest_state_code VARCHAR(10), dest_station VARCHAR(100), weight_kg DOUBLE, quantity INT, cod_amount DOUBLE, declared_value DOUBLE, service_type VARCHAR(50), taxable_amount DOUBLE, tax_rate DOUBLE, cgst DOUBLE, sgst DOUBLE, igst DOUBLE, total_amount DOUBLE, status VARCHAR(50), current_location VARCHAR(100), info TEXT, pod_photo TEXT, is_synced INT DEFAULT 0)")
             c.execute("CREATE TABLE IF NOT EXISTS scan_events (id INT AUTO_INCREMENT PRIMARY KEY, shipment_id INT, scan_type VARCHAR(50), location VARCHAR(100), remarks TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS outward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), out_station VARCHAR(100), destination VARCHAR(100), weight VARCHAR(50), pcs INT DEFAULT 1, network VARCHAR(100) DEFAULT 'SELF', network_awb VARCHAR(100), bag_no VARCHAR(100), info TEXT, outward_no VARCHAR(100), manifest_no VARCHAR(100), finalized INT DEFAULT 0)")
+
+            # Hub & Hub Registers
+            c.execute("CREATE TABLE IF NOT EXISTS outward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), out_station VARCHAR(100), destination VARCHAR(100), weight VARCHAR(50), pcs INT DEFAULT 1, network VARCHAR(100) DEFAULT 'SELF', network_awb VARCHAR(100), bag_no VARCHAR(100), info TEXT, outward_no VARCHAR(100), manifest_no VARCHAR(100), finalized INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS inward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), in_station VARCHAR(100), weight VARCHAR(50), info TEXT, inward_no VARCHAR(100), finalized INT DEFAULT 0)")
             c.execute("CREATE TABLE IF NOT EXISTS delivery_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, delivery_boy VARCHAR(100), delivery_area VARCHAR(100), awb_no VARCHAR(100), receiver_name VARCHAR(100), info TEXT, drs_no VARCHAR(100), finalized INT DEFAULT 0)")
+
+            # Transport, DRS & Manifests
             c.execute("CREATE TABLE IF NOT EXISTS manifests (id INT AUTO_INCREMENT PRIMARY KEY, manifest_no VARCHAR(100), manifest_type VARCHAR(50), from_location VARCHAR(100), to_location VARCHAR(100), vehicle_no VARCHAR(100), driver_phone VARCHAR(50), seal_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS manifest_items (id INT AUTO_INCREMENT PRIMARY KEY, manifest_id INT, shipment_id INT, received INT DEFAULT 0)")
-            c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_no VARCHAR(100), drs_date DATE, rider_name VARCHAR(100), rider_phone VARCHAR(50), vehicle_no VARCHAR(100), status VARCHAR(50))")
-            c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100))")
-            c.execute("CREATE TABLE IF NOT EXISTS stations (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) UNIQUE)")
+            c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_no VARCHAR(100), drs_date DATE, rider_name VARCHAR(100), rider_phone VARCHAR(50), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100), remarks TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bags (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100) UNIQUE, destination VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bag_items (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))")
-            c.execute("CREATE TABLE IF NOT EXISTS sequences (name VARCHAR(50) PRIMARY KEY, value INT)")
+            
+            # Audit Security
+            c.execute("CREATE TABLE IF NOT EXISTS audit_log (id INT AUTO_INCREMENT PRIMARY KEY, tbl VARCHAR(100), act VARCHAR(50), ref VARCHAR(255), ts DATETIME DEFAULT CURRENT_TIMESTAMP)")
+
             try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
             except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN pod_photo TEXT")
+            except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN is_synced INT DEFAULT 0")
+            except: pass
+
             defs = {"company_name": "AKASH GANGA COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
             for k, v in defs.items(): c.execute("INSERT IGNORE INTO settings(key_name, value) VALUES(%s, %s)", (k, v))
         conn.commit(); c.close(); conn.close()
@@ -310,7 +331,7 @@ def users():
         d = request.form; b = str(d.get('branch', '')).upper()
         with conn.cursor() as c:
             c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (b,))
-            c.execute("INSERT INTO users(username, password_hash, full_name, role, branch_name, active) VALUES(%s,%s,%s,%s,%s,1)", (d.get('username',''), sha(d.get('password','')), d.get('full_name',''), d.get('role',''), b))
+            c.execute("INSERT INTO users(username, password_hash, full_name, role, branch_name, active) VALUES(%s,%s,%s,%s,%s,1)", (d.get('username',''), hashlib.sha256(d.get('password','').encode()).hexdigest(), d.get('full_name',''), d.get('role',''), b))
             conn.commit(); flash("User Added Successfully!", "success")
     with conn.cursor() as c: c.execute("SELECT * FROM users ORDER BY id DESC"); u_list = c.fetchall(); c.execute("SELECT name FROM stations ORDER BY name"); branches = c.fetchall()
     conn.close()
@@ -358,19 +379,41 @@ def booking():
         d = request.form; fr = safe_float(d.get('fr')); tax = safe_float(d.get('tax', 18)); wt = safe_float(d.get('wt', 1))
         fuel = safe_float(get_setting("fuel_surcharge", "0")); taxable = fr * (1 + (fuel/100)); gst = taxable * (tax / 100); tot = taxable + gst
         cgst = sgst = igst = 0
+        
         if str(d.get('ostate','')).strip().upper() == str(d.get('dstate','')).strip().upper(): cgst = sgst = gst / 2
         else: igst = gst
+        
         with conn.cursor() as c:
             try:
-                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d.get('dstat','').upper(),)); cid = safe_int(d.get('cust_id')) if d.get('cust_id') else None
-                c.execute("INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s)", (d.get('awb','').upper(), cid, d.get('date',''), d.get('oname',''), d.get('ophone',''), d.get('oaddr',''), d.get('ostate',''), d.get('dname',''), d.get('dphone',''), d.get('daddr',''), d.get('dstate',''), d.get('dstat','').upper(), wt, safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')), d.get('srv','SURFACE'), taxable, tax, cgst, sgst, igst, tot, d.get('info',''), session.get('branch','HQ')))
-                sid = c.lastrowid; c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session.get('branch','HQ')))
-                if cid: c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, d.get('date',''), d.get('awb','').upper(), tot, f"Booking {d.get('awb','').upper()}"))
-                conn.commit(); flash(f"✅ AWB Booked! Total: ₹{tot:.2f}", "success")
-            except Exception as e: flash(f"Error: {e}", "error")
+                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d.get('dstat','').upper(),))
+                cid = safe_int(d.get('cust_id')) if d.get('cust_id') else None
+                
+                c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location, is_synced) 
+                             VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s, 0)""", 
+                          (d.get('awb','').upper(), cid, d.get('date',''), d.get('oname',''), d.get('ophone',''), d.get('oaddr',''), d.get('ostate',''), d.get('dname',''), d.get('dphone',''), d.get('daddr',''), d.get('dstate',''), d.get('dstat','').upper(), wt, safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')), d.get('srv','SURFACE'), taxable, tax, cgst, sgst, igst, tot, d.get('info',''), session.get('branch','HQ')))
+                
+                sid = c.lastrowid
+                c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session.get('branch','HQ')))
+                
+                if cid: 
+                    c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, d.get('date',''), d.get('awb','').upper(), tot, f"Booking {d.get('awb','').upper()}"))
+                conn.commit()
+                flash(f"✅ AWB Booked! Total: ₹{tot:.2f}", "success")
+            except Exception as e: 
+                flash(f"Error: {e}", "error")
+                
     with conn.cursor() as c:
-        c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1"); custs = c.fetchall(); c.execute("SELECT name FROM stations ORDER BY name"); stations = c.fetchall()
-        c.execute("SELECT s.id, s.awb_no, c.name as customer_name, s.dest_station, s.dest_name, s.dest_state_code, s.weight_kg, (s.cgst+s.sgst+s.igst) as gst, s.total_amount, s.status, s.booking_date FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id ORDER BY s.id DESC LIMIT 50"); recent = c.fetchall()
+        c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1")
+        custs = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name")
+        stations = c.fetchall()
+        
+        q_recent = """SELECT s.id, s.awb_no, COALESCE(c.name,'') as customer_name, COALESCE(s.dest_station,'') as dest_station, 
+                      CONCAT(COALESCE(s.dest_name,''), ' (', COALESCE(s.dest_state_code,''), ')') as destination, 
+                      s.weight_kg, COALESCE(s.cgst+s.sgst+s.igst,0) as gst, s.total_amount, s.status, s.booking_date 
+                      FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id ORDER BY s.id DESC LIMIT 50"""
+        c.execute(q_recent)
+        recent = c.fetchall()
     conn.close()
     
     html = """
@@ -405,10 +448,10 @@ def booking():
             <button type="submit" class="btn btn-blue" style="margin-top:20px; width:100%; font-size:16px; padding:16px; letter-spacing:1px; border-radius:8px;"><i class="fas fa-check-circle"></i> SAVE & BOOK SHIPMENT</button>
         </form>
     </div>
-    <div class="card" style="max-width:950px; margin:auto; margin-top:20px;">
-        <h3 style="margin-top:0;">Recent Bookings</h3>
-        <table><tr><th>ID</th><th>AWB No</th><th>Customer</th><th>Station</th><th>Destination</th><th>Weight</th><th>Total</th><th>Status</th><th>Date</th></tr>
-        {% for r in recent %}<tr><td>{{ r.id }}</td><td style="color:#0E8A6D; font-weight:bold;">{{ r.awb_no }}</td><td>{{ r.customer_name or '' }}</td><td>{{ r.dest_station }}</td><td>{{ r.dest_name }}</td><td>{{ r.weight_kg }}</td><td style="font-weight:bold;">₹{{ r.total_amount }}</td><td><span class="badge b-del">{{ r.status }}</span></td><td>{{ r.booking_date }}</td></tr>{% endfor %}
+    <div class="card" style="margin-top:20px;">
+        <h3 style="margin-top:0;">Recent Bookings (Matching Desktop Columns)</h3>
+        <table><tr><th>ID</th><th>AWB No</th><th>Customer</th><th>Station</th><th>Destination</th><th>Weight</th><th>GST</th><th>Total</th><th>Status</th><th>Date</th></tr>
+        {% for r in recent %}<tr><td>{{ r.id }}</td><td style="color:#0E8A6D; font-weight:bold;">{{ r.awb_no }}</td><td>{{ r.customer_name }}</td><td>{{ r.dest_station }}</td><td>{{ r.destination }}</td><td style="font-weight:bold;">{{ r.weight_kg }} KG</td><td style="color:#C9A24B;">₹{{ r.gst }}</td><td style="font-weight:bold; color:#10B981;">₹{{ r.total_amount }}</td><td><span class="badge b-del">{{ r.status }}</span></td><td>{{ r.booking_date }}</td></tr>{% endfor %}
         </table>
     </div>
     <script>document.getElementById('bdt').valueAsDate = new Date(); function fetchRate() { let cid = document.getElementById('cid').value; if(cid) { let opt = document.getElementById('cid').options[document.getElementById('cid').selectedIndex]; document.getElementById('ost').value = opt.getAttribute('data-state'); } let data = { cust_id: cid, ostate: document.getElementById('ost').value, dstate: document.getElementById('dst').value, wt: document.getElementById('wt').value, fr: 0 }; fetch('/api/calc_rate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }).then(r => r.json()).then(res => { document.getElementById('fr').value = res.freight; document.getElementById('tax').value = res.tax_rate; document.getElementById('amt').value = res.total; document.getElementById('calc_hint').innerText = `API Hit: Taxable ₹${res.taxable} + GST ₹${res.gst}`; }); } function manualCalc() { let fr = parseFloat(document.getElementById('fr').value)||0; let tx = parseFloat(document.getElementById('tax').value)||0; document.getElementById('amt').value = (fr + (fr * tx / 100)).toFixed(2); document.getElementById('calc_hint').innerText = "Manual Override Active"; }</script>
@@ -427,26 +470,39 @@ def shipments():
 
     search = request.form.get('search', '').strip() if request.method == 'POST' else (request.args.get('search', '').strip() if request.args.get('search') else '')
     with conn.cursor() as c:
-        q = "SELECT s.id, s.awb_no, COALESCE(c.name,'') as cname, s.dest_name, s.dest_station, s.status, s.current_location, s.dest_phone, c.phone as cphone, s.weight_kg, s.total_amount, s.booking_date, s.origin_name FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id WHERE 1=1"
+        q = """SELECT s.id, s.awb_no, COALESCE(c.name,'') as cname, 
+               CONCAT(COALESCE(s.dest_name,''), ' (', COALESCE(s.dest_state_code,''), ')') as destination, 
+               s.dest_station, s.status, s.current_location, s.dest_phone, c.phone as cphone, 
+               s.weight_kg, s.total_amount, s.booking_date, s.origin_name, s.info 
+               FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id WHERE 1=1"""
         params = []
         if session.get('role') != 'ADMIN': q += " AND s.origin_name=%s"; params.append(session.get('branch', 'HQ'))
-        if search: q += " AND (s.awb_no LIKE %s OR s.dest_station LIKE %s OR s.dest_name LIKE %s)"; params.extend([f"%{search}%", f"%{search}%", f"%{search}%"])
+        
+        if search: 
+            q += " AND (s.awb_no LIKE %s OR s.dest_station LIKE %s OR s.dest_name LIKE %s OR s.info LIKE %s OR c.name LIKE %s)"
+            params.extend([f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%", f"%{search}%"])
+            
         q += " ORDER BY s.id DESC LIMIT 300"
         c.execute(q, tuple(params)); rows = c.fetchall()
     conn.close()
     
     html = """
-    <div class="card" style="padding:20px; background:#F8FAFC;"><form method="POST" style="display:flex; gap:10px;"><input name="search" value="{{ search }}" placeholder="Search AWB, Station or Name..." style="flex:1; padding:12px; font-size:15px; border-radius:8px;"><button type="submit" class="btn btn-blue" style="padding:12px 25px;"><i class="fas fa-search"></i> Search</button></form></div>
-    <div class="card"><table style="font-size:13px;"><tr><th>AWB</th><th>Date</th><th>Shipper</th><th>Consignee</th><th>Station</th><th>Total</th><th>Status</th><th>Actions</th></tr>
+    <div class="card" style="padding:20px; background:#F8FAFC;"><form method="POST" style="display:flex; gap:10px;"><input name="search" value="{{ search }}" placeholder="Search AWB, Station, Name or Info..." style="flex:1; padding:12px; font-size:15px; border-radius:8px;"><button type="submit" class="btn btn-blue" style="padding:12px 25px;"><i class="fas fa-search"></i> Search</button></form></div>
+    <div class="card"><table style="font-size:13px;"><tr><th>ID</th><th>AWB No</th><th>Customer</th><th>Destination</th><th>Status</th><th>Location</th><th>Weight</th><th>Total</th><th>Date</th><th>Actions</th></tr>
         {% for r in rows %}<tr>
-            <td style="color:#0B1F3A;"><strong>{{ r.awb_no }}</strong></td><td>{{ r.booking_date }}</td><td>{{ str(r.cname or r.origin_name or '')[:20] }}</td><td>{{ str(r.dest_name or '')[:20] }}</td><td>{{ r.dest_station or '-' }}</td><td style="color:#0E8A6D; font-weight:bold;">₹{{ r.total_amount or 0 }}</td>
+            <td>{{ r.id }}</td><td style="color:#0B1F3A; font-weight:800; font-size:14px;">{{ r.awb_no }}<br><small style="color:#64748b; font-weight:normal;">{{ str(r.info or '')[:15] }}</small></td>
+            <td><strong>{{ str(r.cname or r.origin_name or '')[:20] }}</strong></td>
+            <td>{{ str(r.destination or '')[:25] }}<br><span style="color:#0E8A6D; font-weight:bold;">{{ r.dest_station or '-' }}</span></td>
             <td><span class="badge b-del">{{ r.status }}</span></td>
+            <td>{{ str(r.current_location or '-')[:15] }}</td>
+            <td style="font-weight:bold;">{{ r.weight_kg }} KG</td>
+            <td style="color:#0E8A6D; font-weight:bold;">₹{{ r.total_amount or 0 }}</td>
+            <td>{{ r.booking_date }}</td>
             <td>
                 {% set ph = r.dest_phone if r.dest_phone else r.cphone %}
                 {% if ph %}<a href="https://wa.me/91{{ (ph|string|replace(' ', '')|replace('-', ''))[-10:] }}?text=Track%20AGC%20Parcel:%20https://agconline.in/track?awb={{ r.awb_no }}" target="_blank" class="btn" style="background:#10B981; padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fab fa-whatsapp"></i></a>{% endif %}
-                <a href="/edit_shipment/{{ r.id }}" class="btn btn-blue" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-edit"></i> Edit</a>
-                <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn btn-ghost" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-print"></i> Lbl</a>
-                <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-file-invoice-dollar"></i> Rec</a>
+                <a href="/edit_shipment/{{ r.id }}" class="btn btn-blue" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-edit"></i></a>
+                <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-file-invoice-dollar"></i></a>
                 <a href="/shipments?delete={{ r.id }}" onclick="return confirm('Delete this shipment?');" class="btn btn-red" style="padding:6px 10px; font-size:11px; border-radius:6px;"><i class="fas fa-trash"></i></a>
             </td>
         </tr>{% endfor %}</table></div>
@@ -523,26 +579,50 @@ def outward():
         o_date = request.form.get('out_date', current_date); o_station = str(request.form.get('out_station') or session.get('branch', 'HQ')).upper(); awb = request.form.get('awb', '').strip().upper()
         dest_input = request.form.get('dest', '').strip().upper(); wt_input = safe_float(request.form.get('weight')); info = request.form.get('info', '')
         network = str(request.form.get('network') or 'SELF').upper(); net_awb = str(request.form.get('network_awb') or '').upper(); bag_no = str(request.form.get('bag_no') or '').upper(); pcs = safe_int(request.form.get('pcs')) or 1
+        
         if awb:
             with conn.cursor() as c:
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (o_station,))
+                if dest_input:
+                    c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest_input,))
+                    
                 if awb.startswith("BAG"):
                     c.execute("SELECT awb_no FROM master_bag_items WHERE bag_no=%s", (awb,)); b_items = c.fetchall()
                     if not b_items: flash(f"Bag {awb} is empty.", "error")
                     else:
                         for bi in b_items:
-                            sub_awb = bi['awb_no']; c.execute("SELECT dest_station, weight_kg FROM shipments WHERE awb_no=%s", (sub_awb,)); s = c.fetchone()
-                            s_wt = safe_float(s['weight_kg']) if s else 1.0; s_dst = str(s['dest_station'] or 'UNKNOWN') if s else 'UNKNOWN'
-                            if not c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (sub_awb,)): c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, pcs, network, network_awb, bag_no, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)", (o_date, sub_awb, session.get('branch','HQ'), o_station, s_dst, s_wt, 1, network, net_awb, awb, f"Unpacked {awb}"))
-                        flash(f"✅ Bag unpacked.", "success")
+                            sub_awb = bi['awb_no']
+                            c.execute("SELECT id, dest_station, weight_kg FROM shipments WHERE awb_no=%s", (sub_awb,)); s = c.fetchone()
+                            s_wt = safe_float(s['weight_kg']) if s else 1.0; s_dst = str(s['dest_station'] or dest_input or 'UNKNOWN') if s else (dest_input or 'UNKNOWN')
+                            
+                            if not c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (sub_awb,)): 
+                                c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, pcs, network, network_awb, bag_no, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)", (o_date, sub_awb, session.get('branch','HQ'), o_station, s_dst, s_wt, 1, network, net_awb, awb, f"Unpacked {awb}"))
+                                
+                                if s:
+                                    c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, info=%s, dest_station=%s WHERE id=%s", (o_station, f"From Bag {awb}", s_dst, s['id']))
+                                    c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, %s)", (s['id'], o_station, f"Packed in Bag {awb}"))
+                        flash(f"✅ Bag unpacked and linked.", "success")
                 else:
-                    if c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (awb,)): flash(f"AWB {awb} already pending!", "error")
+                    if c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND finalized=0", (awb,)): 
+                        flash(f"AWB {awb} already pending!", "error")
                     else:
                         c.execute("SELECT id, dest_station, dest_name, weight_kg FROM shipments WHERE awb_no=%s", (awb,)); s = c.fetchone()
-                        s_dest = str(s['dest_station'] or s['dest_name'] or 'UNKNOWN') if s else 'UNKNOWN'; final_dest = dest_input if dest_input else s_dest; final_wt = wt_input if wt_input > 0 else (safe_float(s['weight_kg']) if s else 1.0)
-                        if final_dest != 'UNKNOWN': c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (final_dest,))
-                        if s: c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s WHERE awb_no=%s", (o_station, awb))
+                        s_dest = str(s['dest_station'] or s['dest_name'] or 'UNKNOWN') if s else 'UNKNOWN'
+                        final_dest = dest_input if dest_input else s_dest
+                        final_wt = wt_input if wt_input > 0 else (safe_float(s['weight_kg']) if s else 1.0)
+                        
+                        if s:
+                            c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, info=%s, dest_station=%s, weight_kg=%s WHERE id=%s", 
+                                      (o_station, info, final_dest, final_wt, s['id']))
+                            c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, 'Scanned at Outward')", (s['id'], o_station))
+                        else:
+                            c.execute("INSERT INTO shipments(awb_no, booking_date, origin_name, dest_station, dest_name, weight_kg, service_type, status, current_location, taxable_amount, total_amount, info, is_synced) VALUES(%s, %s, %s, %s, %s, %s, 'SURFACE', 'OUTWARD', %s, 0, 0, %s, 0)", 
+                                      (awb, o_date, session.get('branch','HQ'), final_dest, final_dest, final_wt, o_station, info))
+                            new_sid = c.lastrowid
+                            c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, 'Auto-linked from Outward')", (new_sid, o_station))
+                            
                         c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, pcs, network, network_awb, bag_no, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0)", (o_date, awb, session.get('branch','HQ'), o_station, final_dest, final_wt, pcs, network, net_awb, bag_no, info))
+                        
                 conn.commit()
             return redirect(f"/outward?date={o_date}&station={o_station}")
 
@@ -555,7 +635,8 @@ def outward():
                 c.execute("INSERT INTO manifests(manifest_no, manifest_type, from_location, to_location, vehicle_no, driver_phone, seal_no, status) VALUES(%s, 'OUTWARD', %s, %s, %s, %s, %s, 'OPEN')", (mno, session.get('branch','HQ'), o_station, request.form.get('vehicle_no',''), request.form.get('driver_phone',''), request.form.get('seal_no','')))
                 mid = c.lastrowid
                 for p in pending:
-                    c.execute("UPDATE outward_register SET finalized=1, outward_no=%s, manifest_no=%s WHERE id=%s", (ono, mno, p['id'])); c.execute("SELECT id FROM shipments WHERE awb_no=%s", (p['awb_no'],)); s_row = c.fetchone()
+                    c.execute("UPDATE outward_register SET finalized=1, outward_no=%s, manifest_no=%s WHERE id=%s", (ono, mno, p['id']))
+                    c.execute("SELECT id FROM shipments WHERE awb_no=%s", (p['awb_no'],)); s_row = c.fetchone()
                     if s_row: c.execute("INSERT INTO manifest_items(manifest_id, shipment_id) VALUES(%s, %s)", (mid, s_row['id'])); c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'OUTWARD', %s)", (s_row['id'], session.get('branch','HQ')))
                 conn.commit(); flash(f"✅ {mno} Locked!", "success")
         return redirect(f"/outward?date={o_date}&station={o_station}")
@@ -598,8 +679,8 @@ def outward():
         </form>
         <h4 style="color:#C9A24B; margin:0 0 10px 0;"><i class="fas fa-inbox"></i> Pending Items ({{ pending_list|length }})</h4>
         <div style="height:300px; overflow-y:auto; border:1px solid #E2E8F0; border-radius:8px;"><table style="margin:0;">
-            <tr style="position:sticky; top:0; background:#F8FAFC; z-index:1;"><th>AWB</th><th>Dest</th><th>Wt</th><th>Pcs</th><th>Net</th><th>Bag</th><th>Del</th></tr>
-            {% for p in pending_list %}<tr><td style="color:#0B1F3A; font-weight:800; font-size:14px;">{{ p.awb_no }}</td><td>{{ p.destination or '-' }}</td><td style="font-weight:bold;">{{ p.weight or '0' }} kg</td><td>{{ p.pcs or '1' }}</td><td><span class="badge">{{ p.network or '-' }}</span></td><td>{{ p.bag_no or '-' }}</td><td><a href="/outward?delete={{ p.id }}&date={{ f_date }}&station={{ f_station }}" class="btn btn-red" style="padding:4px 8px; border-radius:4px;"><i class="fas fa-trash"></i></a></td></tr>{% else %}<tr><td colspan="7" style="text-align:center; padding:40px; color:#94A3B8; font-size:15px;">Box is empty. Scan an AWB to start.</td></tr>{% endfor %}
+            <tr style="position:sticky; top:0; background:#F8FAFC; z-index:1;"><th>AWB</th><th>Dest</th><th>Wt</th><th>Info</th><th>Net</th><th>Bag</th><th>Del</th></tr>
+            {% for p in pending_list %}<tr><td style="color:#0B1F3A; font-weight:800; font-size:14px;">{{ p.awb_no }}</td><td>{{ p.destination or '-' }}</td><td style="font-weight:bold;">{{ p.weight or '0' }} kg</td><td>{{ str(p.info or '')[:20] }}</td><td><span class="badge">{{ p.network or '-' }}</span></td><td>{{ p.bag_no or '-' }}</td><td><a href="/outward?delete={{ p.id }}&date={{ f_date }}&station={{ f_station }}" class="btn btn-red" style="padding:4px 8px; border-radius:4px;"><i class="fas fa-trash"></i></a></td></tr>{% else %}<tr><td colspan="7" style="text-align:center; padding:40px; color:#94A3B8; font-size:15px;">Box is empty. Scan an AWB to start.</td></tr>{% endfor %}
         </table></div>
         <form method="POST" id="finalizeForm" style="display:flex; gap:10px; margin-top:20px; background:#FEF2F2; padding:15px; border-radius:8px; border:1px solid #FECACA;">
             <input type="hidden" name="action" value="finalize"><input type="hidden" name="out_date" id="fin_date" value="{{ f_date }}"><input type="hidden" name="out_station" id="fin_station" value="{{ f_station }}">
@@ -623,7 +704,7 @@ def outward():
     document.getElementById('entryForm').addEventListener('submit', function() { document.getElementById('hdn_date').value = document.getElementById('ui_date').value; document.getElementById('hdn_station').value = document.getElementById('ui_station').value; document.getElementById('hdn_network').value = document.getElementById('ui_network').value; document.getElementById('hdn_net_awb').value = document.getElementById('ui_net_awb').value; document.getElementById('hdn_bag_no').value = document.getElementById('ui_bag_no').value; document.getElementById('hdn_pcs').value = document.getElementById('ui_pcs').value; });
     </script>
     """
-    return render_page("Outward Dispatch", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations, f_date=f_date, f_station=f_station))
+    return render_page("Outward Dispatch", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations, f_date=f_date, f_station=f_station, str=str))
 
 # ==========================================
 # 🎒 9. MASTER BAG & INWARD HUB
