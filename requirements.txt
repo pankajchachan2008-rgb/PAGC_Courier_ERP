@@ -5,5 +5,5 @@ qrcode==7.4.2
 gunicorn==21.2.0
 apscheduler==3.10.4
 requests==2.31.0
-pillow==10.0.1
+pillow>=10.3.0
 werkzeug==3.0.0
