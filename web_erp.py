@@ -43,7 +43,7 @@ def auto_heal_db():
         conn = get_db()
         with conn.cursor() as c:
             # Core Users & Master Tables
-            c.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password_hash VARCHAR(100), full_name VARCHAR(100), role VARCHAR(50), branch_name VARCHAR(100), active INT DEFAULT 1)")
+            c.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password_hash VARCHAR(100), full_name VARCHAR(100), role VARCHAR(50), branch_name VARCHAR(100), customer_id INT, active INT DEFAULT 1)")
             c.execute("CREATE TABLE IF NOT EXISTS branches (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(100), city VARCHAR(100), phone VARCHAR(50), gstin VARCHAR(50))")
             c.execute("CREATE TABLE IF NOT EXISTS customers (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(255), gstin VARCHAR(50), phone VARCHAR(50), email VARCHAR(100), state VARCHAR(100), state_code VARCHAR(10), address TEXT, credit_limit DOUBLE DEFAULT 0, is_active INT DEFAULT 1)")
             c.execute("CREATE TABLE IF NOT EXISTS rates (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, origin_state_code VARCHAR(10), dest_state_code VARCHAR(10), min_weight DOUBLE, max_weight DOUBLE, fixed_charge DOUBLE, per_kg_rate DOUBLE, gst_rate DOUBLE, active INT DEFAULT 1)")
@@ -75,7 +75,7 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS master_bags (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100) UNIQUE, destination VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bag_items (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))")
             
-            # Audit Security
+            # Audit Security & Alters
             c.execute("CREATE TABLE IF NOT EXISTS audit_log (id INT AUTO_INCREMENT PRIMARY KEY, tbl VARCHAR(100), act VARCHAR(50), ref VARCHAR(255), ts DATETIME DEFAULT CURRENT_TIMESTAMP)")
 
             try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
@@ -83,6 +83,8 @@ def auto_heal_db():
             try: c.execute("ALTER TABLE shipments ADD COLUMN pod_photo TEXT")
             except: pass
             try: c.execute("ALTER TABLE shipments ADD COLUMN is_synced INT DEFAULT 0")
+            except: pass
+            try: c.execute("ALTER TABLE users ADD COLUMN customer_id INT")
             except: pass
 
             defs = {"company_name": "AKASH GANGA COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
@@ -131,28 +133,37 @@ BASE_HTML = """
     <div class="sidebar">
         <div class="logo">◆ AGC ERP<br><span style="font-size:13px; color:#94A3B8; font-weight:600;">{{ session.get('branch', 'HQ') }}</span></div>
         <div class="menu">
-            <div class="menu-header">Master Operations</div>
-            <a href="/" class="{{ 'active' if current_path == '/' else '' }}"><i class="fas fa-chart-pie"></i> Dashboard</a>
-            <a href="/booking" class="{{ 'active' if current_path == '/booking' else '' }}"><i class="fas fa-box-open"></i> Fast Booking</a>
-            <a href="/shipments" class="{{ 'active' if current_path == '/shipments' or '/edit_shipment' in current_path else '' }}"><i class="fas fa-truck-fast"></i> Shipments</a>
-            <a href="/track" target="_blank" class="{{ 'active' if current_path == '/track' else '' }}"><i class="fas fa-search-location"></i> Track Center</a>
-            <div class="menu-header">Hub Management</div>
-            <a href="/outward" class="{{ 'active' if current_path == '/outward' else '' }}"><i class="fas fa-plane-departure"></i> Outward Hub</a>
-            <a href="/inward" class="{{ 'active' if current_path == '/inward' else '' }}"><i class="fas fa-plane-arrival"></i> Inward Hub</a>
-            <a href="/drs" class="{{ 'active' if current_path == '/drs' else '' }}"><i class="fas fa-motorcycle"></i> DRS / Delivery</a>
-            <a href="/master_bag" class="{{ 'active' if current_path == '/master_bag' else '' }}"><i class="fas fa-shopping-bag"></i> Master Bag</a>
-            <div class="menu-header">Accounts & CRM</div>
-            <a href="/customers" class="{{ 'active' if current_path == '/customers' else '' }}"><i class="fas fa-users"></i> Customers</a>
-            <a href="/rates" class="{{ 'active' if current_path == '/rates' else '' }}"><i class="fas fa-tags"></i> Rate Cards</a>
-            <a href="/accounts" class="{{ 'active' if current_path == '/accounts' else '' }}"><i class="fas fa-wallet"></i> Ledger & Payments</a>
-            <a href="/expenses" class="{{ 'active' if current_path == '/expenses' else '' }}"><i class="fas fa-receipt"></i> Expenses</a>
-            <a href="/reports" class="{{ 'active' if current_path == '/reports' else '' }}"><i class="fas fa-chart-line"></i> Master Reports</a>
-            {% if session.get('role') == 'ADMIN' %}
-                <div class="menu-header">Administration</div>
-                <a href="/stationery" class="{{ 'active' if current_path == '/stationery' else '' }}"><i class="fas fa-barcode"></i> Stationery AWB</a>
-                <a href="/users" class="{{ 'active' if current_path == '/users' else '' }}"><i class="fas fa-user-shield"></i> Users & Branch</a>
-                <a href="/settings" class="{{ 'active' if current_path == '/settings' else '' }}"><i class="fas fa-cogs"></i> System Settings</a>
-                <a href="/import_csv" class="{{ 'active' if current_path == '/import_csv' else '' }}"><i class="fas fa-file-import"></i> Excel Import</a>
+            {% if session.get('role') == 'CUSTOMER' %}
+                <div class="menu-header">My Panel</div>
+                <a href="/" class="{{ 'active' if current_path == '/' else '' }}"><i class="fas fa-chart-pie"></i> Dashboard</a>
+                <a href="/booking" class="{{ 'active' if current_path == '/booking' else '' }}"><i class="fas fa-box-open"></i> New Booking</a>
+                <a href="/shipments" class="{{ 'active' if current_path == '/shipments' else '' }}"><i class="fas fa-truck-fast"></i> My Shipments</a>
+                <a href="/my_ledger" class="{{ 'active' if current_path == '/my_ledger' else '' }}"><i class="fas fa-wallet"></i> My Ledger</a>
+                <a href="/track" target="_blank" class="{{ 'active' if current_path == '/track' else '' }}"><i class="fas fa-search-location"></i> Track Center</a>
+            {% else %}
+                <div class="menu-header">Master Operations</div>
+                <a href="/" class="{{ 'active' if current_path == '/' else '' }}"><i class="fas fa-chart-pie"></i> Dashboard</a>
+                <a href="/booking" class="{{ 'active' if current_path == '/booking' else '' }}"><i class="fas fa-box-open"></i> Fast Booking</a>
+                <a href="/shipments" class="{{ 'active' if current_path == '/shipments' or '/edit_shipment' in current_path else '' }}"><i class="fas fa-truck-fast"></i> Shipments</a>
+                <a href="/track" target="_blank" class="{{ 'active' if current_path == '/track' else '' }}"><i class="fas fa-search-location"></i> Track Center</a>
+                <div class="menu-header">Hub Management</div>
+                <a href="/outward" class="{{ 'active' if current_path == '/outward' else '' }}"><i class="fas fa-plane-departure"></i> Outward Hub</a>
+                <a href="/inward" class="{{ 'active' if current_path == '/inward' else '' }}"><i class="fas fa-plane-arrival"></i> Inward Hub</a>
+                <a href="/drs" class="{{ 'active' if current_path == '/drs' else '' }}"><i class="fas fa-motorcycle"></i> DRS / Delivery</a>
+                <a href="/master_bag" class="{{ 'active' if current_path == '/master_bag' else '' }}"><i class="fas fa-shopping-bag"></i> Master Bag</a>
+                <div class="menu-header">Accounts & CRM</div>
+                <a href="/customers" class="{{ 'active' if current_path == '/customers' else '' }}"><i class="fas fa-users"></i> Customers</a>
+                <a href="/rates" class="{{ 'active' if current_path == '/rates' else '' }}"><i class="fas fa-tags"></i> Rate Cards</a>
+                <a href="/accounts" class="{{ 'active' if current_path == '/accounts' else '' }}"><i class="fas fa-wallet"></i> Ledger & Payments</a>
+                <a href="/expenses" class="{{ 'active' if current_path == '/expenses' else '' }}"><i class="fas fa-receipt"></i> Expenses</a>
+                <a href="/reports" class="{{ 'active' if current_path == '/reports' else '' }}"><i class="fas fa-chart-line"></i> Master Reports</a>
+                {% if session.get('role') == 'ADMIN' %}
+                    <div class="menu-header">Administration</div>
+                    <a href="/stationery" class="{{ 'active' if current_path == '/stationery' else '' }}"><i class="fas fa-barcode"></i> Stationery AWB</a>
+                    <a href="/users" class="{{ 'active' if current_path == '/users' else '' }}"><i class="fas fa-user-shield"></i> Users & Branch</a>
+                    <a href="/settings" class="{{ 'active' if current_path == '/settings' else '' }}"><i class="fas fa-cogs"></i> System Settings</a>
+                    <a href="/import_csv" class="{{ 'active' if current_path == '/import_csv' else '' }}"><i class="fas fa-file-import"></i> Excel Import</a>
+                {% endif %}
             {% endif %}
             <a href="/logout" style="color:#EF4444; margin-top:20px; border-top:1px solid rgba(255,255,255,0.05); padding-top:20px;"><i class="fas fa-power-off"></i> Secure Logout</a>
         </div>
@@ -191,7 +202,7 @@ def login():
         r = c.fetchone()
         if (r and r['password_hash'] == hashlib.sha256(p.encode()).hexdigest()) or (u == "admin" and p == "admin123"):
             branch_val = str(r.get('branch_name') or 'HQ') if r else 'HQ'
-            session.update({'user_id': r['id'] if r else 1, 'username': u, 'full_name': r['full_name'] if r else "Admin", 'role': r['role'] if r else "ADMIN", 'branch': branch_val})
+            session.update({'user_id': r['id'] if r else 1, 'username': u, 'full_name': r['full_name'] if r else "Admin", 'role': r['role'] if r else "ADMIN", 'branch': branch_val, 'customer_id': r.get('customer_id') if r else None})
             return redirect(url_for('dashboard'))
         flash('Invalid Credentials!', 'error')
         c.close(); conn.close()
@@ -205,19 +216,37 @@ def logout(): session.clear(); return redirect(url_for('login'))
 def dashboard():
     conn = get_db(); c = conn.cursor()
     params = []
-    q_s = "SELECT COUNT(*) c, COALESCE(SUM(total_amount),0) t FROM shipments WHERE 1=1"
-    q_d = "SELECT COUNT(*) c FROM shipments WHERE status='DELIVERED'"
-    q_l = "SELECT awb_no, dest_name, status, total_amount, booking_date FROM shipments WHERE 1=1"
-    if session.get('role') != 'ADMIN':
-        q_s += " AND origin_name=%s"; q_d += " AND origin_name=%s"; q_l += " AND origin_name=%s"; params.append(session.get('branch', 'HQ'))
+    
+    if session.get('role') == 'CUSTOMER':
+        cust_id = session.get('customer_id')
+        q_s = "SELECT COUNT(*) c, COALESCE(SUM(total_amount),0) t FROM shipments WHERE customer_id=%s"
+        q_d = "SELECT COUNT(*) c FROM shipments WHERE status='DELIVERED' AND customer_id=%s"
+        q_l = "SELECT awb_no, dest_name, status, total_amount, booking_date FROM shipments WHERE customer_id=%s ORDER BY id DESC LIMIT 10"
+        params.append(cust_id)
+        c.execute("SELECT COALESCE(SUM(debit-credit),0) o FROM ledger WHERE customer_id=%s", (cust_id,))
+        out = c.fetchone()
+        rev = {'a': 0.0} # Custom logic variable mapping for customer
+    else:
+        q_s = "SELECT COUNT(*) c, COALESCE(SUM(total_amount),0) t FROM shipments WHERE 1=1"
+        q_d = "SELECT COUNT(*) c FROM shipments WHERE status='DELIVERED'"
+        q_l = "SELECT awb_no, dest_name, status, total_amount, booking_date FROM shipments WHERE 1=1"
+        if session.get('role') != 'ADMIN':
+            q_s += " AND origin_name=%s"; q_d += " AND origin_name=%s"; q_l += " AND origin_name=%s"; params.append(session.get('branch', 'HQ'))
+        c.execute("SELECT COALESCE(SUM(amount),0) a FROM payments"); rev = c.fetchone()
+        c.execute("SELECT COALESCE(SUM(debit-credit),0) o FROM ledger"); out = c.fetchone()
+        
     c.execute(q_s, tuple(params)); s = c.fetchone()
     c.execute(q_d, tuple(params)); d = c.fetchone()
-    c.execute(q_l + " ORDER BY id DESC LIMIT 10", tuple(params)); latest = c.fetchall()
-    c.execute("SELECT COALESCE(SUM(amount),0) a FROM payments"); rev = c.fetchone()
-    c.execute("SELECT COALESCE(SUM(debit-credit),0) o FROM ledger"); out = c.fetchone()
+    c.execute(q_l if session.get('role') == 'CUSTOMER' else q_l + " ORDER BY id DESC LIMIT 10", tuple(params)); latest = c.fetchall()
     c.close(); conn.close()
     
-    rev_val = safe_float(rev['a']) if rev else 0.0
+    if session.get('role') == 'CUSTOMER':
+        rev_val = safe_float(s['t']) if s else 0.0
+        rev_label = "Total Billing"
+    else:
+        rev_val = safe_float(rev['a']) if rev else 0.0
+        rev_label = "Revenue"
+        
     out_val = safe_float(out['o']) if out else 0.0
     s_c = safe_int(s['c']) if s else 0
     d_c = safe_int(d['c']) if d else 0
@@ -226,11 +255,11 @@ def dashboard():
     <div class="grid-4">
         <div class="card" style="border-top-color: #3B82F6;"><h3><i class="fas fa-boxes" style="color:#3B82F6; margin-right:8px;"></i> Total Shipments</h3><h2 style="font-size:28px; margin:10px 0 0 0; color:#0F172A;">{s_c}</h2></div>
         <div class="card" style="border-top-color: #10B981;"><h3><i class="fas fa-check-circle" style="color:#10B981; margin-right:8px;"></i> Delivered</h3><h2 style="font-size:28px; margin:10px 0 0 0; color:#0F172A;">{d_c}</h2></div>
-        <div class="card" style="border-top-color: #C9A24B;"><h3><i class="fas fa-rupee-sign" style="color:#C9A24B; margin-right:8px;"></i> Revenue</h3><h2 style="font-size:28px; margin:10px 0 0 0; color:#0F172A;">₹ {rev_val:,.2f}</h2></div>
+        <div class="card" style="border-top-color: #C9A24B;"><h3><i class="fas fa-rupee-sign" style="color:#C9A24B; margin-right:8px;"></i> {rev_label}</h3><h2 style="font-size:28px; margin:10px 0 0 0; color:#0F172A;">₹ {rev_val:,.2f}</h2></div>
         <div class="card" style="border-top-color: #EF4444;"><h3><i class="fas fa-hand-holding-usd" style="color:#EF4444; margin-right:8px;"></i> Outstanding</h3><h2 style="font-size:28px; margin:10px 0 0 0; color:#0F172A;">₹ {out_val:,.2f}</h2></div>
     </div>
     <div class="card" style="border-top-color: #0B1F3A;">
-        <h3 style="margin-top:0; display:flex; justify-content:space-between;"><span><i class="fas fa-history" style="color:#C9A24B; margin-right:8px;"></i> Recent Bookings ({str(session.get('branch') or 'HQ')})</span> <a href="/booking" class="btn btn-blue" style="font-size:12px; padding:6px 12px;"><i class="fas fa-plus"></i> New Booking</a></h3>
+        <h3 style="margin-top:0; display:flex; justify-content:space-between;"><span><i class="fas fa-history" style="color:#C9A24B; margin-right:8px;"></i> Recent Bookings</span> <a href="/booking" class="btn btn-blue" style="font-size:12px; padding:6px 12px;"><i class="fas fa-plus"></i> New Booking</a></h3>
         <table><tr><th>AWB Number</th><th>Date</th><th>Destination</th><th>Amount</th><th>Status</th></tr>
         {''.join(f"<tr><td><strong style='color:#0B1F3A;'>{r.get('awb_no','')}</strong></td><td>{r.get('booking_date','')}</td><td>{str(r.get('dest_name') or '')}</td><td style='font-weight:700; color:#10B981;'>₹{r.get('total_amount','')}</td><td><span class='badge b-del'>{r.get('status','')}</span></td></tr>" for r in latest) or '<tr><td colspan="5" style="text-align:center; padding:30px; color:#94A3B8;">No bookings yet</td></tr>'}</table>
     </div>
@@ -329,14 +358,18 @@ def users():
         with conn.cursor() as c: c.execute("UPDATE users SET active=0 WHERE id=%s", (request.args.get('delete'),)); conn.commit(); flash("User Deactivated!", "success"); return redirect('/users')
     if request.method == 'POST':
         d = request.form; b = str(d.get('branch', '')).upper()
+        cid = safe_int(d.get('customer_id')) if d.get('customer_id') else None
         with conn.cursor() as c:
             c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (b,))
-            c.execute("INSERT INTO users(username, password_hash, full_name, role, branch_name, active) VALUES(%s,%s,%s,%s,%s,1)", (d.get('username',''), hashlib.sha256(d.get('password','').encode()).hexdigest(), d.get('full_name',''), d.get('role',''), b))
+            c.execute("INSERT INTO users(username, password_hash, full_name, role, branch_name, customer_id, active) VALUES(%s,%s,%s,%s,%s,%s,1)", (d.get('username',''), hashlib.sha256(d.get('password','').encode()).hexdigest(), d.get('full_name',''), d.get('role',''), b, cid))
             conn.commit(); flash("User Added Successfully!", "success")
-    with conn.cursor() as c: c.execute("SELECT * FROM users ORDER BY id DESC"); u_list = c.fetchall(); c.execute("SELECT name FROM stations ORDER BY name"); branches = c.fetchall()
+    with conn.cursor() as c: 
+        c.execute("SELECT * FROM users ORDER BY id DESC"); u_list = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name"); branches = c.fetchall()
+        c.execute("SELECT id, name FROM customers WHERE is_active=1"); custs = c.fetchall()
     conn.close()
-    html = """<div class="card"><h3 style="margin-top:0; color:#0E8A6D;"><i class="fas fa-user-plus"></i> Add New User</h3><form method="POST" class="grid-4" style="align-items:end;"><div><label>Username</label><input name="username" required></div><div><label>Password</label><input type="password" name="password" required></div><div><label>Full Name</label><input name="full_name" required></div><div><label>Role</label><select name="role"><option>ADMIN</option><option>OPERATOR</option><option>ACCOUNTANT</option></select></div><div style="grid-column: span 3;"><label>Branch / Station</label><input name="branch" list="brlist" required><datalist id="brlist">{% for b in branches %}<option value="{{ b.name }}">{% endfor %}</datalist></div><div><button type="submit" class="btn btn-blue" style="width:100%;"><i class="fas fa-save"></i> Save</button></div></form></div><div class="card"><h3><i class="fas fa-users-cog"></i> System Users</h3><table><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Branch</th><th>Status</th><th>Action</th></tr>{% for u in u_list %}<tr><td><strong>{{ u.username }}</strong></td><td>{{ u.full_name }}</td><td><span class="badge">{{ u.role }}</span></td><td>{{ u.branch_name or 'HQ' }}</td><td>{% if u.active %}<span class="badge b-del">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td><td>{% if u.active %}<a href="/users?delete={{ u.id }}" class="btn btn-red" style="padding:4px 8px; border-radius:4px;"><i class="fas fa-trash"></i></a>{% endif %}</td></tr>{% else %}<tr><td colspan="6" style="text-align:center; padding:20px; color:#7A8699;">No users found.</td></tr>{% endfor %}</table></div>"""
-    return render_page("Users & Branches", render_template_string(html, u_list=u_list, branches=branches))
+    html = """<div class="card"><h3 style="margin-top:0; color:#0E8A6D;"><i class="fas fa-user-plus"></i> Add New User</h3><form method="POST" class="grid-4" style="align-items:end;"><div><label>Username</label><input name="username" required></div><div><label>Password</label><input type="password" name="password" required></div><div><label>Full Name</label><input name="full_name" required></div><div><label>Role</label><select name="role"><option>ADMIN</option><option>OPERATOR</option><option>ACCOUNTANT</option><option>CUSTOMER</option></select></div><div style="grid-column: span 2;"><label>Branch / Station</label><input name="branch" list="brlist" required><datalist id="brlist">{% for b in branches %}<option value="{{ b.name }}">{% endfor %}</datalist></div><div style="grid-column: span 1;"><label>Link Customer (If Role=CUSTOMER)</label><select name="customer_id"><option value="">-- None --</option>{% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div><button type="submit" class="btn btn-blue" style="width:100%;"><i class="fas fa-save"></i> Save</button></div></form></div><div class="card"><h3><i class="fas fa-users-cog"></i> System Users</h3><table><tr><th>Username</th><th>Full Name</th><th>Role</th><th>Branch</th><th>Cust_ID</th><th>Status</th><th>Action</th></tr>{% for u in u_list %}<tr><td><strong>{{ u.username }}</strong></td><td>{{ u.full_name }}</td><td><span class="badge">{{ u.role }}</span></td><td>{{ u.branch_name or 'HQ' }}</td><td>{{ u.customer_id or '-' }}</td><td>{% if u.active %}<span class="badge b-del">Active</span>{% else %}<span class="badge">Inactive</span>{% endif %}</td><td>{% if u.active %}<a href="/users?delete={{ u.id }}" class="btn btn-red" style="padding:4px 8px; border-radius:4px;"><i class="fas fa-trash"></i></a>{% endif %}</td></tr>{% else %}<tr><td colspan="7" style="text-align:center; padding:20px; color:#7A8699;">No users found.</td></tr>{% endfor %}</table></div>"""
+    return render_page("Users & Branches", render_template_string(html, u_list=u_list, branches=branches, custs=custs))
 
 # ==========================================
 # 📦 6. BOOKING, CUSTOMERS & SHIPMENTS 
@@ -360,6 +393,7 @@ def api_calc_rate():
 @app.route('/customers', methods=['GET', 'POST'])
 @login_required
 def customers():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     if request.args.get('delete'):
         with conn.cursor() as c: c.execute("UPDATE customers SET is_active=0 WHERE id=%s", (request.args.get('delete'),)); conn.commit(); flash("Deleted!", "success"); return redirect('/customers')
@@ -385,7 +419,7 @@ def booking():
         with conn.cursor() as c:
             try:
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d.get('dstat','').upper(),))
-                cid = safe_int(d.get('cust_id')) if d.get('cust_id') else None
+                cid = session.get('customer_id') if session.get('role') == 'CUSTOMER' else (safe_int(d.get('cust_id')) if d.get('cust_id') else None)
                 
                 c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location, is_synced) 
                              VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s, 0)""", 
@@ -398,20 +432,24 @@ def booking():
             except Exception as e: flash(f"Error: {e}", "error")
                 
     with conn.cursor() as c:
-        c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1")
-        custs = c.fetchall()
-        c.execute("SELECT name FROM stations ORDER BY name")
-        stations = c.fetchall()
+        c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1"); custs = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name"); stations = c.fetchall()
         
-        # 🛠️ EXACT DESKTOP V37 COLUMN STRUCTURE
+        my_cust = None
+        if session.get('role') == 'CUSTOMER':
+            c.execute("SELECT id, name, phone, state_code, address FROM customers WHERE id=%s", (session.get('customer_id'),))
+            my_cust = c.fetchone()
+            
         q_recent = """SELECT s.id, s.awb_no, COALESCE(c.name,'') as customer_name, COALESCE(s.dest_station,'') as dest_station, 
                       CONCAT(COALESCE(s.dest_name,''), ' (', COALESCE(s.dest_state_code,''), ')') as destination, 
                       s.weight_kg, COALESCE(s.cgst+s.sgst+s.igst,0) as gst, s.total_amount, s.status, s.booking_date 
                       FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id"""
-        
-        # Role Filtering to match operator logic
+                      
         params_recent = []
-        if session.get('role') != 'ADMIN':
+        if session.get('role') == 'CUSTOMER':
+            q_recent += " WHERE s.customer_id = %s"
+            params_recent.append(session.get('customer_id'))
+        elif session.get('role') != 'ADMIN':
             q_recent += " WHERE s.origin_name = %s"
             params_recent.append(session.get('branch', 'HQ'))
         q_recent += " ORDER BY s.id DESC LIMIT 100"
@@ -426,12 +464,17 @@ def booking():
             <div class="grid-4" style="background:#F8FAFC; padding:20px; border-radius:12px; margin-bottom:20px; border:1px solid #E2E8F0;">
                 <div><label>Booking Date</label><input type="date" name="date" id="bdt" required></div>
                 <div><label>AWB Number</label><input name="awb" required style="font-weight:900; color:#0B1F3A; text-transform:uppercase; font-size:16px;"></div>
-                <div style="grid-column: span 2;"><label>Customer (Rates Auto-Apply)</label><select name="cust_id" id="cid" onchange="fetchRate()"><option value="">-- Walk-in / Cash Booking --</option>{% for c in custs %}<option value="{{ c.id }}" data-state="{{ c.state_code }}">{{ c.name }}</option>{% endfor %}</select></div>
+                {% if session.get('role') == 'CUSTOMER' %}
+                    <input type="hidden" name="cust_id" id="cid" value="{{ my_cust.id }}" data-state="{{ my_cust.state_code }}">
+                    <div style="grid-column: span 2;"><label>Customer (Linked)</label><input value="{{ my_cust.name }}" readonly style="background:#E2E8F0; font-weight:bold;"></div>
+                {% else %}
+                    <div style="grid-column: span 2;"><label>Customer (Rates Auto-Apply)</label><select name="cust_id" id="cid" onchange="fetchRate()"><option value="">-- Walk-in / Cash Booking --</option>{% for c in custs %}<option value="{{ c.id }}" data-state="{{ c.state_code }}">{{ c.name }}</option>{% endfor %}</select></div>
+                {% endif %}
             </div>
             <div class="grid-2">
                 <div style="border:1px solid #E2E8F0; padding:20px; border-radius:12px; background:white;"><h4 style="margin-top:0; color:#C9A24B; text-transform:uppercase; letter-spacing:1px;"><i class="fas fa-building"></i> Origin (Shipper)</h4><div class="grid-2">
-                    <div style="grid-column: span 2;"><label>Sender Name</label><input name="oname" value="{{ session.get('branch', 'HQ') }}" required></div><div><label>Phone</label><input name="ophone"></div><div><label>State Code</label><input name="ostate" id="ost" value="RJ" onchange="fetchRate()"></div>
-                    <div style="grid-column: span 2;"><label>Address</label><input name="oaddr"></div>
+                    <div style="grid-column: span 2;"><label>Sender Name</label><input name="oname" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.name }}{% else %}{{ session.get('branch', 'HQ') }}{% endif %}" required></div><div><label>Phone</label><input name="ophone" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.phone }}{% endif %}"></div><div><label>State Code</label><input name="ostate" id="ost" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.state_code }}{% else %}RJ{% endif %}" onchange="fetchRate()"></div>
+                    <div style="grid-column: span 2;"><label>Address</label><input name="oaddr" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.address }}{% endif %}"></div>
                 </div></div>
                 <div style="border:1px solid #E2E8F0; padding:20px; border-radius:12px; background:white;"><h4 style="margin-top:0; color:#0E8A6D; text-transform:uppercase; letter-spacing:1px;"><i class="fas fa-home"></i> Destination (Consignee)</h4><div class="grid-2">
                     <div style="grid-column: span 2;"><label>Receiver Name</label><input name="dname" required></div><div><label>Phone</label><input name="dphone" required></div><div><label>State Code</label><input name="dstate" id="dst" onchange="fetchRate()"></div>
@@ -458,15 +501,16 @@ def booking():
         {% for r in recent %}<tr><td>{{ r.id }}</td><td style="color:#0E8A6D; font-weight:bold;">{{ r.awb_no }}</td><td>{{ r.customer_name }}</td><td>{{ r.dest_station }}</td><td>{{ r.destination }}</td><td style="font-weight:bold;">{{ r.weight_kg }} KG</td><td style="color:#C9A24B;">₹{{ "%.2f"|format(r.gst|float) }}</td><td style="font-weight:bold; color:#10B981;">₹{{ r.total_amount }}</td><td><span class="badge b-del">{{ r.status }}</span></td><td>{{ r.booking_date }}</td></tr>{% endfor %}
         </table>
     </div>
-    <script>document.getElementById('bdt').valueAsDate = new Date(); function fetchRate() { let cid = document.getElementById('cid').value; if(cid) { let opt = document.getElementById('cid').options[document.getElementById('cid').selectedIndex]; document.getElementById('ost').value = opt.getAttribute('data-state'); } let data = { cust_id: cid, ostate: document.getElementById('ost').value, dstate: document.getElementById('dst').value, wt: document.getElementById('wt').value, fr: 0 }; fetch('/api/calc_rate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }).then(r => r.json()).then(res => { document.getElementById('fr').value = res.freight; document.getElementById('tax').value = res.tax_rate; document.getElementById('amt').value = res.total; document.getElementById('calc_hint').innerText = `API Hit: Taxable ₹${res.taxable} + GST ₹${res.gst}`; }); } function manualCalc() { let fr = parseFloat(document.getElementById('fr').value)||0; let tx = parseFloat(document.getElementById('tax').value)||0; document.getElementById('amt').value = (fr + (fr * tx / 100)).toFixed(2); document.getElementById('calc_hint').innerText = "Manual Override Active"; }</script>
+    <script>document.getElementById('bdt').valueAsDate = new Date(); function fetchRate() { let cid = document.getElementById('cid').value; if(cid) { let opt = document.getElementById('cid').options[document.getElementById('cid').selectedIndex]; if(opt){document.getElementById('ost').value = opt.getAttribute('data-state');} } let data = { cust_id: cid, ostate: document.getElementById('ost').value, dstate: document.getElementById('dst').value, wt: document.getElementById('wt').value, fr: 0 }; fetch('/api/calc_rate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) }).then(r => r.json()).then(res => { document.getElementById('fr').value = res.freight; document.getElementById('tax').value = res.tax_rate; document.getElementById('amt').value = res.total; document.getElementById('calc_hint').innerText = `API Hit: Taxable ₹${res.taxable} + GST ₹${res.gst}`; }); } function manualCalc() { let fr = parseFloat(document.getElementById('fr').value)||0; let tx = parseFloat(document.getElementById('tax').value)||0; document.getElementById('amt').value = (fr + (fr * tx / 100)).toFixed(2); document.getElementById('calc_hint').innerText = "Manual Override Active"; } if(document.getElementById('cid').tagName === 'INPUT') { fetchRate(); }</script>
     """
-    return render_page("New Booking", render_template_string(html, custs=custs, stations=stations, recent=recent))
+    return render_page("New Booking", render_template_string(html, custs=custs, stations=stations, recent=recent, my_cust=my_cust))
 
 @app.route('/shipments', methods=['GET', 'POST'])
 @login_required
 def shipments():
     conn = get_db()
     if request.args.get('delete'):
+        if session.get('role') == 'CUSTOMER': return redirect('/shipments')
         with conn.cursor() as c:
             c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (request.args.get('delete'),))
             c.execute("DELETE FROM shipments WHERE id=%s", (request.args.get('delete'),))
@@ -478,7 +522,12 @@ def shipments():
                s.weight_kg, s.status, s.info, s.total_amount, s.dest_phone, c.phone as cphone 
                FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id WHERE 1=1"""
         params = []
-        if session.get('role') != 'ADMIN': q += " AND s.origin_name=%s"; params.append(session.get('branch', 'HQ'))
+        if session.get('role') == 'CUSTOMER':
+            q += " AND s.customer_id=%s"
+            params.append(session.get('customer_id'))
+        elif session.get('role') != 'ADMIN':
+            q += " AND s.origin_name=%s"
+            params.append(session.get('branch', 'HQ'))
         
         if search: 
             q += " AND (s.awb_no LIKE %s OR s.dest_station LIKE %s OR s.dest_name LIKE %s OR s.info LIKE %s OR c.name LIKE %s)"
@@ -505,18 +554,41 @@ def shipments():
             <td>
                 {% set ph = r.dest_phone if r.dest_phone else r.cphone %}
                 {% if ph %}<a href="https://wa.me/91{{ (ph|string|replace(' ', '')|replace('-', ''))[-10:] }}?text=Track%20AGC%20Parcel:%20https://agconline.in/track?awb={{ r.awb_no }}" target="_blank" class="btn" style="background:#10B981; padding:6px 10px; font-size:11px; border-radius:6px;" title="WhatsApp"><i class="fab fa-whatsapp"></i></a>{% endif %}
+                {% if session.get('role') != 'CUSTOMER' %}
                 <a href="/edit_shipment/{{ r.id }}" class="btn btn-blue" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Edit"><i class="fas fa-edit"></i></a>
+                {% endif %}
                 <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn btn-ghost" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Print Label"><i class="fas fa-print"></i> Lbl</a>
                 <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn btn-gold" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Print Receipt"><i class="fas fa-file-invoice-dollar"></i> Rec</a>
+                {% if session.get('role') != 'CUSTOMER' %}
                 <a href="/shipments?delete={{ r.id }}" onclick="return confirm('Delete this shipment?');" class="btn btn-red" style="padding:6px 10px; font-size:11px; border-radius:6px;" title="Delete"><i class="fas fa-trash"></i></a>
+                {% endif %}
             </td>
         </tr>{% endfor %}</table></div>
     """
     return render_page("Shipments", render_template_string(html, rows=rows, search=search, str=str))
 
+@app.route('/my_ledger')
+@login_required
+def my_ledger():
+    if session.get('role') != 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    cid = session.get('customer_id')
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM ledger WHERE customer_id=%s ORDER BY entry_date DESC", (cid,))
+        l_data = c.fetchall()
+        c.execute("SELECT COALESCE(SUM(debit-credit),0) b FROM ledger WHERE customer_id=%s", (cid,))
+        r = c.fetchone(); c_bal = safe_float(r['b']) if r else 0.0
+    conn.close()
+    html = """<div class="card"><h3>📒 My Account Ledger</h3>
+    <h3 style="text-align:right; color:#EF4444; background:#FEF2F2; padding:10px; border-radius:6px; border:1px solid #FECACA;">Current Outstanding Balance: ₹{{ c_bal }}</h3>
+    <table><tr><th>Date</th><th>Voucher</th><th>Ref</th><th>Debit (₹)</th><th>Credit (₹)</th><th>Narration</th></tr>
+    {% for l in l_data %}<tr><td>{{ l.entry_date }}</td><td><span class="badge">{{ l.voucher_type }}</span></td><td>{{ l.reference }}</td><td style="color:#EF4444; font-weight:bold;">{{ l.debit }}</td><td style="color:#10B981; font-weight:bold;">{{ l.credit }}</td><td>{{ l.narration }}</td></tr>{% else %}<tr><td colspan="6" style="text-align:center; padding:20px; color:#7A8699;">No records found.</td></tr>{% endfor %}</table></div>"""
+    return render_page("My Ledger", render_template_string(html, l_data=l_data, c_bal=c_bal))
+
 @app.route('/edit_shipment/<int:sid>', methods=['GET', 'POST'])
 @login_required
 def edit_shipment(sid):
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     if request.method == 'POST':
         d = request.form; fr = safe_float(d.get('fr')); tax = safe_float(d.get('tax', 18)); wt = safe_float(d.get('wt', 1))
@@ -569,6 +641,7 @@ def import_csv():
 @app.route('/outward', methods=['GET', 'POST'])
 @login_required
 def outward():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db(); current_date = datetime.now().strftime('%Y-%m-%d')
     if request.args.get('delete'):
         with conn.cursor() as c: c.execute("DELETE FROM outward_register WHERE id=%s", (request.args.get('delete'),)); conn.commit(); return redirect(f"/outward?date={request.args.get('date', current_date)}")
@@ -717,6 +790,7 @@ def outward():
 @app.route('/master_bag', methods=['GET', 'POST'])
 @login_required
 def master_bag():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     if request.method == 'POST':
         awbs = request.form.get('awbs').replace(',', '\n').split('\n'); dest = request.form.get('dest_hub', '').upper()
@@ -739,6 +813,7 @@ def master_bag():
 @app.route('/inward', methods=['GET', 'POST'])
 @login_required
 def inward():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     if request.args.get('delete'):
         with conn.cursor() as c: c.execute("DELETE FROM inward_register WHERE id=%s", (request.args.get('delete'),)); conn.commit(); return redirect('/inward')
@@ -781,6 +856,7 @@ def inward():
 @app.route('/drs', methods=['GET', 'POST'])
 @login_required
 def drs():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     if request.args.get('del_drs'):
         with conn.cursor() as c: c.execute("DELETE FROM drs_items WHERE drs_id=%s", (request.args.get('del_drs'),)); c.execute("DELETE FROM drs WHERE id=%s", (request.args.get('del_drs'),)); conn.commit(); return redirect('/drs')
@@ -872,6 +948,7 @@ def drs():
 @app.route('/expenses', methods=['GET', 'POST'])
 @login_required
 def expenses():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     if request.args.get('delete'):
         with conn.cursor() as c: c.execute("DELETE FROM expenses WHERE id=%s", (request.args.get('delete'),)); conn.commit(); flash("Deleted!", "success"); return redirect('/expenses')
@@ -886,6 +963,7 @@ def expenses():
 @app.route('/accounts', methods=['GET', 'POST'])
 @login_required
 def accounts():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     if request.args.get('del_pay'):
         with conn.cursor() as c:
@@ -912,6 +990,7 @@ def accounts():
 @app.route('/reports')
 @login_required
 def reports():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
     d = datetime.now().strftime("%Y-%m-%d"); conn = get_db()
     with conn.cursor() as c:
         p1 = [d]; p2 = [d]; p4 = []
