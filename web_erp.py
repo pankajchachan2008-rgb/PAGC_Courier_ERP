@@ -1146,120 +1146,370 @@ def api_get_awb_info(awb):
     return jsonify({"success": False})
 
 # ==========================================
-# 📤 WEB OUTWARD ENTRY MODULE
+# 📤 ADVANCED WEB OUTWARD ENTRY MODULE (LIKE DESKTOP)
 # ==========================================
 @app.route('/outward', methods=['GET', 'POST'])
 @login_required
 def outward():
     if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
+    st = session.get('branch', 'HQ')
+    date_today = datetime.now().strftime('%Y-%m-%d')
     
     if request.method == 'POST':
-        awb = request.form.get('awb', '').strip().upper()
-        dest = request.form.get('dest', '').strip().upper()
-        wt = request.form.get('wt', '1')
-        info = request.form.get('info', '')
-        date = datetime.now().strftime('%Y-%m-%d')
-        st = session.get('branch', 'HQ')
+        action = request.form.get('action', '')
         
         with conn.cursor() as c:
-            c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND entry_date=%s AND out_station=%s", (awb, date, st))
-            if c.fetchone():
-                flash(f"AWB {awb} is branch se pehle hi Outward ho chuka hai!", "error")
-            else:
-                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest,))
+            # --- 1. ADD NEW ENTRY OR UNPACK BAG ---
+            if action == 'add':
+                awb = request.form.get('awb', '').strip().upper()
+                dest = request.form.get('dest', '').strip().upper()
+                wt = safe_float(request.form.get('wt', 1.0))
+                info = request.form.get('info', '')
+                entry_date = request.form.get('date', date_today)
                 
-                # Update Shipment
-                c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
-                s = c.fetchone()
-                if s:
-                    c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, dest_station=%s, weight_kg=%s, info=%s WHERE id=%s", (st, dest, wt, info, s['id']))
-                    sid = s['id']
+                if awb:
+                    # Helper: Auto-add station
+                    if dest: c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest,))
+                    
+                    if awb.startswith("BAG"):
+                        # Unpack Master Bag
+                        c.execute("SELECT awb_no FROM master_bag_items WHERE bag_no=%s", (awb,))
+                        items = c.fetchall()
+                        if not items:
+                            flash(f"Bag {awb} empty hai ya exist nahi karta.", "error")
+                        else:
+                            success = 0
+                            for itm in items:
+                                sub_awb = itm['awb_no']
+                                c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND entry_date=%s AND out_station=%s", (sub_awb, entry_date, st))
+                                if not c.fetchone():
+                                    c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(%s,%s,'HQ',%s,%s,%s,%s,0)", 
+                                              (entry_date, sub_awb, st, dest, wt, f"From {awb}"))
+                                    c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, dest_station=%s WHERE awb_no=%s", (st, dest, sub_awb))
+                                    success += 1
+                            flash(f"✅ Bag {awb} unpacked! {success} items added to Outward.", "success")
+                    else:
+                        # Single Entry
+                        c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND entry_date=%s AND out_station=%s", (awb, entry_date, st))
+                        if c.fetchone():
+                            flash(f"AWB {awb} pehle hi scan ho chuka hai!", "error")
+                        else:
+                            c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(%s,%s,'HQ',%s,%s,%s,%s,0)", 
+                                      (entry_date, awb, st, dest, wt, info))
+                            s = c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
+                            if s:
+                                c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, dest_station=%s, weight_kg=%s, info=%s WHERE awb_no=%s", (st, dest, wt, info, awb))
+                                c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES((SELECT id FROM shipments WHERE awb_no=%s), 'OUTWARD', %s, 'Web Outward Entry')", (awb, st))
+                            else:
+                                c.execute("INSERT INTO shipments(awb_no, booking_date, dest_station, weight_kg, service_type, status, current_location, info) VALUES(%s, %s, %s, %s, 'SURFACE', 'OUTWARD', %s, %s)", (awb, entry_date, dest, wt, st, info))
+                            flash(f"✅ AWB {awb} Saved!", "success")
+
+            # --- 2. DELETE PENDING ENTRY ---
+            elif action == 'delete':
+                oid = request.form.get('del_id')
+                c.execute("DELETE FROM outward_register WHERE id=%s", (oid,))
+                flash("Entry deleted.", "success")
+
+            # --- 3. FINALIZE & GENERATE MANIFEST ---
+            elif action == 'finalize':
+                entry_date = request.form.get('date', date_today)
+                c.execute("SELECT * FROM outward_register WHERE entry_date=%s AND out_station=%s AND finalized=0", (entry_date, st))
+                rows = c.fetchall()
+                if not rows:
+                    flash("Koi pending entry nahi hai finalize karne ke liye.", "error")
                 else:
-                    c.execute("INSERT INTO shipments(awb_no, booking_date, dest_station, weight_kg, service_type, status, current_location, info) VALUES(%s, %s, %s, %s, 'SURFACE', 'OUTWARD', %s, %s)", (awb, date, dest, wt, st, info))
-                    sid = c.lastrowid
-                
-                # Save Tracking Event & Register
-                c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, %s)", (sid, st, "Web Outward Entry"))
-                c.execute("INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, %s, 0)", (date, awb, 'HQ', st, dest, wt, info))
-                
-                conn.commit()
-                flash(f"✅ AWB {awb} Outward Saved!", "success")
+                    ono = get_seq("outward", "OUT", 6)
+                    mno = get_seq("manifest", "MF", 7)
+                    c.execute("INSERT INTO manifests(manifest_no, manifest_type, from_location, to_location, vehicle_no, status) VALUES(%s, 'OUTWARD', %s, %s, '', 'OPEN')", (mno, 'HQ', st))
+                    mid = c.lastrowid
+                    
+                    for r in rows:
+                        c.execute("UPDATE outward_register SET finalized=1, outward_no=%s, manifest_no=%s WHERE id=%s", (ono, mno, r['id']))
+                        c.execute("SELECT id FROM shipments WHERE awb_no=%s", (r['awb_no'],))
+                        s = c.fetchone()
+                        if s:
+                            c.execute("INSERT INTO manifest_items(manifest_id, shipment_id, received) VALUES(%s, %s, 0)", (mid, s['id']))
+                            c.execute("UPDATE shipments SET status='OUTWARD' WHERE id=%s", (s['id'],))
+                    flash(f"✅ Finalized! Outward: {ono} | Manifest: {mno}", "success")
+
+            # --- 4. UNFINALIZE SESSION ---
+            elif action == 'unfinalize':
+                ono = request.form.get('outward_no')
+                c.execute("UPDATE outward_register SET finalized=0, outward_no=NULL, manifest_no=NULL WHERE outward_no=%s", (ono,))
+                flash(f"Session {ono} unfinalized! Wapas pending me aa gaya.", "success")
+
+            # --- 5. CREATE MASTER BAG ---
+            elif action == 'create_bag':
+                dest = request.form.get('bag_dest', '').strip().upper()
+                awb_list = request.form.get('bag_awbs', '').split(',')
+                if dest and awb_list:
+                    bag_no = get_seq("bag", "BAG", 6)
+                    c.execute("INSERT INTO master_bags(bag_no, destination) VALUES(%s, %s)", (bag_no, dest))
+                    for a in awb_list:
+                        a = a.strip()
+                        if a:
+                            c.execute("INSERT INTO master_bag_items(bag_no, awb_no) VALUES(%s, %s)", (bag_no, a))
+                            c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES((SELECT id FROM shipments WHERE awb_no=%s), 'BAGGED', %s, %s)", (a, st, f"Packed in {bag_no}"))
+                    flash(f"🎒 Master Bag Created: {bag_no} with {len(awb_list)} items.", "success")
+
+        conn.commit()
+        return redirect('/outward')
 
     with conn.cursor() as c:
-        c.execute("SELECT * FROM outward_register WHERE out_station=%s AND finalized=0 ORDER BY id DESC", (session.get('branch', 'HQ'),))
+        c.execute("SELECT * FROM outward_register WHERE out_station=%s AND finalized=0 ORDER BY id DESC", (st,))
         pending = c.fetchall()
+        
+        c.execute("SELECT outward_no, MIN(entry_date) as d, MIN(out_station) as st, COUNT(*) as c, MIN(manifest_no) as m FROM outward_register WHERE finalized=1 AND out_station=%s GROUP BY outward_no ORDER BY d DESC", (st,))
+        sessions = c.fetchall()
+        
         c.execute("SELECT name FROM stations ORDER BY name")
         stations = c.fetchall()
     conn.close()
 
     html = """
     <style>
-    .agcs-form-table { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; margin-bottom: 5px; background: #E2FAFA;}
-    .agcs-form-table td { padding: 3px 5px; vertical-align: middle; border: none;}
-    .agcs-label { color: #003366; font-weight: bold; font-size: 11px; text-align:right;}
-    .agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 4px 6px; font-size: 12px; width: 100%; box-sizing: border-box; font-family: Tahoma;}
-    .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
-    .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 4px 20px; font-weight: bold; cursor: pointer; color: #000; font-family: Tahoma; text-transform:uppercase;}
-    .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 14px; margin: 0 0 5px 0; background:white; padding:5px;}
-    .datatable { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; border: 1px solid #116B7A; background:white;}
-    .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: #FFF; padding: 5px; border: 1px solid #000; text-align:left;}
+    .agcs-container { background: #E2FAFA; padding: 5px; min-height: 550px; border: 1px solid #116B7A; border-top: 3px solid #116B7A; font-family: Tahoma; }
+    .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 14px; margin: 0 0 5px 0; background: white; padding: 5px; border: 1px solid #116B7A; }
+    
+    /* TABS CSS */
+    .tabs { display: flex; gap: 2px; margin-bottom: 5px; border-bottom: 2px solid #116B7A; }
+    .tab-btn { background: #DCEBEB; border: 1px solid #116B7A; border-bottom: none; padding: 6px 15px; font-weight: bold; cursor: pointer; color: #116B7A; border-radius: 4px 4px 0 0; }
+    .tab-btn.active { background: #116B7A; color: white; }
+    .tab-content { display: none; background: transparent; }
+    .tab-content.active { display: block; }
+    
+    .agcs-form-table { width: 100%; border-collapse: collapse; font-size: 11px; background: white; border: 1px solid #116B7A; margin-bottom: 10px;}
+    .agcs-form-table td { padding: 4px; vertical-align: middle; }
+    .agcs-label { color: #003366; font-weight: bold; font-size: 11px; text-align: right; }
+    .agcs-input { border: 1px solid #009933; background: #FFFFCC; padding: 4px; font-size: 12px; width: 100%; box-sizing: border-box; }
+    
+    .btn-action { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 4px 15px; font-weight: bold; cursor: pointer; color: #000; border-radius: 2px; }
+    .btn-gold { background: linear-gradient(to bottom, #FFD25A, #D67A00); color: black; border: 1px solid #888; }
+    .btn-red { background: linear-gradient(to bottom, #EF4444, #B91C1C); color: white; border: 1px solid #000; }
+    .btn-blue { background: linear-gradient(to bottom, #38BDF8, #0284C7); color: white; border: 1px solid #000; }
+    
+    .datatable { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #116B7A; background: white;}
+    .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: white; padding: 5px; border: 1px solid #000; text-align: left;}
     .datatable td { padding: 4px 6px; border: 1px solid #CCC; color: #000;}
+    
+    /* MODAL CSS */
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
+    .modal-content { background: #E2FAFA; margin: 5% auto; padding: 15px; border: 3px solid #116B7A; width: 500px; border-radius: 5px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
     </style>
     
-    <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
-    <h2 class="page-title-green">OUTWARD ENTRY [TRANSHIPMENT]</h2>
-    <form method="POST" style="margin:0;">
-        <div class="agcs-top-bar">
-            <button type="submit" class="agcs-btn-grey">SAVE ENTRY</button>
-            <button type="button" class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button>
-            <div style="margin-left: auto; color: #D67A00; font-weight: bold; font-size:14px; padding-right:10px;">Center : {{ session.branch | default('NOHAR') }}</div>
-        </div>
+    <div class="agcs-container">
+        <h2 class="page-title-green">OUTWARD ENTRY [TRANSHIPMENT HUB] <span style="float:right; color:#D67A00;">Center: {{ session.branch }}</span></h2>
         
-        <table class="agcs-form-table" style="border:1px solid #116B7A; background:white; margin-bottom:10px; padding:10px;">
-            <tr>
-                <td class="agcs-label" style="color:red; font-size:12px;">AWB No.</td>
-                <td><input type="text" name="awb" required autofocus class="agcs-input" style="color:red; font-weight:bold; text-transform:uppercase; width:150px;" autocomplete="off"></td>
-                <td class="agcs-label">Destination</td>
-                <td>
-                    <input type="text" name="dest" list="st_list" required class="agcs-input" style="text-transform:uppercase; width:150px;" autocomplete="off">
-                    <datalist id="st_list">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
-                </td>
-                <td class="agcs-label">Weight (KG)</td>
-                <td><input type="number" step="0.01" name="wt" value="1.0" required class="agcs-input" style="width:80px; font-weight:bold;"></td>
-                <td class="agcs-label">Info/Remarks</td>
-                <td><input type="text" name="info" class="agcs-input" autocomplete="off"></td>
-            </tr>
-        </table>
-    </form>
+        <div class="tabs">
+            <button class="tab-btn active" onclick="openTab(event, 'tab1')">📦 New Entry & Finalize</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab2')">📋 Manifests & History</button>
+            <button class="tab-btn" onclick="openTab(event, 'tab3')">⚙️ Advanced Tools</button>
+        </div>
 
-    <div style="border: 1px solid #116B7A; background: white; margin-top: 15px;">
-        <div style="background: #116B7A; color: white; font-weight: bold; padding: 5px;">Pending Outward (Unfinalized Entries)</div>
-        <div style="height: 350px; overflow-y: auto;">
-            <table class="datatable">
-                <thead style="position: sticky; top: 0;">
-                    <tr><th>ID</th><th>AWB No</th><th>Destination</th><th>Weight</th><th>Info</th><th>Date</th></tr>
-                </thead>
-                <tbody>
-                {% for p in pending %}
+        <!-- TAB 1: ENTRY & FINALIZE -->
+        <div id="tab1" class="tab-content active">
+            <div style="display:flex; gap:10px; margin-bottom: 5px; background: white; padding: 5px; border: 1px solid #116B7A;">
+                <button class="btn-action btn-red" onclick="startVoice()"><i class="fas fa-microphone"></i> Voice Entry</button>
+                <button class="btn-action btn-blue" onclick="openCamera()"><i class="fas fa-camera"></i> Webcam Scan</button>
+                <button class="btn-action btn-gold" onclick="document.getElementById('bagModal').style.display='block'"><i class="fas fa-shopping-bag"></i> Create Master Bag</button>
+            </div>
+
+            <form method="POST" id="addForm">
+                <input type="hidden" name="action" value="add">
+                <table class="agcs-form-table">
+                    <tr>
+                        <td class="agcs-label">Date</td>
+                        <td><input type="date" name="date" value="{{ date_today }}" required class="agcs-input" style="width:120px;"></td>
+                        <td class="agcs-label" style="color:red;">AWB / BAG No</td>
+                        <td><input type="text" name="awb" id="awb_input" required autofocus class="agcs-input" style="color:red; font-weight:bold; text-transform:uppercase;" autocomplete="off"></td>
+                        <td class="agcs-label">Destination</td>
+                        <td>
+                            <input type="text" name="dest" id="dest_input" list="st_list" required class="agcs-input" style="text-transform:uppercase;" autocomplete="off">
+                            <datalist id="st_list">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
+                        </td>
+                        <td class="agcs-label">Wt (KG)</td>
+                        <td><input type="number" step="0.01" name="wt" id="wt_input" value="1.0" required class="agcs-input" style="width:60px; font-weight:bold;"></td>
+                        <td><button type="submit" class="btn-action btn-gold">＋ Save</button></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Info</td>
+                        <td colspan="7"><input type="text" name="info" id="info_input" class="agcs-input" placeholder="Remarks or Image Path" autocomplete="off"></td>
+                    </tr>
+                </table>
+            </form>
+
+            <div style="border: 1px solid #116B7A; background: white; margin-top: 10px;">
+                <div style="background: #116B7A; color: white; font-weight: bold; padding: 5px; display: flex; justify-content: space-between;">
+                    <span>⏳ Pending Outward ({{ pending|length }} Entries)</span>
+                    <form method="POST" style="margin:0;" onsubmit="return confirm('Are you sure to finalize?');">
+                        <input type="hidden" name="action" value="finalize">
+                        <button type="submit" style="background:#FFD25A; border:none; padding:2px 10px; font-weight:bold; cursor:pointer; color:black;">🏁 FINALIZE + OUTWARD NO</button>
+                    </form>
+                </div>
+                <div style="height: 250px; overflow-y: auto;">
+                    <table class="datatable">
+                        <thead style="position: sticky; top: 0;">
+                            <tr><th>ID</th><th>AWB No</th><th>Destination</th><th>Wt</th><th>Info</th><th>Act</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for p in pending %}
+                        <tr>
+                            <td>{{ p.id }}</td>
+                            <td style="font-weight:bold; color:red;">{{ p.awb_no }}</td>
+                            <td style="font-weight:bold; color:blue;">{{ p.destination }}</td>
+                            <td>{{ p.weight }}</td>
+                            <td>{{ p.info }}</td>
+                            <td>
+                                <form method="POST" style="margin:0;">
+                                    <input type="hidden" name="action" value="delete">
+                                    <input type="hidden" name="del_id" value="{{ p.id }}">
+                                    <button type="submit" style="color:red; background:none; border:none; cursor:pointer; font-weight:bold;">[Del]</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 2: MANIFESTS -->
+        <div id="tab2" class="tab-content">
+            <div style="border: 1px solid #116B7A; background: white;">
+                <div style="background: #116B7A; color: white; font-weight: bold; padding: 5px;">📋 Finalized Outward Sessions</div>
+                <div style="height: 350px; overflow-y: auto;">
+                    <table class="datatable">
+                        <thead style="position: sticky; top: 0;">
+                            <tr><th>Outward No</th><th>Date</th><th>Docs</th><th>Manifest</th><th>Action</th></tr>
+                        </thead>
+                        <tbody>
+                        {% for s in sessions %}
+                        <tr>
+                            <td style="font-weight:bold; color:green;">{{ s.outward_no }}</td>
+                            <td>{{ s.d }}</td>
+                            <td>{{ s.c }}</td>
+                            <td>{{ s.m }}</td>
+                            <td>
+                                <form method="POST" style="margin:0;" onsubmit="return confirm('Session Pending me wapas bhejein?');">
+                                    <input type="hidden" name="action" value="unfinalize">
+                                    <input type="hidden" name="outward_no" value="{{ s.outward_no }}">
+                                    <button type="submit" style="color:red; background:none; border:none; cursor:pointer; font-weight:bold;">[Unfinalize]</button>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: TOOLS -->
+        <div id="tab3" class="tab-content">
+            <table class="agcs-form-table" style="padding:15px; border:1px solid #116B7A;">
+                <tr><td colspan="2" style="background:#DCEBEB; font-weight:bold; padding:5px; text-align:center;">🛠️ Advanced Operations Tools</td></tr>
                 <tr>
-                    <td>{{ p.id }}</td>
-                    <td style="font-weight:bold; color:red;">{{ p.awb_no }}</td>
-                    <td style="font-weight:bold; color:blue;">{{ p.destination }}</td>
-                    <td>{{ p.weight }} KG</td>
-                    <td>{{ p.info }}</td>
-                    <td>{{ p.entry_date }}</td>
+                    <td><button class="btn-action" style="width:100%;">📅 Bulk Date Change</button></td>
+                    <td><button class="btn-action" style="width:100%;">⚡ Auto Invoice Sync</button></td>
                 </tr>
-                {% endfor %}
-                </tbody>
+                <tr>
+                    <td><button class="btn-action" style="width:100%;" onclick="window.print()">📄 Export Range PDF</button></td>
+                    <td><button class="btn-action" style="width:100%;">⬇ Export Range CSV</button></td>
+                </tr>
             </table>
         </div>
     </div>
+
+    <!-- MODAL: MASTER BAG -->
+    <div id="bagModal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin-top:0; color:#116B7A; border-bottom:2px solid #D67A00;">🎒 Create Master Bag (Bora)</h3>
+            <form method="POST">
+                <input type="hidden" name="action" value="create_bag">
+                <label class="agcs-label">Bag Destination:</label>
+                <input type="text" name="bag_dest" list="st_list" class="agcs-input" style="text-transform:uppercase; margin-bottom:10px;" required>
+                <label class="agcs-label">Scan AWBs (Comma separated):</label>
+                <textarea name="bag_awbs" class="agcs-input" rows="5" placeholder="Scan AWBs here..." required></textarea>
+                <div style="margin-top:10px; text-align:right;">
+                    <button type="button" class="btn-action" onclick="document.getElementById('bagModal').style.display='none'">Cancel</button>
+                    <button type="submit" class="btn-action btn-gold">🔒 Seal Bag</button>
+                </div>
+            </form>
+        </div>
     </div>
+
+    <!-- MODAL: CAMERA SCANNER -->
+    <div id="camModal" class="modal">
+        <div class="modal-content" style="width: 400px; text-align:center;">
+            <h3 style="margin-top:0; color:#116B7A;">📷 Webcam Scanner</h3>
+            <div id="reader" style="width:100%; height:300px; background:black; margin-bottom:10px;"></div>
+            <button class="btn-action btn-red" onclick="closeCamera()">Close Camera</button>
+        </div>
+    </div>
+
+    <!-- SCRIPTS FOR TABS, VOICE, & CAMERA -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script>
+        // Tab System
+        function openTab(evt, tabName) {
+            var i, tabcontent, tablinks;
+            tabcontent = document.getElementsByClassName("tab-content");
+            for (i = 0; i < tabcontent.length; i++) tabcontent[i].style.display = "none";
+            tablinks = document.getElementsByClassName("tab-btn");
+            for (i = 0; i < tablinks.length; i++) tablinks[i].className = tablinks[i].className.replace(" active", "");
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+        }
+
+        // Voice Entry System (Web Speech API)
+        function startVoice() {
+            if (!('webkitSpeechRecognition' in window)) {
+                alert("Voice entry aapke browser me support nahi karti. Chrome use karein.");
+                return;
+            }
+            const recognition = new webkitSpeechRecognition();
+            recognition.lang = 'en-IN';
+            recognition.start();
+            document.getElementById('awb_input').placeholder = "🎙️ Listening... Speak AWB or Weight";
+            
+            recognition.onresult = function(event) {
+                const text = event.results[0][0].transcript.toLowerCase();
+                const awbMatch = text.match(/(?:awb|parcel|number)\\s*([a-z0-9]+)/);
+                const wtMatch = text.match(/(?:weight|wajan)\\s*([\\d\\.]+)/);
+                const destMatch = text.match(/(?:destination|to)\\s*([a-z]+)/);
+                
+                if(awbMatch) document.getElementById('awb_input').value = awbMatch[1].toUpperCase();
+                if(wtMatch) document.getElementById('wt_input').value = wtMatch[1];
+                if(destMatch) document.getElementById('dest_input').value = destMatch[1].toUpperCase();
+                
+                if(awbMatch) document.getElementById('addForm').submit();
+            };
+            recognition.onerror = function() { alert("Voice failed."); };
+        }
+
+        // Camera Scanner System (html5-qrcode)
+        let html5QrcodeScanner;
+        function openCamera() {
+            document.getElementById('camModal').style.display = 'block';
+            html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: 250 });
+            html5QrcodeScanner.render(function(decodedText) {
+                document.getElementById('awb_input').value = decodedText;
+                document.getElementById('info_input').value = "[Camera Scanned]";
+                closeCamera();
+                document.getElementById('dest_input').focus();
+            });
+        }
+        function closeCamera() {
+            document.getElementById('camModal').style.display = 'none';
+            if (html5QrcodeScanner) { html5QrcodeScanner.clear(); }
+        }
+    </script>
     """
     try:
         from flask import render_template_string
-        return render_page("Outward Entry", render_template_string(html, pending=pending, stations=stations, session=session))
+        return render_page("Outward Entry", render_template_string(html, pending=pending, sessions=sessions, stations=stations, session=session, date_today=date_today))
     except Exception as e:
         return str(e)
 
