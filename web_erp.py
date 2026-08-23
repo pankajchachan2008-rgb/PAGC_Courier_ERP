@@ -1694,7 +1694,7 @@ def print_invoice_pdf(inv_id):
     return send_file(buf, download_name=f"Invoice_{inv['invoice_no'].replace('/', '_')}.pdf", mimetype='application/pdf')
 
 # ==========================================
-#  12. DYNAMIC REPORTS ENGINE
+# 📊 12. DYNAMIC REPORTS ENGINE
 # ==========================================
 @app.route('/module/<category>/<action>', methods=['GET', 'POST'])
 @login_required
@@ -1703,63 +1703,65 @@ def dynamic_module(category, action):
     title_action = action.replace('_', ' ').upper()
     page_title = f"{title_action} [{title_category}]"
     data_found = False; table_headers = []; table_rows = []
+    
     conn = get_db()
     with conn.cursor() as c:
+        # Pura q_map 'with' block ke andar indented (andar) hona chahiye
+        q_map = {
+            'cash_billing_register': ("SELECT awb_no, booking_date, dest_name, weight_kg, total_amount FROM shipments WHERE customer_id IS NULL LIMIT 100", ["AWB", "Date", "Dest", "Weight", "Total Amount"]),
+            'credit_billing': ("SELECT s.awb_no, s.booking_date, c.name, s.total_amount FROM shipments s JOIN customers c ON s.customer_id=c.id WHERE s.customer_id IS NOT NULL LIMIT 100", ["AWB", "Date", "Customer", "Amount"]),
+            'transhipment_charges': ("SELECT awb_no, dest_station, weight_kg, total_amount FROM shipments WHERE status='OUTWARD' LIMIT 100", ["AWB", "Dest Station", "Weight", "Amount"]),
+            'inward_outward_pending': ("SELECT awb_no, booking_date, status, current_location FROM shipments WHERE status IN ('BOOKED', 'OUTWARD', 'INWARD') LIMIT 100", ["AWB", "Date", "Status", "Location"]),
+            'inward_outward_wgt': ("SELECT awb_no, weight_kg FROM shipments WHERE weight_kg > 0 LIMIT 100", ["AWB", "Weight"]),
+            'invoice_data': ("SELECT invoice_no, invoice_date, total, status FROM invoices ORDER BY id DESC LIMIT 100", ["Invoice No", "Date", "Total", "Status"]),
+            'bill_pending': ("SELECT invoice_no, invoice_date, total, status FROM invoices WHERE status='UNPAID'", ["Invoice No", "Date", "Total Amount", "Status"]),
+            'franchisee_invoice_audit': ("SELECT origin_name, COUNT(*) as docs, SUM(total_amount) as total FROM shipments GROUP BY origin_name", ["Branch", "Docs", "Total"]),
+            'drs_status': ("SELECT drs_no, drs_date, rider_name, status FROM drs", ["DRS No", "Date", "Delivery Boy", "Status"]),
+            'drs_summary': ("SELECT drs_no, rider_name, status FROM drs", ["DRS No", "Rider", "Status"]),
+            'inward_history': ("SELECT entry_date, awb_no, origin_station, in_station FROM inward_register ORDER BY id DESC LIMIT 100", ["Date", "AWB", "Origin", "In-Station"]),
+            'outward_history': ("SELECT entry_date, awb_no, out_station, destination FROM outward_register ORDER BY id DESC LIMIT 100", ["Date", "AWB", "Out-Station", "Dest"]),
+            'cargo_inward': ("SELECT entry_date, awb_no, origin_station, in_station, weight FROM inward_register LIMIT 100", ["Date", "AWB", "Origin", "In-Station", "Weight"]),
+            'outward_register': ("SELECT entry_date, awb_no, out_station, destination, weight FROM outward_register LIMIT 100", ["Date", "AWB", "Out-Station", "Dest", "Weight"]),
+            'manifest_register': ("SELECT manifest_no, manifest_type, from_location, to_location, status, created_at FROM manifests LIMIT 100", ["Manifest No", "Type", "Origin", "Destination", "Status", "Date"]),
+            'repeat_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM shipments GROUP BY awb_no HAVING cnt > 1", ["AWB No", "Duplicate Count"]),
+            'daily_collection': ("SELECT payment_date, mode, SUM(amount) as total_collected FROM payments GROUP BY payment_date, mode", ["Date", "Payment Mode", "Total Collected"]),
+            'daily_req': ("SELECT booking_date, COUNT(*) as bookings, SUM(total_amount) as revenue FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Bookings", "Revenue"]),
+            'counter_booking': ("SELECT awb_no, booking_date, dest_name, total_amount FROM shipments LIMIT 100", ["AWB", "Date", "Dest", "Amount"]),
+            'shipper_issue': ("SELECT awb_no, booking_date, origin_name, status FROM shipments WHERE status='STATIONERY' LIMIT 100", ["AWB", "Issue Date", "Issued To", "Status"]),
+            'shipper_stock': ("SELECT origin_name, COUNT(*) as stock FROM shipments WHERE status='STATIONERY' GROUP BY origin_name", ["Branch/Shipper", "Unused Stock"]),
+            'shipper_inward': ("SELECT entry_date, awb_no, origin_station FROM inward_register LIMIT 100", ["Date", "AWB", "Origin"]),
+            'outward_transhipment': ("SELECT entry_date, awb_no, destination, weight FROM outward_register LIMIT 100", ["Date", "AWB", "Dest", "Weight"]),
+            'outward_local': ("SELECT entry_date, awb_no, destination, weight FROM outward_register WHERE network='LOCAL' LIMIT 100", ["Date", "AWB", "Dest", "Weight"]),
+            'manifest': ("SELECT manifest_no, created_at, from_location, to_location FROM manifests LIMIT 100", ["Manifest No", "Date", "From", "To"]),
+            'packing_slip': ("SELECT awb_no, dest_station, weight_kg FROM shipments WHERE status='OUTWARD' LIMIT 100", ["AWB", "Dest", "Weight"]),
+            'drs_register': ("SELECT drs_no, drs_date, rider_name FROM drs LIMIT 100", ["DRS No", "Date", "Rider"]),
+            'pod_register': ("SELECT s.awb_no, s.dest_name, se.remarks, se.created_at FROM scan_events se JOIN shipments s ON se.shipment_id=s.id WHERE se.scan_type='DELIVERED' LIMIT 100", ["AWB", "Dest Name", "Receiver", "Date"]),
+            'pod_entry': ("SELECT s.awb_no, s.dest_name FROM shipments s WHERE s.status='ON_DRS' LIMIT 100", ["AWB", "Dest Name"]),
+            'bulk_pod_entry': ("SELECT s.awb_no, s.dest_name FROM shipments s WHERE s.status='ON_DRS' LIMIT 100", ["AWB", "Dest Name"]),
+            'cnote_return': ("SELECT awb_no, booking_date, dest_name FROM shipments WHERE status='RETURNED' LIMIT 100", ["AWB", "Date", "Dest"]),
+            'account_bill': ("SELECT invoice_no, invoice_date, total FROM invoices LIMIT 100", ["Invoice", "Date", "Total"]),
+            'quotation': ("SELECT id, awb_no, total_amount FROM shipments LIMIT 100", ["ID", "AWB", "Amount"]),
+            'local_packet_inward': ("SELECT entry_date, awb_no, in_station FROM inward_register LIMIT 100", ["Date", "AWB", "Station"]),
+            'inward_mfest': ("SELECT inward_no, MIN(entry_date) as d, COUNT(*) as c FROM inward_register WHERE finalized=1 GROUP BY inward_no", ["Inward No", "Date", "Docs"]),
+            'cash_book': ("SELECT payment_date, mode, SUM(amount) as total FROM payments WHERE mode='CASH' GROUP BY payment_date, mode", ["Date", "Mode", "Total"]),
+            'bank_book': ("SELECT payment_date, mode, SUM(amount) as total FROM payments WHERE mode='BANK' GROUP BY payment_date, mode", ["Date", "Mode", "Total"]),
+            'journal_voucher': ("SELECT expense_date, category, amount FROM expenses LIMIT 100", ["Date", "Category", "Amount"]),
+            'service_tax_ledger': ("SELECT invoice_date, taxable_amount, cgst, sgst, igst FROM invoices LIMIT 100", ["Date", "Taxable", "CGST", "SGST", "IGST"]),
+            'fuel_surcharge': ("SELECT booking_date, SUM(total_amount) as total FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Total"]),
+            'pending_outward': ("SELECT awb_no, booking_date, status FROM shipments WHERE status='BOOKED' LIMIT 100", ["AWB", "Date", "Status"]),
+            'franchisee_summary': ("SELECT origin_name, COUNT(*) as docs, SUM(total_amount) as rev FROM shipments GROUP BY origin_name", ["Branch", "Docs", "Revenue"]),
+            'drs_pending': ("SELECT awb_no FROM shipments WHERE status='ON_DRS' LIMIT 100", ["AWB"]),
+            'pod_pending': ("SELECT awb_no FROM shipments WHERE status IN ('INWARD', 'OUTWARD') LIMIT 100", ["AWB"]),
+            'duplicate_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM shipments GROUP BY awb_no HAVING cnt > 1", ["AWB No", "Duplicate Count"]),
+            'charts': ("SELECT booking_date, COUNT(*) as c FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Count"]),
+            'circular_issue': ("SELECT id, awb_no, info FROM shipments WHERE info LIKE '%circular%' LIMIT 100", ["ID", "AWB", "Info"]),
+            'account_code_updator': ("SELECT id, code, name FROM customers LIMIT 100", ["ID", "Code", "Name"]),
+            'bulk_print': ("SELECT awb_no FROM shipments ORDER BY id DESC LIMIT 100", ["AWB"]),
+            'mailbox': ("SELECT id, awb_no, info FROM shipments LIMIT 100", ["ID", "AWB", "Info"]),
+            'merging': ("SELECT id, name FROM customers LIMIT 100", ["ID", "Name"]),
+            'data_manager': ("SELECT 'Shipments' as tbl, COUNT(*) as cnt FROM shipments UNION SELECT 'Customers', COUNT(*) FROM customers UNION SELECT 'Invoices', COUNT(*) FROM invoices", ["Table", "Count"])
+        }
 
-    q_map = {
-        'cash_billing_register': ("SELECT awb_no, booking_date, dest_name, weight_kg, total_amount FROM shipments WHERE customer_id IS NULL LIMIT 100", ["AWB", "Date", "Dest", "Weight", "Total Amount"]),
-        'credit_billing': ("SELECT s.awb_no, s.booking_date, c.name, s.total_amount FROM shipments s JOIN customers c ON s.customer_id=c.id WHERE s.customer_id IS NOT NULL LIMIT 100", ["AWB", "Date", "Customer", "Amount"]),
-        'transhipment_charges': ("SELECT awb_no, dest_station, weight_kg, total_amount FROM shipments WHERE status='OUTWARD' LIMIT 100", ["AWB", "Dest Station", "Weight", "Amount"]),
-        'inward_outward_pending': ("SELECT awb_no, booking_date, status, current_location FROM shipments WHERE status IN ('BOOKED', 'OUTWARD', 'INWARD') LIMIT 100", ["AWB", "Date", "Status", "Location"]),
-        'inward_outward_wgt': ("SELECT awb_no, weight_kg FROM shipments WHERE weight_kg > 0 LIMIT 100", ["AWB", "Weight"]),
-        'invoice_data': ("SELECT invoice_no, invoice_date, total, status FROM invoices ORDER BY id DESC LIMIT 100", ["Invoice No", "Date", "Total", "Status"]),
-        'bill_pending': ("SELECT invoice_no, invoice_date, total, status FROM invoices WHERE status='UNPAID'", ["Invoice No", "Date", "Total Amount", "Status"]),
-        'franchisee_invoice_audit': ("SELECT origin_name, COUNT(*) as docs, SUM(total_amount) as total FROM shipments GROUP BY origin_name", ["Branch", "Docs", "Total"]),
-        'drs_status': ("SELECT drs_no, drs_date, rider_name, status FROM drs", ["DRS No", "Date", "Delivery Boy", "Status"]),
-        'drs_summary': ("SELECT drs_no, rider_name, status FROM drs", ["DRS No", "Rider", "Status"]),
-        'inward_history': ("SELECT entry_date, awb_no, origin_station, in_station FROM inward_register ORDER BY id DESC LIMIT 100", ["Date", "AWB", "Origin", "In-Station"]),
-        'outward_history': ("SELECT entry_date, awb_no, out_station, destination FROM outward_register ORDER BY id DESC LIMIT 100", ["Date", "AWB", "Out-Station", "Dest"]),
-        'cargo_inward': ("SELECT entry_date, awb_no, origin_station, in_station, weight FROM inward_register LIMIT 100", ["Date", "AWB", "Origin", "In-Station", "Weight"]),
-        'outward_register': ("SELECT entry_date, awb_no, out_station, destination, weight FROM outward_register LIMIT 100", ["Date", "AWB", "Out-Station", "Dest", "Weight"]),
-        'manifest_register': ("SELECT manifest_no, manifest_type, from_location, to_location, status, created_at FROM manifests LIMIT 100", ["Manifest No", "Type", "Origin", "Destination", "Status", "Date"]),
-        'repeat_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM shipments GROUP BY awb_no HAVING cnt > 1", ["AWB No", "Duplicate Count"]),
-        'daily_collection': ("SELECT payment_date, mode, SUM(amount) as total_collected FROM payments GROUP BY payment_date, mode", ["Date", "Payment Mode", "Total Collected"]),
-        'daily_req': ("SELECT booking_date, COUNT(*) as bookings, SUM(total_amount) as revenue FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Bookings", "Revenue"]),
-        'counter_booking': ("SELECT awb_no, booking_date, dest_name, total_amount FROM shipments LIMIT 100", ["AWB", "Date", "Dest", "Amount"]),
-        'shipper_issue': ("SELECT awb_no, booking_date, origin_name, status FROM shipments WHERE status='STATIONERY' LIMIT 100", ["AWB", "Issue Date", "Issued To", "Status"]),
-        'shipper_stock': ("SELECT origin_name, COUNT(*) as stock FROM shipments WHERE status='STATIONERY' GROUP BY origin_name", ["Branch/Shipper", "Unused Stock"]),
-        'shipper_inward': ("SELECT entry_date, awb_no, origin_station FROM inward_register LIMIT 100", ["Date", "AWB", "Origin"]),
-        'outward_transhipment': ("SELECT entry_date, awb_no, destination, weight FROM outward_register LIMIT 100", ["Date", "AWB", "Dest", "Weight"]),
-        'outward_local': ("SELECT entry_date, awb_no, destination, weight FROM outward_register WHERE network='LOCAL' LIMIT 100", ["Date", "AWB", "Dest", "Weight"]),
-        'manifest': ("SELECT manifest_no, created_at, from_location, to_location FROM manifests LIMIT 100", ["Manifest No", "Date", "From", "To"]),
-        'packing_slip': ("SELECT awb_no, dest_station, weight_kg FROM shipments WHERE status='OUTWARD' LIMIT 100", ["AWB", "Dest", "Weight"]),
-        'drs_register': ("SELECT drs_no, drs_date, rider_name FROM drs LIMIT 100", ["DRS No", "Date", "Rider"]),
-        'pod_register': ("SELECT s.awb_no, s.dest_name, se.remarks, se.created_at FROM scan_events se JOIN shipments s ON se.shipment_id=s.id WHERE se.scan_type='DELIVERED' LIMIT 100", ["AWB", "Dest Name", "Receiver", "Date"]),
-        'pod_entry': ("SELECT s.awb_no, s.dest_name FROM shipments s WHERE s.status='ON_DRS' LIMIT 100", ["AWB", "Dest Name"]),
-        'bulk_pod_entry': ("SELECT s.awb_no, s.dest_name FROM shipments s WHERE s.status='ON_DRS' LIMIT 100", ["AWB", "Dest Name"]),
-        'cnote_return': ("SELECT awb_no, booking_date, dest_name FROM shipments WHERE status='RETURNED' LIMIT 100", ["AWB", "Date", "Dest"]),
-        'account_bill': ("SELECT invoice_no, invoice_date, total FROM invoices LIMIT 100", ["Invoice", "Date", "Total"]),
-        'quotation': ("SELECT id, awb_no, total_amount FROM shipments LIMIT 100", ["ID", "AWB", "Amount"]),
-        'local_packet_inward': ("SELECT entry_date, awb_no, in_station FROM inward_register LIMIT 100", ["Date", "AWB", "Station"]),
-        'inward_mfest': ("SELECT inward_no, MIN(entry_date) as d, COUNT(*) as c FROM inward_register WHERE finalized=1 GROUP BY inward_no", ["Inward No", "Date", "Docs"]),
-        'cash_book': ("SELECT payment_date, mode, SUM(amount) as total FROM payments WHERE mode='CASH' GROUP BY payment_date, mode", ["Date", "Mode", "Total"]),
-        'bank_book': ("SELECT payment_date, mode, SUM(amount) as total FROM payments WHERE mode='BANK' GROUP BY payment_date, mode", ["Date", "Mode", "Total"]),
-        'journal_voucher': ("SELECT expense_date, category, amount FROM expenses LIMIT 100", ["Date", "Category", "Amount"]),
-        'service_tax_ledger': ("SELECT invoice_date, taxable_amount, cgst, sgst, igst FROM invoices LIMIT 100", ["Date", "Taxable", "CGST", "SGST", "IGST"]),
-        'fuel_surcharge': ("SELECT booking_date, SUM(total_amount) as total FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Total"]),
-        'pending_outward': ("SELECT awb_no, booking_date, status FROM shipments WHERE status='BOOKED' LIMIT 100", ["AWB", "Date", "Status"]),
-        'franchisee_summary': ("SELECT origin_name, COUNT(*) as docs, SUM(total_amount) as rev FROM shipments GROUP BY origin_name", ["Branch", "Docs", "Revenue"]),
-        'drs_pending': ("SELECT awb_no FROM shipments WHERE status='ON_DRS' LIMIT 100", ["AWB"]),
-        'pod_pending': ("SELECT awb_no FROM shipments WHERE status IN ('INWARD', 'OUTWARD') LIMIT 100", ["AWB"]),
-        'duplicate_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM shipments GROUP BY awb_no HAVING cnt > 1", ["AWB No", "Duplicate Count"]),
-        'charts': ("SELECT booking_date, COUNT(*) as c FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Count"]),
-        'circular_issue': ("SELECT id, awb_no, info FROM shipments WHERE info LIKE '%circular%' LIMIT 100", ["ID", "AWB", "Info"]),
-        'account_code_updator': ("SELECT id, code, name FROM customers LIMIT 100", ["ID", "Code", "Name"]),
-        'bulk_print': ("SELECT awb_no FROM shipments ORDER BY id DESC LIMIT 100", ["AWB"]),
-        'mailbox': ("SELECT id, awb_no, info FROM shipments LIMIT 100", ["ID", "AWB", "Info"]),
-        'merging': ("SELECT id, name FROM customers LIMIT 100", ["ID", "Name"]),
-        'data_manager': ("SELECT 'Shipments' as tbl, COUNT(*) as cnt FROM shipments UNION SELECT 'Customers', COUNT(*) FROM customers UNION SELECT 'Invoices', COUNT(*) FROM invoices", ["Table", "Count"])
-    }
         if action in q_map:
             c.execute(q_map[action][0])
             rows = c.fetchall()
