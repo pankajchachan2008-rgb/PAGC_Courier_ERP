@@ -594,20 +594,172 @@ def api_calc_rate():
     fuel = safe_float(get_setting("fuel_surcharge", "0")); taxable = fr * (1 + (fuel/100)); gst_amt = taxable * (tx/100); total = taxable + gst_amt
     return jsonify({"freight": round(fr,2), "taxable": round(taxable,2), "gst": round(gst_amt,2), "total": round(total,2), "tax_rate": tx})
 
+# Is code ko apne web_erp.py me /customers route se replace karein
 @app.route('/customers', methods=['GET', 'POST'])
 @login_required
 def customers():
     if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
+    
     if request.args.get('delete'):
-        with conn.cursor() as c: c.execute("UPDATE customers SET is_active=0 WHERE id=%s", (request.args.get('delete'),)); conn.commit(); flash("Deleted!", "success"); return redirect('/customers')
+        with conn.cursor() as c: c.execute("UPDATE customers SET is_active=0 WHERE id=%s", (request.args.get('delete'),)); conn.commit(); flash("Franchisee Deleted!", "success"); return redirect('/customers')
+    
     if request.method == 'POST':
         d = request.form
-        with conn.cursor() as c: c.execute("INSERT INTO customers(code, name, gstin, phone, email, state, state_code, address, credit_limit, is_active) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,1)", (d.get('code',''), d.get('name',''), d.get('gstin',''), d.get('phone',''), d.get('email',''), d.get('state',''), d.get('scode',''), d.get('addr',''), safe_float(d.get('limit')))); conn.commit(); flash("Added!", "success")
+        with conn.cursor() as c: 
+            # Original columns use kar rahe hain
+            c.execute("INSERT INTO customers(code, name, gstin, phone, email, state, state_code, address, credit_limit, is_active) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,1)", (d.get('code',''), d.get('name',''), d.get('gstin',''), d.get('phone1',''), d.get('email',''), d.get('state',''), d.get('scode',''), d.get('address',''), safe_float(d.get('limit')))); conn.commit(); flash("Master Data Saved Successfully!", "success")
+            
     with conn.cursor() as c: c.execute("SELECT * FROM customers WHERE is_active=1 ORDER BY id DESC"); custs = c.fetchall()
     conn.close()
-    html = """<div class="card"><h3>Cargo Party A/c. Master</h3><form method="POST" class="grid-4" style="align-items:end;"><div><label>Code</label><input name="code" required></div><div><label>Company Name</label><input name="name" required></div><div><label>GSTIN</label><input name="gstin"></div><div><label>Phone</label><input name="phone"></div><div><label>Email</label><input name="email"></div><div><label>State</label><input name="state"></div><div><label>State Code</label><input name="scode"></div><div><label>Limit (Rs)</label><input type="number" name="limit" value="0"></div><div style="grid-column: span 3;"><label>Address</label><input name="addr"></div><div><button type="submit" class="btn btn-blue">Save Master</button></div></form></div><div class="card"><table class="datatable"><thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>GSTIN</th><th>State</th><th>Limit</th><th>Act</th></tr></thead><tbody>{% for r in custs %}<tr><td>{{ r.code }}</td><td><strong>{{ r.name }}</strong></td><td>{{ r.phone }}</td><td>{{ r.gstin }}</td><td>{{ r.state }} ({{ r.state_code }})</td><td>Rs {{ r.credit_limit }}</td><td><a href="/customers?delete={{ r.id }}" style="color:red; font-weight:bold;">[Del]</a></td></tr>{% endfor %}</tbody></table></div>"""
-    return render_page("Customer Master", render_template_string(html, custs=custs))
+    
+    html = """
+    <style>
+        .agcs-form-table { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; margin-bottom: 5px; background: #E2FAFA;}
+        .agcs-form-table td { padding: 3px 5px; vertical-align: middle; border: none;}
+        .agcs-label { color: #003366; font-weight: bold; width: 120px; font-size: 11px; white-space: nowrap;}
+        .agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 2px 4px; font-family: Tahoma; font-size: 11px; width: 100%; box-sizing: border-box; }
+        .agcs-input:focus { background-color: #FFF; border: 1px solid red;}
+        .agcs-section-header { background-color: #009933; color: white; font-weight: bold; padding: 2px 5px; margin-top: 5px; margin-bottom: 5px; font-size: 11px; text-transform:uppercase;}
+        .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
+        .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 2px 20px; font-family: Tahoma; font-size: 11px; font-weight: bold; cursor: pointer; color: #000;}
+        .agcs-btn-grey:hover { background-color: #E0E0E0; }
+        .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 13px; margin: 0 0 5px 0; background:white; padding:5px;}
+    </style>
+
+    <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+        
+        <h2 class="page-title-green">FRANCHISEE / BRANCH MASTER DATA SETUP</h2>
+        
+        <form method="POST" id="masterForm" style="margin:0;">
+            <div class="agcs-top-bar">
+                <button type="submit" class="agcs-btn-grey">SAVE</button>
+                <button type="button" class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button>
+            </div>
+            
+            <div style="background: #E2FAFA; padding: 2px;">
+                
+                <div class="agcs-section-header">FRANCHISEE CONTACT DETAILS</div>
+                <table class="agcs-form-table">
+                    <tr>
+                        <td class="agcs-label" style="width:10%;">Frnch. Name</td>
+                        <td colspan="3"><input type="text" name="name" class="agcs-input" style="width: 40%; color:blue; font-weight:bold;" required></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Code / ID</td>
+                        <td colspan="3"><input type="text" name="code" class="agcs-input" style="width: 20%;" required></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Address</td>
+                        <td colspan="3"><input type="text" name="address" class="agcs-input" style="width: 40%; margin-bottom: 2px;"><br><input type="text" class="agcs-input" style="width: 40%; margin-bottom: 2px;"><br><input type="text" class="agcs-input" style="width: 40%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Area</td>
+                        <td colspan="3"><input type="text" name="area" class="agcs-input" style="width: 40%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">City</td>
+                        <td style="width:30%;">
+                            <input type="text" class="agcs-input" style="width: 25%; margin-right: 2px; background:white; border:1px solid #116B7A;">
+                            <select class="agcs-input" style="width: 60%; background-color: #FFFFCC; border:1px solid #009933;"><option>NOHAR</option><option>JAIPUR</option></select>
+                        </td>
+                        <td class="agcs-label" style="width:10%; text-align:right; padding-right:10px;">PinCode</td>
+                        <td><input type="text" name="pincode" class="agcs-input" style="width: 30%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">State</td>
+                        <td>
+                            <input type="text" name="scode" class="agcs-input" style="width: 25%; margin-right: 2px; background:white; border:1px solid #116B7A;" placeholder="">
+                            <select class="agcs-input" style="width: 60%; background-color: #FFFFCC; border:1px solid #009933;"><option>RAJASTHAN</option><option>HARYANA</option></select>
+                        </td>
+                        <td class="agcs-label" style="text-align:right; padding-right:10px;">Country</td>
+                        <td><select class="agcs-input" style="width: 30%; background-color: #FFFFCC; border:1px solid #009933;"><option>INDIA</option></select></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Phone 1</td>
+                        <td><input type="text" name="phone1" class="agcs-input" style="width: 90%;"></td>
+                        <td class="agcs-label" style="text-align:right; padding-right:10px;">Phone2</td>
+                        <td><input type="text" name="phone2" class="agcs-input" style="width: 60%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Fax</td>
+                        <td><input type="text" name="fax" class="agcs-input" value="-" style="width: 90%; background:white; border:1px solid #116B7A;"></td>
+                        <td class="agcs-label" style="text-align:right; padding-right:10px;">Email</td>
+                        <td><input type="email" name="email" class="agcs-input" style="width: 60%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Website</td>
+                        <td colspan="3"><input type="text" name="website" class="agcs-input" style="width: 40%;"></td>
+                    </tr>
+                </table>
+
+                <div class="agcs-section-header">REGISTRATION NUMBERS</div>
+                <table class="agcs-form-table">
+                    <tr>
+                        <td class="agcs-label" style="width:10%;">PAN No.</td>
+                        <td style="width:30%;"><input type="text" name="pan" class="agcs-input" style="width: 90%;"></td>
+                        <td class="agcs-label" style="width:10%; text-align:right; padding-right:10px;">State GST</td>
+                        <td><input type="text" name="gstin" class="agcs-input" style="width: 60%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">TAN No.</td>
+                        <td><input type="text" name="tan" class="agcs-input" value="-" style="width: 90%; background:white; border:1px solid #116B7A;"></td>
+                        <td class="agcs-label" style="text-align:right; padding-right:10px;">Center GST</td>
+                        <td><input type="text" name="cgst_no" class="agcs-input" style="width: 60%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Srvc Tax No.</td>
+                        <td colspan="3"><input type="text" name="service_tax" class="agcs-input" style="width: 90%;"></td>
+                    </tr>
+                </table>
+
+                <div class="agcs-section-header">ACCOUNT YEAR DETAILS</div>
+                <table class="agcs-form-table">
+                    <tr>
+                        <td class="agcs-label" style="width:10%;">From Date</td>
+                        <td><input type="text" class="agcs-input" value="01/04/2026" style="width: 30%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">To Date</td>
+                        <td><input type="text" class="agcs-input" value="31/03/2027" style="width: 30%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Account year</td>
+                        <td><input type="text" class="agcs-input" value="2026-2027" style="width: 30%;"></td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Credit Limit (Rs)</td>
+                        <td><input type="number" step="0.01" name="limit" class="agcs-input" value="0.00" style="width: 30%; font-weight:bold;"></td>
+                    </tr>
+                </table>
+            </div>
+        </form>
+        
+        <!-- List View -->
+        <div style="background: white; border: 1px solid #116B7A; margin-top: 5px;">
+            <div style="height: 150px; overflow-y: auto;">
+                <table class="datatable" style="width: 100%; border: none; margin: 0;">
+                    <thead style="position: sticky; top: 0;">
+                        <tr><th>Code</th><th>Name</th><th>Phone</th><th>GSTIN</th><th>State Code</th><th>Act</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for r in custs %}
+                        <tr>
+                            <td>{{ r.code }}</td>
+                            <td style="color: blue; font-weight: bold;">{{ r.name }}</td>
+                            <td>{{ r.phone }}</td>
+                            <td>{{ r.gstin }}</td>
+                            <td>{{ r.state_code }}</td>
+                            <td style="text-align:center;"><a href="/customers?delete={{ r.id }}"><img src="https://cdn-icons-png.flaticon.com/128/3096/3096673.png" width="12" title="Delete"></a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    """
+    return render_page("Franchisee Master Data SetUp", render_template_string(html, custs=custs))
 
 @app.route('/booking', methods=['GET', 'POST'])
 @login_required
@@ -841,8 +993,12 @@ def import_csv():
 def outward():
     if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db(); current_date = datetime.now().strftime('%Y-%m-%d')
+    
+    # 1. Delete Logic
     if request.args.get('delete'):
         with conn.cursor() as c: c.execute("DELETE FROM outward_register WHERE id=%s", (request.args.get('delete'),)); conn.commit(); flash("Deleted", "success"); return redirect(f"/outward?date={request.args.get('date', current_date)}")
+    
+    # 2. Unfinalize Logic
     if request.args.get('unfinalize'):
         mid = request.args.get('unfinalize')
         with conn.cursor() as c:
@@ -851,6 +1007,7 @@ def outward():
             conn.commit(); flash("Unfinalized!", "success")
         return redirect('/outward')
 
+    # 3. Save Entry Logic
     if request.method == 'POST' and request.form.get('action') == 'save_entry':
         o_date = request.form.get('out_date', current_date); o_station = str(request.form.get('out_station') or session.get('branch', 'HQ')).upper(); awb = request.form.get('awb', '').strip().upper()
         dest_input = request.form.get('dest', '').strip().upper(); wt_input = safe_float(request.form.get('weight')); info = request.form.get('info', '')
@@ -876,6 +1033,7 @@ def outward():
                 conn.commit()
             return redirect(f"/outward?date={o_date}&station={o_station}")
 
+    # 4. Finalize & Manifest Generation Logic
     if request.method == 'POST' and request.form.get('action') == 'finalize':
         o_date = request.form.get('out_date', current_date); o_station = request.form.get('out_station', session.get('branch', 'HQ')).upper()
         with conn.cursor() as c:
@@ -888,9 +1046,10 @@ def outward():
                     c.execute("UPDATE outward_register SET finalized=1, outward_no=%s, manifest_no=%s WHERE id=%s", (ono, mno, p['id']))
                     c.execute("SELECT id FROM shipments WHERE awb_no=%s", (p['awb_no'],)); s_row = c.fetchone()
                     if s_row: c.execute("INSERT INTO manifest_items(manifest_id, shipment_id) VALUES(%s, %s)", (mid, s_row['id'])); c.execute("INSERT INTO scan_events(shipment_id, scan_type, location) VALUES(%s, 'OUTWARD', %s)", (s_row['id'], session.get('branch','HQ')))
-                conn.commit(); flash(f"Locked!", "success")
+                conn.commit(); flash(f"Locked! Manifest Generated: {mno}", "success")
         return redirect(f"/outward?date={o_date}&station={o_station}")
 
+    # 5. Fetch Data for the View
     f_date = request.args.get('date', current_date); f_station = request.args.get('station', session.get('branch', 'HQ')).upper()
     with conn.cursor() as c:
         c.execute("SELECT id, awb_no, destination, weight, info FROM outward_register WHERE entry_date=%s AND out_station=%s AND origin_station=%s AND finalized=0 ORDER BY id DESC", (f_date, f_station, session.get('branch','HQ'))); pending_list = c.fetchall()
@@ -901,47 +1060,203 @@ def outward():
         c.execute(q_m + " ORDER BY id DESC LIMIT 10", tuple(params_m)); mans = c.fetchall()
     conn.close()
     
+    # 6. EXACT AGCSINFO HTML DESIGN
     html = """
-    <div class="grid-2">
-        <div class="card">
-            <h3>Outward Entry [Transhipment]</h3>
-            <div style="background:#F4FAFA; padding:5px; border:1px solid #CCC; margin-bottom:10px;">
-                <label>Date:</label><input type="date" id="ui_date" value="{{ f_date }}" onchange="reloadPage()" style="width:100px;">
-                <label>Hub Station:</label><input list="stlist" id="ui_station" value="{{ f_station }}" onchange="reloadPage()" style="width:120px;"><datalist id="stlist">{% for s in stations %}<option value="{{ s }}">{% endfor %}</datalist>
+    <style>
+        .agcs-form { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; border: 1px solid #009933; margin-bottom: 10px;}
+        .agcs-form td { padding: 4px; border: none; vertical-align: middle;}
+        .agcs-input { border: 1px solid #009933; background-color: #FFFFCC; font-family: Tahoma; font-size: 11px; padding: 2px; width: 100%; box-sizing: border-box;}
+        .agcs-input:focus { background-color: #FFF; border: 1px solid red;}
+        .agcs-select { border: 1px solid #009933; font-family: Tahoma; font-size: 11px; padding: 1px; width: 100%;}
+        .agcs-label { color: #003366; white-space: nowrap; padding-right: 5px; }
+        .agcs-header { background-color: #009933; color: white; font-weight: bold; padding: 3px 5px; text-align: center;}
+        .icon-btn { cursor: pointer; vertical-align: middle; margin: 0 2px;}
+        
+        .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
+        .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 2px 20px; font-family: Tahoma; font-size: 11px; font-weight: bold; cursor: pointer; color: #000; text-transform:uppercase;}
+        
+        .section-box { border: 1px solid #009933; padding: 2px; margin-bottom: 5px; background: white;}
+    </style>
+
+    <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+        
+        <!-- COMMAND BAR -->
+        <div class="agcs-top-bar">
+            <button class="agcs-btn-grey" onclick="document.getElementById('entryForm').submit()">SAVE</button>
+            <button class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button>
+            <div style="margin-left: auto; color: #D67A00; font-weight: bold; font-size:12px; padding-right:10px;">
+                Center : {{ session.branch | default('NOHAR') }}/{{ session.branch | default('NOHAR') }}-PANKAJ AGENCY
             </div>
-            <form method="POST" id="entryForm" style="border:1px solid #116B7A; padding:10px;">
-                <input type="hidden" name="action" value="save_entry"><input type="hidden" name="out_date" id="hdn_date"><input type="hidden" name="out_station" id="hdn_station">
-                <table style="width:100%;">
-                    <tr><td><label>C.Note No:</label></td><td><input type="text" name="awb" required autofocus style="font-weight:bold; color:red;"></td></tr>
-                    <tr><td><label>Dest:</label></td><td><input type="text" name="dest" list="stlist"></td></tr>
-                    <tr><td><label>Weight:</label></td><td><input type="number" step="0.01" name="weight"></td></tr>
-                    <tr><td><label>Remarks:</label></td><td><input type="text" name="info"></td></tr>
-                    <tr><td colspan="2"><button type="submit" class="btn btn-blue" style="width:100%; margin-top:5px;">Add</button></td></tr>
+        </div>
+
+        <form method="POST" id="entryForm" style="margin:0;">
+            <input type="hidden" name="action" value="save_entry">
+            <input type="hidden" name="out_date" id="hdn_date">
+            <input type="hidden" name="out_station" id="hdn_station">
+
+            <!-- UPPER SECTION: VOUCHER DETAILS -->
+            <div class="section-box">
+                <div class="agcs-header">Outward Voucher Detail [Transhipment Outward]</div>
+                <table class="agcs-form">
+                    <tr>
+                        <td class="agcs-label" style="width:10%;">Outward Date</td>
+                        <td style="width:20%;"><input type="date" id="ui_date" value="{{ f_date }}" onchange="reloadPage()" class="agcs-input" style="font-weight:bold; color:blue;"></td>
+                        <td class="agcs-label" style="width:10%; text-align:right;">Frnch A/c</td>
+                        <td style="width:20%;"><select class="agcs-select"><option>Select One</option></select></td>
+                        <td class="agcs-label" style="width:10%; text-align:right;">C.Note Search</td>
+                        <td style="width:20%;">
+                            <input type="text" class="agcs-input" style="width:60%; background:white; border:1px solid #116B7A;">
+                            <!-- AGCS Classic Icons -->
+                            <img src="https://cdn-icons-png.flaticon.com/128/49/49116.png" width="14" class="icon-btn" title="Search">
+                            <img src="https://cdn-icons-png.flaticon.com/128/1828/1828817.png" width="14" class="icon-btn" title="Add">
+                            <img src="https://cdn-icons-png.flaticon.com/128/2874/2874050.png" width="14" class="icon-btn" title="Save">
+                            <img src="https://cdn-icons-png.flaticon.com/128/3096/3096673.png" width="14" class="icon-btn" title="Delete">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">To Station</td>
+                        <td><input list="stlist" id="ui_station" value="{{ f_station }}" onchange="reloadPage()" class="agcs-input"><datalist id="stlist">{% for s in stations %}<option value="{{ s }}">{% endfor %}</datalist></td>
+                        <td class="agcs-label" style="text-align:right;">Cargo A/c</td>
+                        <td><select class="agcs-select"><option>Select One</option></select></td>
+                        <td class="agcs-label" style="text-align:right;">M.Fest Number</td>
+                        <td>
+                            <input type="text" class="agcs-input" style="width:60%; background:white; border:1px solid #116B7A;">
+                            &nbsp;&nbsp;<input type="checkbox" checked style="vertical-align:middle; width:auto; border:none; background:transparent;"> <span style="color:red; font-weight:bold;">Fast Mode [Gun]</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Notes</td>
+                        <td colspan="5"><input type="text" name="info" class="agcs-input" style="width:200px;"></td>
+                    </tr>
                 </table>
-            </form>
-            <h4 style="margin-top:10px;">Pending ({{ pending_list|length }})</h4>
-            <div style="height:150px; overflow-y:auto;"><table class="datatable">
-                <thead><tr><th>AWB</th><th>Dest</th><th>Wt</th><th>Del</th></tr></thead>
-                <tbody>{% for p in pending_list %}<tr><td style="font-weight:bold;">{{ p.awb_no }}</td><td>{{ p.destination or '-' }}</td><td>{{ p.weight or '0' }}</td><td><a href="/outward?delete={{ p.id }}&date={{ f_date }}&station={{ f_station }}" style="color:red;">[X]</a></td></tr>{% endfor %}</tbody>
-            </table></div>
-            <form method="POST" id="finalizeForm" style="margin-top:10px; background:#FFFECC; padding:5px; border:1px solid #CCC;">
-                <input type="hidden" name="action" value="finalize"><input type="hidden" name="out_date" id="fin_date" value="{{ f_date }}"><input type="hidden" name="out_station" id="fin_station" value="{{ f_station }}">
-                <label>Vehicle No:</label><input type="text" name="vehicle_no" required style="width:100px;">
-                <button type="submit" class="btn btn-gold">Generate Manifest</button>
+            </div>
+
+            <!-- LOWER SECTION: CONSIGNMENT DETAILS -->
+            <div class="section-box">
+                <div class="agcs-header">Outward Consignment Details</div>
+                <table class="agcs-form">
+                    <tr>
+                        <td class="agcs-label" style="width:8%;">Cons. No.</td>
+                        <td style="width:18%;"><input type="text" name="awb" required autofocus class="agcs-input" style="color:red; font-weight:bold; text-transform:uppercase;"></td>
+                        <td class="agcs-label" style="width:8%; text-align:right;">Origin City</td>
+                        <td style="width:18%;"><input type="text" class="agcs-input" value="{{ session.branch | default('NOHAR') }}" readonly style="background:#FFFFCC;"></td>
+                        <td class="agcs-label" style="width:5%; text-align:right;">D/P</td>
+                        <td style="width:10%;"><select class="agcs-select"><option>DOCUM</option></select></td>
+                        <td class="agcs-label" style="width:5%; text-align:right;">Return?</td>
+                        <td style="width:8%;"><select class="agcs-select"><option>NO</option></select></td>
+                        <td class="agcs-label" style="width:5%; text-align:right;">Free?</td>
+                        <td style="width:8%;"><select class="agcs-select"><option>NO</option></select></td>
+                        <td rowspan="2" style="width:5%; text-align:center;">
+                            <!-- Save/Cancel buttons next to form -->
+                            <img src="https://cdn-icons-png.flaticon.com/128/2874/2874050.png" width="20" class="icon-btn" onclick="document.getElementById('entryForm').submit()" title="Save Item"><br><br>
+                            <img src="https://cdn-icons-png.flaticon.com/128/1828/1828843.png" width="20" class="icon-btn" title="Cancel" onclick="document.getElementById('entryForm').reset()">
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="agcs-label">Ref. No.</td>
+                        <td><input type="text" class="agcs-input"></td>
+                        <td class="agcs-label" style="text-align:right;">Dest. City</td>
+                        <td><input type="text" name="dest" list="stlist" class="agcs-input"></td>
+                        <td class="agcs-label" style="text-align:right;">Normal Wgt.</td>
+                        <td><input type="number" step="0.01" name="weight" class="agcs-input" value="1.0"></td>
+                        <td class="agcs-label" style="text-align:right;">Cros. Amt.</td>
+                        <td colspan="3"><input type="text" class="agcs-input" style="background:#FFFFCC;"></td>
+                    </tr>
+                    <tr>
+                        <td colspan="2"></td>
+                        <td class="agcs-label" style="text-align:right;">Mode</td>
+                        <td><select class="agcs-select" style="background:#FFFFCC;"><option>AIR</option><option selected>SURFACE</option></select></td>
+                        <td class="agcs-label" style="text-align:right;">Vol. Wgt.</td>
+                        <td><input type="text" class="agcs-input"></td>
+                        <td class="agcs-label" style="text-align:right;">Client Info.</td>
+                        <td colspan="3"><input type="text" class="agcs-input"></td>
+                        <td style="text-align:center;"><img src="https://cdn-icons-png.flaticon.com/128/3288/3288599.png" width="20" class="icon-btn" title="Refresh"></td>
+                    </tr>
+                </table>
+            </div>
+        </form>
+
+        <!-- TABLE SECTION (Pending Shipments) -->
+        <div style="border: 1px solid #CCC; background: white; margin-top: 5px; height: 180px; overflow-y: scroll;">
+            <table class="datatable" style="margin:0; border:none; width:100%;">
+                <thead style="position: sticky; top: 0;">
+                    <tr>
+                        <th style="width:30px;">Del</th>
+                        <th>C.Note</th>
+                        <th>Dest. City</th>
+                        <th>Weight</th>
+                        <th>Vol. Wgt.</th>
+                        <th>Mode</th>
+                        <th>Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in pending_list %}
+                    <tr>
+                        <td style="text-align:center;"><a href="/outward?delete={{ p.id }}&date={{ f_date }}&station={{ f_station }}"><img src="https://cdn-icons-png.flaticon.com/128/3096/3096673.png" width="12" title="Delete"></a></td>
+                        <td style="font-weight:bold; color:blue;">{{ p.awb_no }}</td>
+                        <td>{{ p.destination or '-' }}</td>
+                        <td>{{ p.weight or '0' }}</td>
+                        <td>0.00</td>
+                        <td>SURFACE</td>
+                        <td>{{ str(p.info or '') }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- FINALIZE MANIFEST SECTION -->
+        <div style="text-align: right; padding: 5px 0;">
+            <form method="POST" id="finalizeForm" style="display:inline;">
+                <input type="hidden" name="action" value="finalize">
+                <input type="hidden" name="out_date" id="fin_date" value="{{ f_date }}">
+                <input type="hidden" name="out_station" id="fin_station" value="{{ f_station }}">
+                <span style="font-weight:bold; color:#003366; font-size:11px;">Vehicle No:</span> 
+                <input type="text" name="vehicle_no" required class="agcs-input" style="width:100px; display:inline-block;">
+                <button type="submit" class="agcs-btn-grey" style="padding: 2px 10px;">Print ManiFest</button>
             </form>
         </div>
-        <div class="card">
-            <h3>Manifest Data Register</h3>
-            <table class="datatable"><thead><tr><th>Manifest No</th><th>Date</th><th>Route</th><th>Vehicle</th><th>Act</th></tr></thead>
-            <tbody>{% for m in mans %}<tr><td style="font-weight:bold;">{{ m.manifest_no }}</td><td>{{ m.created_at }}</td><td>{{ m.from_location }} &rarr; {{ m.to_location }}</td><td>{{ m.vehicle_no or '-' }}</td><td><a href="/print/manifest/{{ m.id }}" target="_blank" style="color:blue;">Print</a> | <a href="/outward?unfinalize={{ m.id }}" style="color:red;" onclick="return confirm('Unlock?');">Unlock</a></td></tr>{% endfor %}</tbody></table>
+        
+        <!-- MANIFEST HISTORY (Read-only section for Old Manifests) -->
+        <div style="margin-top: 20px;">
+            <div class="agcs-header" style="text-align:left;">Previous Manifest Register</div>
+            <div style="border: 1px solid #CCC; background: white; height: 120px; overflow-y: scroll;">
+                <table class="datatable" style="margin:0; border:none; width:100%;">
+                    <thead style="position: sticky; top: 0;">
+                        <tr><th>Manifest No</th><th>Date</th><th>Route</th><th>Vehicle</th><th>Act</th></tr>
+                    </thead>
+                    <tbody>
+                        {% for m in mans %}
+                        <tr>
+                            <td style="font-weight:bold;">{{ m.manifest_no }}</td>
+                            <td>{{ m.created_at }}</td>
+                            <td>{{ m.from_location }} &rarr; {{ m.to_location }}</td>
+                            <td>{{ m.vehicle_no or '-' }}</td>
+                            <td><a href="/print/manifest/{{ m.id }}" target="_blank" style="color:blue; font-weight:bold;">[Print]</a> | <a href="/outward?unfinalize={{ m.id }}" style="color:red; font-weight:bold;" onclick="return confirm('Unlock?');">[Unlock]</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
+
     </div>
+    
     <script>
-    function reloadPage() { window.location.href = `/outward?date=${document.getElementById('ui_date').value}&station=${document.getElementById('ui_station').value}`; }
-    document.getElementById('entryForm').addEventListener('submit', function() { document.getElementById('hdn_date').value = document.getElementById('ui_date').value; document.getElementById('hdn_station').value = document.getElementById('ui_station').value; });
+    // URL Updater for Date/Station changes
+    function reloadPage() { 
+        window.location.href = `/outward?date=${document.getElementById('ui_date').value}&station=${document.getElementById('ui_station').value}`; 
+    }
+    
+    // Hidden inputs updater before saving
+    document.getElementById('entryForm').addEventListener('submit', function() { 
+        document.getElementById('hdn_date').value = document.getElementById('ui_date').value; 
+        document.getElementById('hdn_station').value = document.getElementById('ui_station').value; 
+    });
     </script>
     """
-    return render_page("Outward Entry", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations, f_date=f_date, f_station=f_station, str=str))
+    return render_page("Outward Entry [Transhipment]", render_template_string(html, pending_list=pending_list, mans=mans, stations=stations, f_date=f_date, f_station=f_station, str=str))
 
 @app.route('/master_bag', methods=['GET', 'POST'])
 @login_required
