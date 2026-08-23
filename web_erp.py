@@ -225,16 +225,14 @@ AGCS_BASE_HTML = """
             <li><a href="/">CourierInfo</a></li>
             <li>Master Entries
                 <ul>
+                    <!-- Fully Linked and Operational Menus -->
                     <li><a href="/customers">Franchisee Master SetUp</a></li>
-                    <li><a href="#">Geographical Location Master</a></li>
-                    <li><a href="#">Cargo Party A/c. Master</a></li>
-                    <li><a href="/customers">Franchisee A/c Master</a></li>
-                    <li><a href="#">Credit Party A/c Master</a></li>
-                    <li><a href="#">General A/c Master</a></li>
+                    <li><a href="/location_master">Geographical Location Master</a></li>
+                    <li><a href="/customers">Cargo Party A/c. Master</a></li>
+                    <li><a href="/credit_party">Credit Party A/c Master</a></li>
                     <li><a href="/rates">Rate Master</a></li>
                     <li><a href="/stationery">Shipper/Barcode Issue</a></li>
-                    <li><a href="#">Doc.Return Reason Master</a></li>
-                    <li><a href="#">Delivery Boy Master</a></li>
+                    <li><a href="/users">Delivery Boy Master</a></li>
                     <li><a href="/users">User Login SetUp</a></li>
                     <li><a href="/settings">Misc. SetUp</a></li>
                 </ul>
@@ -960,6 +958,133 @@ def customers():
     </div>
     """
     return render_page("Franchisee Master Data SetUp", render_template_string(html, custs=custs))
+
+# ==========================================
+# 🏢 EXTENDED MASTER ENTRIES (AGCSInfo Structure)
+# ==========================================
+
+@app.route('/location_master', methods=['GET', 'POST'])
+@login_required
+def location_master():
+    """Handles Geographical Location Master"""
+    if session.get('role') != 'ADMIN': return redirect('/')
+    conn = get_db()
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip().upper()
+        scode = request.form.get('state_code', '').strip().upper()
+        if name:
+            with conn.cursor() as c:
+                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (name,))
+                # Aap chahein toh ek nayi states table bhi yahan manage kar sakte hain
+                conn.commit(); flash(f"Location {name} Saved Successfully!", "success")
+            
+    with conn.cursor() as c:
+        c.execute("SELECT id, name FROM stations ORDER BY id DESC LIMIT 100")
+        stations_list = c.fetchall()
+    conn.close()
+
+    html = """
+    <style>
+        .agcs-form-table { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; margin-bottom: 5px; background: #E2FAFA;}
+        .agcs-form-table td { padding: 3px 5px; vertical-align: middle; border: none;}
+        .agcs-label { color: #003366; font-weight: bold; width: 150px; font-size: 11px;}
+        .agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 2px 4px; font-size: 11px; width: 100%; box-sizing: border-box; }
+        .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
+        .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 2px 20px; font-weight: bold; cursor: pointer; color: #000;}
+        .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 13px; margin: 0 0 5px 0; background:white; padding:5px;}
+    </style>
+    <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+        <h2 class="page-title-green">GEOGRAPHICAL LOCATION MASTER</h2>
+        <form method="POST">
+            <div class="agcs-top-bar">
+                <button type="submit" class="agcs-btn-grey">SAVE</button>
+                <button type="button" class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button>
+            </div>
+            <div style="background: #E2FAFA; padding: 2px;">
+                <table class="agcs-form-table">
+                    <tr><td class="agcs-label">Location / Station Name</td><td><input type="text" name="name" class="agcs-input" style="width: 50%; color:blue; font-weight:bold;" required></td></tr>
+                    <tr><td class="agcs-label">State Code (Optional)</td><td><input type="text" name="state_code" class="agcs-input" style="width: 20%;"></td></tr>
+                    <tr><td class="agcs-label">Hub / Direct</td><td><select class="agcs-input" style="width:30%;"><option>HUB</option><option>DIRECT</option></select></td></tr>
+                </table>
+            </div>
+        </form>
+        <div style="background: white; border: 1px solid #116B7A; margin-top: 15px;">
+            <div style="background: #116B7A; color: white; font-weight: bold; padding: 5px;">Saved Locations</div>
+            <div style="height: 250px; overflow-y: auto;">
+                <table class="datatable" style="width: 100%; border: none; margin: 0;">
+                    <thead style="position: sticky; top: 0;"><tr><th>ID</th><th>Station Name</th><th>Act</th></tr></thead>
+                    <tbody>
+                        {% for r in s_list %}
+                        <tr><td>{{ r.id }}</td><td style="color: blue; font-weight: bold;">{{ r.name }}</td><td style="text-align:center;"><a href="#" style="color:red;">[Edit]</a></td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    """
+    return render_page("Geographical Location Master", render_template_string(html, s_list=stations_list))
+
+@app.route('/credit_party', methods=['GET', 'POST'])
+@login_required
+def credit_party():
+    """Handles Credit Party A/c Master (B2B Clients with ledgers)"""
+    if session.get('role') == 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    if request.method == 'POST':
+        d = request.form
+        with conn.cursor() as c:
+            # We save them in customers table but distinct by maybe an account type or just as standard B2B
+            c.execute("INSERT INTO customers(code, name, gstin, phone, address, credit_limit, is_active) VALUES(%s,%s,%s,%s,%s,%s,1)", (d.get('code',''), d.get('name',''), d.get('gstin',''), d.get('phone',''), d.get('address',''), safe_float(d.get('limit'))))
+            conn.commit(); flash("Credit Party Saved!", "success")
+            
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM customers WHERE is_active=1 ORDER BY id DESC LIMIT 50"); custs = c.fetchall()
+    conn.close()
+
+    html = """
+    <style>
+        .agcs-form-table { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; margin-bottom: 5px; background: #E2FAFA;}
+        .agcs-form-table td { padding: 3px 5px; vertical-align: middle; border: none;}
+        .agcs-label { color: #003366; font-weight: bold; width: 120px; font-size: 11px;}
+        .agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 2px 4px; font-size: 11px; width: 100%; box-sizing: border-box; }
+        .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
+        .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 2px 20px; font-weight: bold; cursor: pointer; color: #000;}
+        .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 13px; margin: 0 0 5px 0; background:white; padding:5px;}
+    </style>
+    <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+        <h2 class="page-title-green">CREDIT PARTY A/C MASTER</h2>
+        <form method="POST">
+            <div class="agcs-top-bar">
+                <button type="submit" class="agcs-btn-grey">SAVE</button>
+                <button type="button" class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button>
+            </div>
+            <div style="background: #E2FAFA; padding: 2px;">
+                <table class="agcs-form-table">
+                    <tr><td class="agcs-label">Party Name</td><td colspan="3"><input type="text" name="name" class="agcs-input" style="width: 60%; color:blue; font-weight:bold;" required></td></tr>
+                    <tr><td class="agcs-label">A/c Code</td><td colspan="3"><input type="text" name="code" class="agcs-input" style="width: 30%;" required></td></tr>
+                    <tr><td class="agcs-label">Address</td><td colspan="3"><input type="text" name="address" class="agcs-input" style="width: 60%;"></td></tr>
+                    <tr>
+                        <td class="agcs-label">Phone</td><td><input type="text" name="phone" class="agcs-input" style="width: 80%;"></td>
+                        <td class="agcs-label" style="text-align:right;">GSTIN</td><td><input type="text" name="gstin" class="agcs-input" style="width: 80%;"></td>
+                    </tr>
+                    <tr><td class="agcs-label">Credit Limit (Rs)</td><td colspan="3"><input type="number" step="0.01" name="limit" class="agcs-input" value="0.00" style="width: 30%;"></td></tr>
+                </table>
+            </div>
+        </form>
+        <div style="background: white; border: 1px solid #116B7A; margin-top: 15px;">
+            <div style="height: 250px; overflow-y: auto;">
+                <table class="datatable" style="width: 100%; border: none; margin: 0;">
+                    <thead style="position: sticky; top: 0;"><tr><th>Code</th><th>Name</th><th>Phone</th><th>GSTIN</th><th>Limit</th></tr></thead>
+                    <tbody>
+                        {% for r in custs %}<tr><td>{{ r.code }}</td><td style="color: blue; font-weight: bold;">{{ r.name }}</td><td>{{ r.phone }}</td><td>{{ r.gstin }}</td><td>{{ r.credit_limit }}</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    """
+    return render_page("Credit Party A/c Master", render_template_string(html, custs=custs))
 
 @app.route('/booking', methods=['GET', 'POST'])
 @login_required
