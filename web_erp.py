@@ -1809,6 +1809,54 @@ def dynamic_module(category, action):
     return render_page(page_title, render_template_string(html, title=page_title, has_data=data_found, headers=table_headers, rows=table_rows, current_date=current_date, session=session))
 
 # ==========================================
+# 🔄 15. UNIVERSAL TWO-WAY SYNC API
+# ==========================================
+@app.route('/api/sync/download', methods=['GET', 'POST'])
+def sync_download():
+    """
+    Desktop App ko poora latest data (all tables & all new columns) 
+    JSON format me securely bhejne ke liye.
+    """
+    conn = get_db()
+    response_data = {}
+    
+    # Ye saari tables Cloud se Local aayengi
+    tables_to_sync = [
+        'users', 'branches', 'customers', 'rates', 'stations', 'expenses', 
+        'ledger', 'payments', 'invoices', 'invoice_lines', 'shipments', 
+        'scan_events', 'outward_register', 'inward_register', 'delivery_register', 
+        'manifests', 'manifest_items', 'drs', 'drs_items', 'master_bags', 'master_bag_items'
+    ]
+    
+    try:
+        with conn.cursor() as c:
+            for tbl in tables_to_sync:
+                try:
+                    c.execute(f"SELECT * FROM {tbl}")
+                    rows = c.fetchall()
+                    # Datetime objects ko JSON me convert karne ke liye string banate hain
+                    clean_rows = []
+                    for row in rows:
+                        clean_row = {}
+                        for key, value in row.items():
+                            import datetime
+                            if isinstance(value, datetime.date) or isinstance(value, datetime.datetime):
+                                clean_row[key] = str(value)
+                            else:
+                                clean_row[key] = value
+                        clean_rows.append(clean_row)
+                    response_data[tbl] = clean_rows
+                except Exception as e:
+                    logging.error(f"Sync error on table {tbl}: {e}")
+                    response_data[tbl] = []
+                    
+        return jsonify({"success": True, "data": response_data})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+    finally:
+        conn.close()
+
+# ==========================================
 #  DO NOT TOUCH - FLASK RUN
 # ==========================================
 if __name__ == '__main__':
