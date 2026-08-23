@@ -80,7 +80,7 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS audit_log (id INT AUTO_INCREMENT PRIMARY KEY, tbl VARCHAR(100), act VARCHAR(50), ref VARCHAR(255), ts DATETIME DEFAULT CURRENT_TIMESTAMP)")
             try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
             except: pass
-            defs = {"company_name": "PANKAJ AGENCY COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
+            defs = {"company_name": "PANKAJ AGENCY COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agcgroup.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
             for k, v in defs.items(): c.execute("INSERT IGNORE INTO settings(key_name, value) VALUES(%s, %s)", (k, v))
         conn.commit(); c.close(); conn.close()
     except Exception as e: logging.error(f"Heal Error: {e}")
@@ -856,7 +856,7 @@ def track():
             <div class="footer-links">
                 <a href="/">Home</a>
                 <a href="/login">Staff Login</a>
-                <a href="https://agconline.in" target="_blank">AGC Website</a>
+                <a href="https://agcgroup.in" target="_blank">AGC Website</a>
                 <a href="tel:+917357073316">Helpline: +91 7357073316</a>
             </div>
             <div>© 2026 AGC Pankaj Agency. All rights reserved.</div>
