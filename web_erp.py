@@ -662,10 +662,15 @@ def my_ledger():
         c.execute("SELECT COALESCE(SUM(debit-credit),0) b FROM ledger WHERE customer_id=%s", (cid,))
         r = c.fetchone(); c_bal = safe_float(r['b']) if r else 0.0
     conn.close()
-    html = """<div class="card"><h3>📒 My Account Ledger</h3>
-    <h3 style="text-align:right; color:#EF4444; background:#FEF2F2; padding:10px; border-radius:6px; border:1px solid #FECACA;">Current Outstanding Balance: ₹{{ c_bal }}</h3>
-    <table class="datatable"><thead><tr><th>Date</th><th>Voucher</th><th>Ref</th><th>Debit (₹)</th><th>Credit (₹)</th><th>Narration</th></tr></thead><tbody>
-    {% for l in l_data %}<tr><td>{{ l.entry_date }}</td><td><span class="badge">{{ l.voucher_type }}</span></td><td>{{ l.reference }}</td><td style="color:#EF4444; font-weight:bold;">{{ l.debit }}</td><td style="color:#10B981; font-weight:bold;">{{ l.credit }}</td><td>{{ l.narration }}</td></tr>{% endfor %}</tbody></table></div>"""
+    html = """<div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
+            <h3 style="margin:0;">📒 My Account Ledger</h3>
+            <a href="/print/statement/{{ session.get('customer_id') }}" target="_blank" class="btn btn-gold"><i class="fas fa-print"></i> Download Statement PDF</a>
+        </div>
+        <h3 style="text-align:right; color:#EF4444; background:#FEF2F2; padding:10px; border-radius:6px; border:1px solid #FECACA;">Current Outstanding Balance: ₹{{ c_bal }}</h3>
+        <table class="datatable"><thead><tr><th>Date</th><th>Voucher</th><th>Ref</th><th>Debit (₹)</th><th>Credit (₹)</th><th>Narration</th></tr></thead><tbody>
+        {% for l in l_data %}<tr><td>{{ l.entry_date }}</td><td><span class="badge">{{ l.voucher_type }}</span></td><td>{{ l.reference }}</td><td style="color:#EF4444; font-weight:bold;">{{ l.debit }}</td><td style="color:#10B981; font-weight:bold;">{{ l.credit }}</td><td>{{ l.narration }}</td></tr>{% endfor %}</tbody></table>
+    </div>"""
     return render_page("My Ledger", render_template_string(html, l_data=l_data, c_bal=c_bal))
 
 @app.route('/edit_shipment/<int:sid>', methods=['GET', 'POST'])
@@ -1148,7 +1153,21 @@ def accounts():
             c.execute("SELECT * FROM ledger WHERE customer_id=%s ORDER BY entry_date", (request.args.get('cust_id'),)); l_data = c.fetchall()
             c.execute("SELECT COALESCE(SUM(debit-credit),0) b FROM ledger WHERE customer_id=%s", (request.args.get('cust_id'),)); r = c.fetchone(); c_bal = safe_float(r['b']) if r else 0.0
     conn.close()
-    html = """<div class="grid-2"><div class="card"><h3 style="margin-top:0; color:#10B981;"><i class="fas fa-hand-holding-usd"></i> Receive Payment</h3><form method="POST" class="grid-2" style="align-items:end; background:#ECFDF5; padding:20px; border-radius:8px; border:1px solid #A7F3D0;"><div style="grid-column: span 2;"><label style="color:#065F46;">Customer</label><select name="cust_id" required style="width:100%;">{% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div><label style="color:#065F46;">Amount (₹)</label><input type="number" step="0.01" name="amount" required style="font-weight:bold; width:100%;"></div><div><label style="color:#065F46;">Mode</label><select name="mode" style="width:100%;"><option>CASH</option><option>UPI</option></select></div><div style="grid-column: span 2;"><label style="color:#065F46;">Reference</label><input name="ref" style="width:100%;"></div><div style="grid-column: span 2;"><button type="submit" class="btn btn-green" style="width:100%; padding:12px;">Save Payment</button></div></form></div><div class="card"><h3 style="margin-top:0;">Recent Payments</h3><div style="max-height:280px; overflow-y:auto;"><table class="datatable"><thead><tr><th>ID</th><th>Date</th><th>Amount</th><th>Mode</th><th>Reference</th><th>Del</th></tr></thead><tbody>{% for p in pays %}<tr><td>{{ p.id }}</td><td>{{ p.payment_date }}</td><td style="color:#10B981; font-weight:bold;">₹{{ p.amount }}</td><td>{{ p.mode }}</td><td>{{ p.reference }}</td><td><a href="/accounts?del_pay={{ p.id }}" class="btn btn-red" style="padding:2px 5px; font-size:10px;">X</a></td></tr>{% endfor %}</tbody></table></div></div></div><div class="card"><h3>📒 Customer Ledger</h3><form method="GET" style="display:flex; gap:10px;"><select name="cust_id" style="flex:1;">{% for c in custs %}<option value="{{ c.id }}" {% if request.args.get('cust_id') == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select><button class="btn btn-blue">View Ledger</button></form>{% if request.args.get('cust_id') %}<h3 style="text-align:right; color:#EF4444; background:#FEF2F2; padding:10px; border-radius:6px; border:1px solid #FECACA;">Closing Balance: ₹{{ c_bal }}</h3><table class="datatable"><thead><tr><th>Date</th><th>Voucher</th><th>Ref</th><th>Debit</th><th>Credit</th><th>Narration</th></tr></thead><tbody>{% for l in l_data %}<tr><td>{{ l.entry_date }}</td><td><span class="badge">{{ l.voucher_type }}</span></td><td>{{ l.reference }}</td><td style="color:#EF4444; font-weight:bold;">{{ l.debit }}</td><td style="color:#10B981; font-weight:bold;">{{ l.credit }}</td><td>{{ l.narration }}</td></tr>{% endfor %}</tbody></table>{% endif %}</div>"""
+    html = """<div class="grid-2">
+        <div class="card"><h3 style="margin-top:0; color:#10B981;"><i class="fas fa-hand-holding-usd"></i> Receive Payment</h3><form method="POST" class="grid-2" style="align-items:end; background:#ECFDF5; padding:20px; border-radius:8px; border:1px solid #A7F3D0;"><div style="grid-column: span 2;"><label style="color:#065F46;">Customer</label><select name="cust_id" required style="width:100%;">{% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div><div><label style="color:#065F46;">Amount (₹)</label><input type="number" step="0.01" name="amount" required style="font-weight:bold; width:100%;"></div><div><label style="color:#065F46;">Mode</label><select name="mode" style="width:100%;"><option>CASH</option><option>UPI</option></select></div><div style="grid-column: span 2;"><label style="color:#065F46;">Reference</label><input name="ref" style="width:100%;"></div><div style="grid-column: span 2;"><button type="submit" class="btn btn-green" style="width:100%; padding:12px;">Save Payment</button></div></form></div>
+        <div class="card"><h3 style="margin-top:0;">Recent Payments</h3><div style="max-height:280px; overflow-y:auto;"><table class="datatable"><thead><tr><th>ID</th><th>Date</th><th>Amount</th><th>Mode</th><th>Reference</th><th>Del</th></tr></thead><tbody>{% for p in pays %}<tr><td>{{ p.id }}</td><td>{{ p.payment_date }}</td><td style="color:#10B981; font-weight:bold;">₹{{ p.amount }}</td><td>{{ p.mode }}</td><td>{{ p.reference }}</td><td><a href="/accounts?del_pay={{ p.id }}" class="btn btn-red" style="padding:2px 5px; font-size:10px;">X</a></td></tr>{% endfor %}</tbody></table></div></div>
+    </div>
+    <div class="card">
+        <h3>📒 Customer Ledger</h3>
+        <form method="GET" style="display:flex; gap:10px;"><select name="cust_id" style="flex:1;">{% for c in custs %}<option value="{{ c.id }}" {% if request.args.get('cust_id') == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}</select><button class="btn btn-blue">View Ledger</button></form>
+        {% if request.args.get('cust_id') %}
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-top:15px; margin-bottom:15px;">
+                <h3 style="color:#EF4444; background:#FEF2F2; padding:10px; border-radius:6px; border:1px solid #FECACA; margin:0;">Closing Balance: ₹{{ c_bal }}</h3>
+                <a href="/print/statement/{{ request.args.get('cust_id') }}" target="_blank" class="btn btn-gold"><i class="fas fa-print"></i> Print Statement PDF</a>
+            </div>
+            <table class="datatable"><thead><tr><th>Date</th><th>Voucher</th><th>Ref</th><th>Debit</th><th>Credit</th><th>Narration</th></tr></thead><tbody>{% for l in l_data %}<tr><td>{{ l.entry_date }}</td><td><span class="badge">{{ l.voucher_type }}</span></td><td>{{ l.reference }}</td><td style="color:#EF4444; font-weight:bold;">{{ l.debit }}</td><td style="color:#10B981; font-weight:bold;">{{ l.credit }}</td><td>{{ l.narration }}</td></tr>{% endfor %}</tbody></table>
+        {% endif %}
+    </div>"""
     return render_page("Accounts & Billing", render_template_string(html, custs=custs, pays=pays, l_data=l_data, c_bal=c_bal))
 
 @app.route('/reports')
@@ -1170,7 +1189,23 @@ def reports():
     b_c = safe_int(b_row['c']) if b_row else 0; b_t = safe_float(b_row['t']) if b_row else 0.0
     p_a = safe_float(p_row['a']) if p_row else 0.0; e_e = safe_float(e_row['e']) if e_row else 0.0; net = round(p_a - e_e, 2)
     
-    html = """<div class="card" style="background:#0B1F3A; color:white; border-top:4px solid #C9A24B;"><h2 style="margin:0; color:#C9A24B;"><i class="fas fa-chart-bar"></i> Day Close Report ({{ date }})</h2><div class="grid-4" style="margin-top:20px;"><div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-box"></i> Bookings</h3><h2 style="font-size:26px; margin:0;">{{ b_c }} <span style="font-size:14px; color:#8FA3BF; font-weight:normal;">Pcs</span> | ₹{{ b_t }}</h2></div><div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-rupee-sign"></i> Payments</h3><h2 style="color:#10B981; font-size:26px; margin:0;">₹{{ p_a }}</h2></div><div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-file-invoice"></i> Expenses</h3><h2 style="color:#EF4444; font-size:26px; margin:0;">₹{{ e_e }}</h2></div><div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-piggy-bank"></i> Net Cash</h3><h2 style="color:#38bdf8; font-size:26px; margin:0;">₹{{ net }}</h2></div></div></div><div class="card"><h3 style="color:#0E8A6D;">🌐 Multi-Branch Settlement</h3><table class="datatable"><thead><tr><th>Branch</th><th>Total Shipments</th><th>Total Revenue</th></tr></thead><tbody>{% for s in settlement %}<tr><td><strong>{{ s.branch_name }}</strong></td><td><span class="badge">{{ s.total_shipments }}</span></td><td style="font-weight:bold; color:#0B1F3A;">₹{{ s.total_revenue }}</td></tr>{% endfor %}</tbody></table></div><div class="grid-2"><div class="card"><h3 style="color:#EF4444; margin-top:0;"><i class="fas fa-exclamation-circle"></i> Market Outstanding</h3><table class="datatable"><thead><tr><th>Code</th><th>Name</th><th>Balance</th></tr></thead><tbody>{% for o in out %}<tr><td>{{ o.code }}</td><td><strong>{{ o.name }}</strong></td><td style="color:#EF4444; font-weight:bold;">₹{{ o.bal }}</td></tr>{% endfor %}</tbody></table></div></div>"""
+    html = """<div class="card" style="background:#0B1F3A; color:white; border-top:4px solid #C9A24B;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h2 style="margin:0; color:#C9A24B;"><i class="fas fa-chart-bar"></i> Day Close Report ({{ date }})</h2>
+            <div style="display:flex; gap:10px;">
+                <a href="/print/day_close" target="_blank" class="btn btn-gold"><i class="fas fa-file-pdf"></i> Download Day Close PDF</a>
+                <form action="/tools/auto-invoice" method="POST"><button type="submit" class="btn btn-blue"><i class="fas fa-magic"></i> Auto-Generate Pending B2B Invoices</button></form>
+            </div>
+        </div>
+        <div class="grid-4" style="margin-top:20px;">
+            <div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-box"></i> Bookings</h3><h2 style="font-size:26px; margin:0;">{{ b_c }} <span style="font-size:14px; color:#8FA3BF; font-weight:normal;">Pcs</span> | ₹{{ b_t }}</h2></div>
+            <div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-rupee-sign"></i> Payments</h3><h2 style="color:#10B981; font-size:26px; margin:0;">₹{{ p_a }}</h2></div>
+            <div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-file-invoice"></i> Expenses</h3><h2 style="color:#EF4444; font-size:26px; margin:0;">₹{{ e_e }}</h2></div>
+            <div style="background:#13294B; padding:20px; border-radius:8px;"><h3><i class="fas fa-piggy-bank"></i> Net Cash</h3><h2 style="color:#38bdf8; font-size:26px; margin:0;">₹{{ net }}</h2></div>
+        </div>
+    </div>
+    <div class="card"><h3 style="color:#0E8A6D;">🌐 Multi-Branch Settlement</h3><table class="datatable"><thead><tr><th>Branch</th><th>Total Shipments</th><th>Total Revenue</th></tr></thead><tbody>{% for s in settlement %}<tr><td><strong>{{ s.branch_name }}</strong></td><td><span class="badge">{{ s.total_shipments }}</span></td><td style="font-weight:bold; color:#0B1F3A;">₹{{ s.total_revenue }}</td></tr>{% endfor %}</tbody></table></div>
+    <div class="grid-2"><div class="card"><h3 style="color:#EF4444; margin-top:0;"><i class="fas fa-exclamation-circle"></i> Market Outstanding</h3><table class="datatable"><thead><tr><th>Code</th><th>Name</th><th>Balance</th></tr></thead><tbody>{% for o in out %}<tr><td>{{ o.code }}</td><td><strong>{{ o.name }}</strong></td><td style="color:#EF4444; font-weight:bold;">₹{{ o.bal }}</td></tr>{% endfor %}</tbody></table></div></div>"""
     return render_page("Master Reports", render_template_string(html, b_c=b_c, b_t=b_t, p_a=p_a, e_e=e_e, net=net, out=out, settlement=settlement, date=d))
 
 @app.route('/reports/outward-range', methods=['POST'])
@@ -1395,6 +1430,136 @@ def print_drs_pdf(did):
     cv.setFont("Helvetica", 9); cv.line(60, y - 40, 200, y - 40); cv.drawString(60, y - 55, "Rider Signature"); cv.line(350, y - 40, 500, y - 40); cv.drawString(350, y - 55, "Branch Manager Signature")
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"DRS_{did}.pdf", mimetype='application/pdf')
+
+# ==========================================
+# 🚀 13. ADVANCED TOOLS & PDF REPORTS (THE MISSING FUNCTIONS)
+# ==========================================
+
+@app.route('/tools/auto-invoice', methods=['POST'])
+@login_required
+def auto_invoice():
+    """B2B Customers ke pending parcels ka automatically Invoice generate karta hai"""
+    if session.get('role') != 'ADMIN': return redirect('/')
+    conn = get_db()
+    with conn.cursor() as c:
+        # Find uninvoiced shipments for B2B customers
+        c.execute("SELECT id, customer_id, awb_no, taxable_amount, cgst, sgst, igst, total_amount FROM shipments WHERE customer_id IS NOT NULL AND total_amount > 0 AND status != 'CANCELLED' AND id NOT IN (SELECT shipment_id FROM invoice_lines WHERE shipment_id IS NOT NULL)")
+        uninvoiced = c.fetchall()
+        
+        if not uninvoiced:
+            flash("✅ Sabhi B2B parcels ka invoice pehle se ban chuka hai. Naya bill pending nahi hai.", "success")
+            return redirect('/reports')
+            
+        # Group by customer
+        cust_shipments = {}
+        for s in uninvoiced:
+            cid = s['customer_id']
+            if cid not in cust_shipments: cust_shipments[cid] = []
+            cust_shipments[cid].append(s)
+            
+        invoices_created = 0
+        for cid, ships in cust_shipments.items():
+            c.execute("SELECT state_code FROM customers WHERE id=%s", (cid,))
+            cust_state = c.fetchone()
+            pos = cust_state['state_code'] if cust_state else get_setting("company_state_code", "08")
+            
+            tot_taxable = sum(safe_float(s['taxable_amount']) for s in ships)
+            tot_cgst = sum(safe_float(s['cgst']) for s in ships)
+            tot_sgst = sum(safe_float(s['sgst']) for s in ships)
+            tot_igst = sum(safe_float(s['igst']) for s in ships)
+            tot_amt = sum(safe_float(s['total_amount']) for s in ships)
+            
+            inv_no = get_seq("invoice", "INV/", 5)
+            inv_date = datetime.now().strftime('%Y-%m-%d')
+            
+            # Create Invoice
+            c.execute("INSERT INTO invoices(invoice_no, invoice_date, customer_id, place_of_supply_state_code, taxable_amount, cgst, sgst, igst, total, status) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,'UNPAID')", (inv_no, inv_date, cid, pos, tot_taxable, tot_cgst, tot_sgst, tot_igst, tot_amt))
+            inv_id = c.lastrowid
+            
+            # Create Invoice Lines
+            for s in ships:
+                c.execute("INSERT INTO invoice_lines(invoice_id, description, shipment_id, quantity, taxable_amount, cgst, sgst, igst, total) VALUES(%s,%s,%s,1,%s,%s,%s,%s,%s)", (inv_id, f"AWB {s['awb_no']}", s['id'], s['taxable_amount'], s['cgst'], s['sgst'], s['igst'], s['total_amount']))
+            
+            # Add to Ledger
+            c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, inv_date, inv_no, tot_amt, f"Auto-Invoice {inv_no}"))
+            invoices_created += 1
+            
+        conn.commit()
+        flash(f"🎉 Auto-Invoice Success! {invoices_created} naye invoices generate ho gaye hain.", "success")
+    conn.close()
+    return redirect('/reports')
+
+
+@app.route('/print/day_close')
+@login_required
+def print_day_close():
+    """Reports section se end-of-day summary ki PDF generate karta hai"""
+    d = datetime.now().strftime("%Y-%m-%d")
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT COUNT(*) c, COALESCE(SUM(total_amount),0) t FROM shipments WHERE booking_date=%s", (d,))
+    b = c.fetchone()
+    c.execute("SELECT COALESCE(SUM(amount),0) a FROM payments WHERE payment_date=%s", (d,))
+    p = c.fetchone()
+    c.execute("SELECT COALESCE(SUM(amount),0) e FROM expenses WHERE expense_date=%s", (d,))
+    e = c.fetchone()
+    c.close(); conn.close()
+    
+    buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4)
+    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, 800, f"{get_setting('company_name', 'AGC')} - DAY CLOSE REPORT")
+    cv.setFont("Helvetica", 11); cv.drawString(40, 780, f"Date: {d} | Branch: {session.get('branch', 'HQ')}")
+    cv.line(40, 770, 550, 770)
+    
+    cv.setFont("Helvetica-Bold", 12)
+    cv.drawString(40, 740, f"1. Total Bookings: {b['c']} Parcels")
+    cv.drawString(40, 720, f"2. Total Billing Amount: Rs {b['t']}")
+    cv.drawString(40, 700, f"3. Payments Received: Rs {p['a']}")
+    cv.drawString(40, 680, f"4. Expenses Paid: Rs {e['e']}")
+    
+    net_cash = safe_float(p['a']) - safe_float(e['e'])
+    cv.setFillColor(HexColor("#10B981") if net_cash >= 0 else HexColor("#EF4444"))
+    cv.drawString(40, 640, f"NET CASH IN HAND: Rs {net_cash}")
+    
+    cv.showPage(); cv.save(); buf.seek(0)
+    return send_file(buf, download_name=f"DayClose_{d}.pdf", mimetype='application/pdf')
+
+
+@app.route('/print/statement/<int:cid>')
+@login_required
+def print_statement(cid):
+    """Customer ka ledger statement PDF mein download karne ke liye"""
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT * FROM customers WHERE id=%s", (cid,)); cust = c.fetchone()
+    c.execute("SELECT * FROM ledger WHERE customer_id=%s ORDER BY entry_date", (cid,)); ledger = c.fetchall()
+    c.execute("SELECT COALESCE(SUM(debit-credit),0) bal FROM ledger WHERE customer_id=%s", (cid,)); bal = c.fetchone()['bal']
+    c.close(); conn.close()
+    
+    if not cust:
+        flash("Customer not found", "error")
+        return redirect('/accounts')
+        
+    buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4)
+    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, 800, f"{get_setting('company_name', 'AGC')} - ACCOUNT STATEMENT")
+    cv.setFont("Helvetica", 10); cv.drawString(40, 780, f"Customer: {cust['name']} | Phone: {cust['phone']}")
+    cv.drawString(40, 765, f"Statement Generated On: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+    
+    y = 730
+    cv.setFillColor(HexColor("#F1F5F9")); cv.rect(40, y-5, 515, 20, fill=1, stroke=0)
+    cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 9)
+    cv.drawString(45, y, "Date"); cv.drawString(110, y, "Voucher"); cv.drawString(180, y, "Reference"); cv.drawString(350, y, "Debit (Bill)"); cv.drawString(450, y, "Credit (Pay)")
+    y -= 20
+    cv.setFont("Helvetica", 9)
+    for l in ledger:
+        if y < 50: cv.showPage(); y = 800
+        cv.drawString(45, y, str(l['entry_date'])); cv.drawString(110, y, str(l['voucher_type'])); cv.drawString(180, y, str(l['reference']))
+        cv.drawString(350, y, f"Rs {l['debit']}"); cv.drawString(450, y, f"Rs {l['credit']}")
+        y -= 15
+        
+    cv.line(40, y, 555, y); y -= 20
+    cv.setFont("Helvetica-Bold", 12)
+    cv.drawString(320, y, f"Total Outstanding Balance: Rs {bal}")
+    
+    cv.showPage(); cv.save(); buf.seek(0)
+    return send_file(buf, download_name=f"Statement_{cust['name'].replace(' ', '_')}.pdf", mimetype='application/pdf')
 
 # ==========================================
 # 🛑 DO NOT TOUCH - FLASK RUN
