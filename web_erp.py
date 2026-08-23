@@ -31,6 +31,7 @@ config.read('db_config.ini')
 
 def send_whatsapp_async(phone, message):
     try:
+        # WA logic yahan uncomment kar sakte hain
         logging.info(f"Auto-WhatsApp Sent to {phone}: {message}")
     except Exception as e:
         logging.error(f"WhatsApp Error: {e}")
@@ -92,7 +93,7 @@ def auto_heal_db():
             try: c.execute("ALTER TABLE users ADD COLUMN customer_id INT")
             except: pass
 
-            defs = {"company_name": "PANKAJ AGENCY COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
+            defs = {"company_name": "AKASH GANGA COURIER", "company_address": "Head Office: Nohar, Rajasthan", "company_gstin": "08ADQPC7585D1Z9", "company_phone": "+91 7357073316", "company_state_code": "08", "company_website": "https://agconline.in", "company_email": "PANKAJNOHAR@YAHOO.CO.IN", "terms_note": "Liability limited to declared value only. Subject to local jurisdiction.", "bank_details": "Bank: HDFC | A/C: 123456789 | IFSC: HDFC0001", "fuel_surcharge": "0"}
             for k, v in defs.items(): c.execute("INSERT IGNORE INTO settings(key_name, value) VALUES(%s, %s)", (k, v))
         conn.commit(); c.close(); conn.close()
     except Exception as e: logging.error(f"Heal Error: {e}")
@@ -148,7 +149,7 @@ AGCS_BASE_HTML = """
         .navbar li:hover { background-color: #FFDE99; color: #000; }
         
         /* DROPDOWN */
-        .navbar ul ul { display: none; position: absolute; top: 100%; left: 0; background-color: #E8FAFA; border: 1px solid #167B82; flex-direction: column; min-width: 220px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); }
+        .navbar ul ul { display: none; position: absolute; top: 100%; left: 0; background-color: #E8FAFA; border: 1px solid #116B7A; flex-direction: column; min-width: 220px; box-shadow: 2px 2px 5px rgba(0,0,0,0.2); }
         .navbar li:hover > ul { display: flex; }
         .navbar ul ul li { border-right: none; border-bottom: 1px solid #CCC; padding: 6px 12px; font-weight: normal; color: #000; }
         .navbar ul ul li:hover { background-color: #116B7A; color: #FFF; }
@@ -169,7 +170,6 @@ AGCS_BASE_HTML = """
         /* CONTENT AREA & GLOBAL RESKINNING */
         .content { flex: 1; background-color: transparent; }
         
-        /* Reskinning the modern tags to look Classic ASP.NET */
         .card { background: #FFF; border: 1px solid #116B7A; padding: 12px; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); border-top: 3px solid #116B7A !important;}
         h3, h4 { color: #116B7A !important; border-bottom: 1px dotted #D67A00; padding-bottom: 4px; margin-top: 0; font-size:13px; font-weight:bold;}
         
@@ -213,11 +213,11 @@ AGCS_BASE_HTML = """
     <div class="top-banner">
         <h1>CourierInfo</h1>
         <div class="logo-center">
-            <i class="fas fa-paper-plane" style="color:#D67A00;"></i> AGC PANKAJ AGENCY<br>
+            <i class="fas fa-paper-plane" style="color:#D67A00;"></i> AGC Akash Ganga<br>
             <span style="font-size:10px; font-style:italic; font-weight:normal; color:#555;">Integrity at work</span>
         </div>
         <div style="color:#116B7A; font-weight:bold; font-size:14px; text-align:right;">
-            Pankaj Agency
+            By InfoSoft
         </div>
     </div>
 
@@ -228,6 +228,7 @@ AGCS_BASE_HTML = """
                 <ul>
                     <li><a href="/customers">Franchisee Master SetUp</a></li>
                     <li><a href="/customers">Geographical Location Master</a></li>
+                    <li><a href="/customers">Cargo Party A/c. Master</a></li>
                     <li><a href="/rates">Rate Master</a></li>
                     <li><a href="/stationery">Shipper/Barcode Issue</a></li>
                     <li><a href="/users">Delivery Boy Master</a></li>
@@ -241,6 +242,7 @@ AGCS_BASE_HTML = """
                     <li><a href="/inward">Local Packet Inward</a></li>
                     <li><a href="/booking">Counter Booking</a></li>
                     <li><a href="/outward">Outward Entry [Transhipment]</a></li>
+                    <li><a href="/outward">Outward Entry [Local]</a></li>
                     <li><a href="/master_bag">Outward Manifest Generator</a></li>
                     <li><a href="/drs">D.R.S. Entry</a></li>
                     <li><a href="/drs">D.R.S. Delivery Status/Scan</a></li>
@@ -251,6 +253,8 @@ AGCS_BASE_HTML = """
             <li>Main Reports
                 <ul>
                     <li><a href="/reports">Shipper Issue Register</a></li>
+                    <li><a href="/reports">Cargo Pkt Inward Register</a></li>
+                    <li><a href="/reports">Credit Billing Data Register</a></li>
                     <li><a href="/reports">Outward Data Register</a></li>
                     <li><a href="/reports">Manifest Data Register</a></li>
                     <li><a href="/shipments">Delivery Status Register</a></li>
@@ -268,8 +272,18 @@ AGCS_BASE_HTML = """
                     <li><a href="/reports">Counter Booking Report</a></li>
                 </ul>
             </li>
-            <li>Audit Reports</li>
-            <li><a href="/settings">Utilities</a></li>
+            <li>Audit Reports
+                <ul>
+                    <li><a href="#">DAILY REQ. REPORTS</a></li>
+                </ul>
+            </li>
+            <li>Utilities
+                <ul>
+                    <li><a href="/import_csv">Download Updated AGCSInfo</a></li>
+                    <li><a href="/import_csv">Bulk Data Import</a></li>
+                    <li><a href="/settings">Password Change</a></li>
+                </ul>
+            </li>
         </ul>
     </div>
 
@@ -281,7 +295,7 @@ AGCS_BASE_HTML = """
                 Date Period &nbsp;&nbsp;From 01/04/2026 To 31/03/2027
             </div>
             <div style="text-align: right; margin-top: 15px;">
-                <a href="/"><button type="button" class="btn"><i class="fas fa-desktop"></i> DashBoard</button></a>
+                <a href="/"><button type="button" class="btn" style="background:#FFF;"><i class="fas fa-desktop"></i> DashBoard</button></a>
             </div>
         </div>
 
@@ -1127,6 +1141,7 @@ def reports():
         if session.get('role') != 'ADMIN': q_b += " AND origin_name=%s"; p1.append(session.get('branch','HQ'))
         c.execute(q_b, tuple(p1)); b_row = c.fetchone()
         c.execute("SELECT COALESCE(SUM(amount),0) a FROM payments WHERE payment_date=%s", tuple(p2)); p_row = c.fetchone()
+        c.execute("SELECT COALESCE(SUM(amount),0) e FROM expenses WHERE expense_date=%s", tuple(p2)); e_row = c.fetchone()
         c.execute("SELECT c.code, c.name, COALESCE(SUM(l.debit-l.credit),0) bal FROM customers c LEFT JOIN ledger l ON l.customer_id=c.id GROUP BY c.id HAVING bal>0 ORDER BY bal DESC LIMIT 20"); out = c.fetchall()
         c.execute("SELECT origin_name as branch_name, COUNT(id) as total_shipments, SUM(total_amount) as total_revenue FROM shipments GROUP BY origin_name ORDER BY total_revenue DESC"); settlement = c.fetchall()
     conn.close()
@@ -1354,7 +1369,7 @@ def print_label_pdf(awb):
     cv.rect(4*mm, 4*mm, 93.6*mm, 144*mm) 
     draw_agc_logo(cv, 6*mm, 136*mm); cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 5.5); cv.drawString(6*mm, 129*mm, "ISO 9001:2008 Certified Company")
     cv.setFont("Helvetica-Bold", 14); cv.drawRightString(95*mm, 141*mm, str(session.get('branch', 'HQ')).upper())
-    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, str(get_setting("company_name", "PANKAJ AGENCY COURIER")))
+    cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 137*mm, str(get_setting("company_name", "AKASH GANGA COURIER")))
     cv.setFont("Helvetica-Bold", 8); cv.setFillColor(HexColor("#D97706")); cv.drawRightString(95*mm, 132*mm, "PREMIUM EXPRESS")
     cv.setFillColorRGB(0,0,0); cv.setFont("Helvetica", 6); cv.drawRightString(95*mm, 128*mm, f"GSTIN: {get_setting('company_gstin', '')} | Ph: {get_setting('company_phone', '')}")
     cv.line(4*mm, 126*mm, 97.6*mm, 126*mm); cv.setFont("Helvetica-Bold", 7); cv.drawString(6*mm, 122*mm, "AWB NUMBER")
@@ -1427,7 +1442,7 @@ def print_receipt_pdf(awb):
     cv.drawString(320, y_tbl+6, f"{gst_tot:,.2f}"); cv.drawString(390, y_tbl+6, f"{safe_float(s.get('cod_amount')):,.2f}"); cv.setFillColor(HexColor("#D97706")); cv.setFont("Helvetica-Bold", 14); cv.drawString(470, y_tbl+4, f"{safe_float(s.get('total_amount')):,.2f}")
 
     y_tbl -= 40; cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 10); cv.drawString(30, y_tbl, f"Amount to be collected: Rs {safe_float(s.get('total_amount')):,.2f}")
-    cv.setFont("Helvetica", 8); cv.drawString(30, y_tbl-50, str(get_setting("terms_note", "DECLARATION: Goods are carried at Owner's Risk."))); cv.drawString(420, y_tbl-50, f"For {str(get_setting('company_name', 'PANKAJ AGENCY'))}"); cv.drawString(420, y_tbl-80, "Authorised Signatory")
+    cv.setFont("Helvetica", 8); cv.drawString(30, y_tbl-50, str(get_setting("terms_note", "DECLARATION: Goods are carried at Owner's Risk."))); cv.drawString(420, y_tbl-50, f"For {str(get_setting('company_name', 'AKASH GANGA'))}"); cv.drawString(420, y_tbl-80, "Authorised Signatory")
 
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Receipt_{awb}.pdf", mimetype='application/pdf')
@@ -1441,7 +1456,7 @@ def print_manifest_pdf(mid):
     c.close(); conn.close()
 
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'PANKAJ AGENCY'))} - OUTWARD MANIFEST")
+    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'AKASH GANGA'))} - OUTWARD MANIFEST")
     cv.setFont("Helvetica", 10); cv.drawString(40, h - 65, f"Manifest No: {m['manifest_no']}   |   Route: {m['from_location']} -> {m['to_location']}")
     cv.drawString(40, h - 80, f"Vehicle: {str(m.get('vehicle_no') or '-')}   |   Driver Ph: {str(m.get('driver_phone') or '-')}   |   Seal: {str(m.get('seal_no') or '-')}   |   Items: {len(items)}")
     draw_barcode_safe(cv, m['manifest_no'], w - 180, h - 70, 0.4 * inch)
@@ -1473,7 +1488,7 @@ def print_drs_pdf(did):
     c.close(); conn.close()
 
     buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4); w, h = A4
-    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'PANKAJ AGENCY'))} - DELIVERY RUN SHEET")
+    cv.setFont("Helvetica-Bold", 16); cv.drawString(40, h - 50, f"{str(get_setting('company_name', 'AKASH GANGA'))} - DELIVERY RUN SHEET")
     cv.setFont("Helvetica", 10); cv.drawString(40, h - 65, f"DRS No: {d['drs_no']}   |   Rider: {d['rider_name']}   |   Date: {d['drs_date']}")
     draw_barcode_safe(cv, d['drs_no'], w - 180, h - 70, 0.4 * inch)
     
