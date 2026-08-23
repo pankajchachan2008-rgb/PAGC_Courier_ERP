@@ -502,299 +502,207 @@ def track():
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Track Shipment | AGC Pankaj Agency</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --primary: #667EEA; --primary-dark: #764BA2; --accent: #F59E0B;
+            --primary: #667EEA; --primary-dark: #4F46E5; --accent: #F59E0B;
             --success: #10B981; --danger: #EF4444; --dark: #0F172A;
             --light: #F8FAFC; --glass: rgba(255, 255, 255, 0.08);
             --glass-border: rgba(255, 255, 255, 0.15);
         }
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: 'Inter', sans-serif;
             background: linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #312E81 100%);
             min-height: 100vh; color: white; overflow-x: hidden; position: relative;
+            font-size: 14px;
         }
+        /* Background Animated Glows */
         body::before, body::after {
             content: ''; position: fixed; border-radius: 50%; filter: blur(80px);
-            opacity: 0.4; z-index: 0; animation: float 20s infinite ease-in-out;
+            opacity: 0.3; z-index: 0; animation: float 20s infinite ease-in-out;
+            pointer-events: none;
         }
         body::before {
-            width: 500px; height: 500px;
-            background: radial-gradient(circle, #667EEA 0%, transparent 70%);
-            top: -100px; right: -100px;
+            width: 400px; height: 400px; background: radial-gradient(circle, #667EEA 0%, transparent 70%);
+            top: -50px; right: -50px;
         }
         body::after {
-            width: 400px; height: 400px;
-            background: radial-gradient(circle, #F59E0B 0%, transparent 70%);
-            bottom: -100px; left: -100px; animation-delay: -10s;
+            width: 300px; height: 300px; background: radial-gradient(circle, #F59E0B 0%, transparent 70%);
+            bottom: -50px; left: -50px; animation-delay: -10s;
         }
         @keyframes float {
             0%, 100% { transform: translate(0, 0) scale(1); }
-            33% { transform: translate(30px, -30px) scale(1.1); }
-            66% { transform: translate(-20px, 20px) scale(0.9); }
+            50% { transform: translate(-20px, 20px) scale(0.95); }
         }
+        
         .container {
-            max-width: 1200px; margin: 0 auto; padding: 40px 20px;
+            max-width: 900px; /* Reduced width */
+            margin: 0 auto; padding: 30px 15px;
             position: relative; z-index: 1;
         }
-        .header {
-            text-align: center; margin-bottom: 50px; animation: slideDown 0.8s ease;
-        }
+        
+        /* Header Compacted */
+        .header { text-align: center; margin-bottom: 30px; animation: slideDown 0.6s ease; }
         @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-30px); }
+            from { opacity: 0; transform: translateY(-20px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .logo-container {
-            display: inline-flex; align-items: center; gap: 15px;
-            padding: 15px 30px; background: var(--glass);
-            backdrop-filter: blur(20px); border: 1px solid var(--glass-border);
-            border-radius: 100px;
+            display: inline-flex; align-items: center; gap: 10px;
+            padding: 8px 20px; background: var(--glass);
+            backdrop-filter: blur(10px); border: 1px solid var(--glass-border);
+            border-radius: 50px; margin-bottom: 15px;
         }
-        .logo-icon {
-            width: 50px; height: 50px;
-            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            border-radius: 50%; display: flex; align-items: center;
-            justify-content: center; font-size: 24px;
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
-        }
-        .logo-text {
-            font-family: 'Space Grotesk', sans-serif; font-size: 28px;
-            font-weight: 700; background: linear-gradient(135deg, #fff 0%, #CBD5E1 100%);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        }
+        .logo-icon { font-size: 18px; }
+        .logo-text { font-size: 18px; font-weight: 700; color: #E2E8F0; }
         .header h1 {
-            font-family: 'Space Grotesk', sans-serif; font-size: 48px;
-            font-weight: 700; margin-bottom: 15px;
+            font-size: 32px; font-weight: 800; margin-bottom: 8px;
             background: linear-gradient(135deg, #fff 0%, #CBD5E1 50%, var(--accent) 100%);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            line-height: 1.2;
         }
-        .header p { font-size: 18px; color: #94A3B8; font-weight: 300; }
-        .search-container {
-            max-width: 700px; margin: 0 auto 50px; animation: slideUp 0.8s ease 0.2s both;
-        }
+        .header p { font-size: 15px; color: #94A3B8; }
+        
+        /* Search Box Compacted */
+        .search-container { max-width: 550px; margin: 0 auto 35px; animation: slideUp 0.6s ease 0.1s both; }
         @keyframes slideUp {
-            from { opacity: 0; transform: translateY(30px); }
+            from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
         .search-box {
-            background: var(--glass); backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border); border-radius: 20px;
-            padding: 8px; display: flex; gap: 10px; transition: all 0.3s ease;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            background: var(--glass); backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border); border-radius: 12px;
+            padding: 5px; display: flex; gap: 8px; transition: all 0.3s ease;
         }
-        .search-box:focus-within {
-            border-color: var(--primary);
-            box-shadow: 0 20px 60px rgba(102, 126, 234, 0.3);
-            transform: translateY(-2px);
-        }
+        .search-box:focus-within { border-color: var(--primary); box-shadow: 0 5px 20px rgba(102, 126, 234, 0.2); }
         .search-input {
-            flex: 1; background: transparent; border: none; padding: 18px 25px;
-            color: white; font-size: 16px; font-weight: 500; outline: none;
-            font-family: 'Inter', sans-serif;
+            flex: 1; background: transparent; border: none; padding: 10px 15px;
+            color: white; font-size: 14px; font-weight: 500; outline: none; text-transform: uppercase;
         }
-        .search-input::placeholder { color: #64748B; }
+        .search-input::placeholder { color: #64748B; text-transform: none; }
         .search-btn {
             background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-            border: none; padding: 18px 35px; border-radius: 14px; color: white;
-            font-weight: 600; font-size: 16px; cursor: pointer; transition: all 0.3s ease;
-            font-family: 'Inter', sans-serif; display: flex; align-items: center; gap: 8px;
+            border: none; padding: 0 20px; border-radius: 8px; color: white;
+            font-weight: 600; font-size: 14px; cursor: pointer; transition: 0.2s;
+            display: flex; align-items: center; gap: 6px;
         }
-        .search-btn:hover {
-            transform: scale(1.05);
-            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.5);
-        }
+        .search-btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
+        
+        /* Shipment Main Card */
         .shipment-hero {
-            background: var(--glass); backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border); border-radius: 24px;
-            padding: 40px; margin-bottom: 30px; animation: fadeIn 0.8s ease 0.4s both;
+            background: var(--glass); backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border); border-radius: 16px;
+            padding: 25px; margin-bottom: 25px; animation: fadeIn 0.6s ease 0.2s both;
         }
         @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.95); }
+            from { opacity: 0; transform: scale(0.98); }
             to { opacity: 1; transform: scale(1); }
         }
         .hero-badge {
-            display: inline-flex; align-items: center; gap: 10px;
-            padding: 10px 20px; border-radius: 100px; font-weight: 700;
-            font-size: 14px; letter-spacing: 1px; margin-bottom: 20px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        }
-        .pulse-dot {
-            width: 10px; height: 10px; background: white; border-radius: 50%;
-            animation: pulse 2s infinite;
-        }
-        @keyframes pulse {
-            0%, 100% { opacity: 1; transform: scale(1); }
-            50% { opacity: 0.5; transform: scale(1.5); }
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 14px; border-radius: 50px; font-weight: 700;
+            font-size: 12px; margin-bottom: 15px;
         }
         .hero-awb {
-            font-family: 'Space Grotesk', sans-serif; font-size: 42px;
-            font-weight: 700; margin-bottom: 30px;
-            background: linear-gradient(135deg, #fff 0%, #CBD5E1 100%);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-            letter-spacing: 2px;
+            font-size: 28px; font-weight: 800; margin-bottom: 20px;
+            color: #F8FAFC; letter-spacing: 1px;
         }
         .hero-route {
-            display: flex; align-items: center; gap: 20px; padding: 25px;
-            background: rgba(0, 0, 0, 0.2); border-radius: 16px;
+            display: flex; align-items: center; gap: 15px; padding: 15px;
+            background: rgba(0, 0, 0, 0.2); border-radius: 10px;
         }
-        .route-point { display: flex; align-items: center; gap: 15px; flex: 1; }
-        .route-dot {
-            width: 20px; height: 20px; border-radius: 50%; border: 3px solid white;
-            flex-shrink: 0;
-        }
+        .route-point { display: flex; align-items: center; gap: 10px; flex: 1; }
+        .route-dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; flex-shrink: 0; }
         .route-dot.origin { background: var(--primary); }
         .route-dot.dest { background: var(--success); }
-        .route-info { display: flex; flex-direction: column; gap: 4px; }
-        .route-label {
-            font-size: 12px; color: #94A3B8; text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        .route-value { font-size: 18px; font-weight: 600; color: white; }
+        .route-info { display: flex; flex-direction: column; gap: 2px; }
+        .route-label { font-size: 11px; color: #94A3B8; text-transform: uppercase; }
+        .route-value { font-size: 15px; font-weight: 600; color: white; }
         .route-line {
-            flex: 1; height: 4px; background: rgba(255, 255, 255, 0.1);
+            flex: 1; height: 3px; background: rgba(255, 255, 255, 0.1);
             border-radius: 2px; position: relative; overflow: hidden;
         }
         .route-line-fill {
             height: 100%; background: linear-gradient(90deg, var(--primary), var(--success));
             border-radius: 2px; transition: width 1s ease;
         }
+
+        /* Info Grid Compacted */
         .info-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 20px; margin-bottom: 40px; animation: fadeIn 0.8s ease 0.6s both;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 15px; margin-bottom: 25px; animation: fadeIn 0.6s ease 0.3s both;
         }
         .info-card {
-            background: var(--glass); backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border); border-radius: 16px; padding: 25px;
-            transition: all 0.3s ease;
-        }
-        .info-card:hover {
-            transform: translateY(-5px); border-color: var(--primary);
-            box-shadow: 0 20px 40px rgba(102, 126, 234, 0.2);
+            background: var(--glass); backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border); border-radius: 12px; padding: 15px;
         }
         .info-card.highlight {
-            background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.05));
-            border-color: rgba(245, 158, 11, 0.3);
+            background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05));
+            border-color: rgba(245, 158, 11, 0.25);
         }
-        .info-icon { font-size: 32px; margin-bottom: 12px; }
-        .info-label {
-            font-size: 12px; color: #94A3B8; text-transform: uppercase;
-            letter-spacing: 1px; margin-bottom: 8px;
-        }
-        .info-value {
-            font-size: 20px; font-weight: 700; color: white;
-            font-family: 'Space Grotesk', sans-serif;
-        }
+        .info-icon { font-size: 20px; margin-bottom: 8px; opacity: 0.9; }
+        .info-label { font-size: 11px; color: #94A3B8; text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }
+        .info-value { font-size: 16px; font-weight: 700; color: white; }
+        
+        /* Timeline Compacted */
         .timeline-section {
-            background: var(--glass); backdrop-filter: blur(20px);
-            border: 1px solid var(--glass-border); border-radius: 24px;
-            padding: 40px; animation: fadeIn 0.8s ease 0.8s both;
+            background: var(--glass); backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border); border-radius: 16px;
+            padding: 25px; animation: fadeIn 0.6s ease 0.4s both;
         }
-        .timeline-header {
-            display: flex; align-items: center; justify-content: space-between;
-            margin-bottom: 30px; padding-bottom: 20px;
-            border-bottom: 1px solid var(--glass-border);
-        }
-        .timeline-title {
-            font-family: 'Space Grotesk', sans-serif; font-size: 24px;
-            font-weight: 700;
-        }
-        .timeline-count {
-            background: var(--glass); padding: 8px 16px; border-radius: 100px;
-            font-size: 14px; font-weight: 600;
-        }
-        .timeline { position: relative; padding-left: 40px; }
-        .timeline::before {
-            content: ''; position: absolute; left: 15px; top: 0; bottom: 0;
-            width: 2px; background: linear-gradient(180deg, var(--primary), var(--primary-dark), transparent);
-        }
-        .timeline-item {
-            position: relative; margin-bottom: 30px; animation: slideIn 0.5s ease both;
-        }
-        .timeline-item:nth-child(1) { animation-delay: 0.1s; }
-        .timeline-item:nth-child(2) { animation-delay: 0.2s; }
-        .timeline-item:nth-child(3) { animation-delay: 0.3s; }
-        .timeline-item:nth-child(4) { animation-delay: 0.4s; }
-        .timeline-item:nth-child(5) { animation-delay: 0.5s; }
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateX(-20px); }
-            to { opacity: 1; transform: translateX(0); }
-        }
-        .timeline-item.active {
-            background: rgba(16, 185, 129, 0.1); border-radius: 16px;
-            padding: 20px; margin-left: -20px;
-        }
-        .timeline-dot {
-            position: absolute; left: -33px; top: 0; width: 36px; height: 36px;
-            border-radius: 50%; display: flex; align-items: center;
-            justify-content: center; box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
-            z-index: 2;
-        }
-        .timeline-icon { font-size: 18px; }
-        .timeline-content { padding: 5px 0; }
         .timeline-header {
             display: flex; justify-content: space-between; align-items: center;
-            margin-bottom: 8px; border: none; padding: 0;
+            margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid var(--glass-border);
         }
-        .timeline-title { font-size: 18px; font-weight: 700; color: white; }
-        .timeline-time { font-size: 13px; color: #94A3B8; font-weight: 500; }
-        .timeline-location {
-            display: flex; align-items: center; gap: 8px; color: #CBD5E1;
-            font-size: 14px; margin-bottom: 8px;
+        .timeline-title { font-size: 18px; font-weight: 700; }
+        .timeline-count { background: rgba(255,255,255,0.1); padding: 4px 12px; border-radius: 50px; font-size: 12px; font-weight: 600; }
+        
+        .timeline { position: relative; padding-left: 35px; margin-top: 10px; }
+        .timeline::before {
+            content: ''; position: absolute; left: 13px; top: 5px; bottom: 5px;
+            width: 2px; background: linear-gradient(180deg, var(--primary), transparent);
         }
-        .timeline-location svg { color: var(--primary); }
-        .timeline-remarks {
-            background: rgba(102, 126, 234, 0.1); border-left: 3px solid var(--primary);
-            padding: 10px 15px; border-radius: 8px; font-size: 13px;
-            color: #CBD5E1; margin-top: 10px;
+        .timeline-item { position: relative; margin-bottom: 20px; }
+        .timeline-item:last-child { margin-bottom: 0; }
+        .timeline-item.active { background: rgba(16, 185, 129, 0.05); border-radius: 10px; padding: 12px; margin-left: -12px; }
+        
+        .timeline-dot {
+            position: absolute; left: -36px; top: 0; width: 28px; height: 28px;
+            border-radius: 50%; background: #0F172A; border: 2px solid var(--primary);
+            display: flex; align-items: center; justify-content: center; z-index: 2;
         }
-        .no-events { text-align: center; padding: 60px 20px; }
-        .no-events-icon { font-size: 80px; margin-bottom: 20px; opacity: 0.5; }
-        .no-events h3 { font-size: 24px; margin-bottom: 10px; color: white; }
-        .no-events p { color: #94A3B8; font-size: 16px; }
+        .timeline-item:first-child .timeline-dot { border-color: var(--success); background: rgba(16, 185, 129, 0.2); }
+        .timeline-icon { font-size: 12px; }
+        
+        .t-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+        .t-title { font-size: 15px; font-weight: 700; color: #F8FAFC; }
+        .t-time { font-size: 12px; color: #94A3B8; }
+        .t-loc { font-size: 13px; color: #CBD5E1; margin-bottom: 5px; display: flex; align-items: center; gap: 6px; }
+        .t-loc svg { width: 12px; height: 12px; color: var(--primary); }
+        .t-rem { background: rgba(0,0,0,0.2); padding: 8px 12px; border-radius: 6px; font-size: 12px; color: #94A3B8; border-left: 2px solid var(--primary); display: inline-block; }
+
+        .no-events { text-align: center; padding: 40px 15px; color: #94A3B8; }
+        .no-events-icon { font-size: 40px; margin-bottom: 15px; opacity: 0.5; }
+        .no-events h3 { font-size: 18px; margin-bottom: 5px; color: white; }
+        
         .error-banner {
             background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3);
-            border-radius: 16px; padding: 20px 25px; display: flex;
-            align-items: center; gap: 15px; margin-bottom: 30px; color: #FCA5A5;
-            animation: shake 0.5s ease;
+            border-radius: 10px; padding: 15px 20px; display: flex;
+            align-items: center; gap: 12px; margin-bottom: 20px; color: #FCA5A5; font-size: 14px;
         }
-        .error-banner.not-found {
-            background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3);
-            color: #FCD34D;
-        }
-        @keyframes shake {
-            0%, 100% { transform: translateX(0); }
-            25% { transform: translateX(-10px); }
-            75% { transform: translateX(10px); }
-        }
-        .footer {
-            text-align: center; margin-top: 60px; padding-top: 30px;
-            border-top: 1px solid var(--glass-border); color: #64748B;
-            font-size: 14px;
-        }
-        .footer-links {
-            display: flex; justify-content: center; gap: 30px; margin-bottom: 15px;
-            flex-wrap: wrap;
-        }
-        .footer-links a {
-            color: #94A3B8; text-decoration: none; transition: color 0.3s ease;
-        }
+        .error-banner.not-found { background: rgba(245, 158, 11, 0.15); border-color: rgba(245, 158, 11, 0.3); color: #FCD34D; }
+        
+        .footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px solid var(--glass-border); color: #64748B; font-size: 12px; }
+        .footer-links { display: flex; justify-content: center; gap: 20px; margin-bottom: 10px; flex-wrap: wrap; }
+        .footer-links a { color: #94A3B8; text-decoration: none; transition: 0.2s; }
         .footer-links a:hover { color: var(--primary); }
-        @media (max-width: 768px) {
-            .header h1 { font-size: 32px; }
-            .hero-awb { font-size: 28px; }
-            .hero-route { flex-direction: column; gap: 15px; }
-            .route-line { width: 4px; height: 40px; }
-            .info-grid { grid-template-columns: repeat(2, 1fr); }
-            .timeline-section { padding: 25px; }
-            .search-box { flex-direction: column; }
-            .search-btn { width: 100%; justify-content: center; }
-        }
-        @media (max-width: 480px) {
-            .info-grid { grid-template-columns: 1fr; }
-            .container { padding: 20px 15px; }
+        
+        @media (max-width: 600px) {
+            .header h1 { font-size: 26px; }
+            .hero-awb { font-size: 22px; }
+            .info-grid { grid-template-columns: 1fr 1fr; }
+            .hero-route { flex-direction: column; align-items: flex-start; gap: 10px; }
+            .route-line { width: 3px; height: 30px; margin-left: 5px; }
         }
     </style>
 </head>
@@ -803,46 +711,43 @@ def track():
         <div class="header">
             <div class="logo-container">
                 <div class="logo-icon">📦</div>
-                <div class="logo-text">AGC Pankaj Agency</div>
+                <div class="logo-text">AGC Courier</div>
             </div>
-            <h1>Track Your Shipment</h1>
-            <p>Real-time tracking for your parcels across India</p>
+            <h1>Track Shipment</h1>
+            <p>Real-time Logistics & Courier Tracking</p>
         </div>
         
         <div class="search-container">
             <form method="GET" action="/track" class="search-box">
-                <input type="text" name="awb" class="search-input" placeholder="Enter AWB / Tracking Number (e.g., AWB12345678)" value="{{ awb }}" autofocus autocomplete="off">
+                <input type="text" name="awb" class="search-input" placeholder="Enter AWB No..." value="{{ awb }}" autofocus autocomplete="off">
                 <button type="submit" class="search-btn">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <circle cx="11" cy="11" r="8"></circle>
                         <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                     </svg>
-                    Track Now
+                    Track
                 </button>
             </form>
         </div>
         
         {% if error_msg %}
         <div class="error-banner">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"></circle>
-                <line x1="12" y1="8" x2="12" y2="12"></line>
-                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
             </svg>
-            <span>System Error: {{ error_msg }}</span>
+            <span>Error: {{ error_msg }}</span>
         </div>
         {% elif awb and not shipment %}
         <div class="error-banner not-found">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
-            <span>No shipment found for this tracking number. Please check and try again.</span>
+            <span>No record found for this tracking number.</span>
         </div>
         {% elif shipment %}
         <div class="shipment-hero">
             <div class="hero-badge" style="background: linear-gradient(135deg, {% if shipment.status == 'DELIVERED' %}#10B981{% elif shipment.status == 'OUTWARD' %}#8B5CF6{% elif shipment.status == 'INWARD' %}#F59E0B{% else %}#3B82F6{% endif %}, {% if shipment.status == 'DELIVERED' %}#059669{% elif shipment.status == 'OUTWARD' %}#7C3AED{% elif shipment.status == 'INWARD' %}#D97706{% else %}#2563EB{% endif %})">
-                <span class="pulse-dot"></span>
+                <div style="width:6px; height:6px; background:white; border-radius:50%; animation:pulse 2s infinite;"></div>
                 {{ shipment.status }}
             </div>
             <div class="hero-awb">{{ shipment.awb_no }}</div>
@@ -851,7 +756,7 @@ def track():
                     <div class="route-dot origin"></div>
                     <div class="route-info">
                         <span class="route-label">From</span>
-                        <span class="route-value">{{ shipment.origin_name or 'N/A' }}</span>
+                        <span class="route-value">{{ shipment.origin_name or 'Origin' }}</span>
                     </div>
                 </div>
                 <div class="route-line">
@@ -861,7 +766,7 @@ def track():
                     <div class="route-dot dest"></div>
                     <div class="route-info">
                         <span class="route-label">To</span>
-                        <span class="route-value">{{ shipment.dest_name or 'N/A' }}</span>
+                        <span class="route-value">{{ shipment.dest_name or shipment.dest_station or 'Dest' }}</span>
                     </div>
                 </div>
             </div>
@@ -870,13 +775,13 @@ def track():
         <div class="info-grid">
             <div class="info-card">
                 <div class="info-icon">📅</div>
-                <div class="info-label">Booking Date</div>
-                <div class="info-value">{{ shipment.booking_date or 'N/A' }}</div>
+                <div class="info-label">Booked On</div>
+                <div class="info-value">{{ shipment.booking_date or '-' }}</div>
             </div>
             <div class="info-card">
                 <div class="info-icon">⚖️</div>
-                <div class="info-label">Weight</div>
-                <div class="info-value">{{ shipment.weight_kg or 0 }} KG</div>
+                <div class="info-label">Weight (KG)</div>
+                <div class="info-value">{{ shipment.weight_kg or 0 }}</div>
             </div>
             <div class="info-card">
                 <div class="info-icon">📦</div>
@@ -890,7 +795,7 @@ def track():
             </div>
             <div class="info-card">
                 <div class="info-icon">📍</div>
-                <div class="info-label">Current Location</div>
+                <div class="info-label">Current Hub</div>
                 <div class="info-value">{{ shipment.current_location or 'Processing' }}</div>
             </div>
             <div class="info-card highlight">
@@ -909,29 +814,29 @@ def track():
         <div class="timeline-section">
             <div class="timeline-header">
                 <div class="timeline-title">📍 Tracking History</div>
-                <div class="timeline-count">{{ events|length }} updates</div>
+                <div class="timeline-count">{{ events|length }} scans</div>
             </div>
             <div class="timeline">
                 {% if events %}
                     {% for e in events %}
                     <div class="timeline-item {% if loop.first %}active{% endif %}">
-                        <div class="timeline-dot" style="background: {% if loop.first %}linear-gradient(135deg, #10B981, #059669){% else %}linear-gradient(135deg, #667EEA, #764BA2){% endif %}">
+                        <div class="timeline-dot" style="{% if loop.first %}border-color:#10B981; background:rgba(16,185,129,0.2);{% endif %}">
                             <span class="timeline-icon">{% if e.scan_type == 'BOOKED' %}📦{% elif e.scan_type == 'OUTWARD' %}🚚{% elif e.scan_type == 'INWARD' %}📥{% elif e.scan_type == 'ON_DRS' %}🛵{% elif e.scan_type == 'DELIVERED' %}✅{% else %}📍{% endif %}</span>
                         </div>
                         <div class="timeline-content">
-                            <div class="timeline-header">
-                                <span class="timeline-title">{{ e.scan_type.replace('_', ' ').title() }}</span>
-                                <span class="timeline-time">{{ e.f_date or 'Recent' }}</span>
+                            <div class="t-head">
+                                <span class="t-title">{{ e.scan_type.replace('_', ' ').title() }}</span>
+                                <span class="t-time">{{ e.f_date or 'Recent' }}</span>
                             </div>
-                            <div class="timeline-location">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <div class="t-loc">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                     <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
                                     <circle cx="12" cy="10" r="3"></circle>
                                 </svg>
                                 <span>{{ e.location or 'Location updated' }}</span>
                             </div>
                             {% if e.remarks %}
-                            <div class="timeline-remarks">{{ e.remarks }}</div>
+                            <div class="t-rem">{{ e.remarks }}</div>
                             {% endif %}
                         </div>
                     </div>
@@ -939,8 +844,8 @@ def track():
                 {% else %}
                 <div class="no-events">
                     <div class="no-events-icon">📭</div>
-                    <h3>No Tracking History Yet</h3>
-                    <p>Your shipment is being processed. Check back soon for updates.</p>
+                    <h3>No Scanning History</h3>
+                    <p>Shipment is pending processing at origin hub.</p>
                 </div>
                 {% endif %}
             </div>
@@ -951,34 +856,12 @@ def track():
             <div class="footer-links">
                 <a href="/">Home</a>
                 <a href="/login">Staff Login</a>
-                <a href="https://agconline.in" target="_blank">Website</a>
-                <a href="tel:+917357073316">Contact: +91 7357073316</a>
+                <a href="https://agconline.in" target="_blank">AGC Website</a>
+                <a href="tel:+917357073316">Helpline: +91 7357073316</a>
             </div>
-            <div>© 2026 AGC Pankaj Agency. All rights reserved. | Integrity at Work</div>
+            <div>© 2026 AGC Pankaj Agency. All rights reserved.</div>
         </div>
     </div>
-    
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            const searchInput = document.querySelector('.search-input');
-            if (searchInput && !searchInput.value) {
-                searchInput.focus();
-            }
-            searchInput.addEventListener('keypress', function(e) {
-                if (e.key === 'Enter') {
-                    this.form.submit();
-                }
-            });
-        });
-        if (window.location.search.includes('awb=')) {
-            setTimeout(() => {
-                const hero = document.querySelector('.shipment-hero');
-                if (hero) {
-                    hero.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            }, 500);
-        }
-    </script>
 </body>
 </html>
 """
