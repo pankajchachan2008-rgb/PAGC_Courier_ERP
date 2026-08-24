@@ -288,50 +288,120 @@ def fetch_network_tracking(network_name, network_awb):
     except Exception as e: logging.error(f"Network API: {e}")
     return events
 
-@app.route('/track', methods=['GET', 'POST'])
-def track():
-    awb = (request.args.get('awb') or request.form.get('awb') or '').strip().upper()
-    events = []; shipment = None; error_msg = None
-    if awb:
-        try:
-            conn = get_db()
-            with conn.cursor() as c:
-                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,)); shipment = c.fetchone()
-                if shipment:
-                    c.execute("SELECT scan_type, location, remarks, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM scan_events WHERE shipment_id=%s ORDER BY id DESC", (shipment['id'],))
-                    events = list(c.fetchall())
-                    c.execute("SELECT network, network_awb FROM outward_register WHERE awb_no=%s AND network != 'SELF' ORDER BY id DESC LIMIT 1", (awb,))
-                    od = c.fetchone()
-                    if od and od['network_awb']: events = fetch_network_tracking(od['network'], od['network_awb']) + events
-        except Exception as e: error_msg = str(e)
-        finally:
-            if 'conn' in locals() and conn.open: conn.close()
-    html = """<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Track | AGC</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gradient-to-br from-slate-900 to-indigo-900 min-h-screen p-8 text-white"><div class="max-w-3xl mx-auto"><div class="text-center mb-8"><h1 class="text-4xl font-bold mb-2">📦 Track Shipment</h1><p class="text-slate-400">Real-time Logistics Tracking</p></div><form method="GET" action="/track" class="flex gap-3 mb-8 bg-white/10 backdrop-blur p-2 rounded-xl"><input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB..." class="flex-1 bg-transparent px-4 py-3 outline-none text-white uppercase" required><button type="submit" class="bg-blue-600 px-6 py-3 rounded-lg font-semibold hover:bg-blue-700">Track</button></form>{% if error_msg %}<div class="bg-red-500/20 border border-red-500 p-4 rounded-xl">{{ error_msg }}</div>{% elif awb and not shipment %}<div class="bg-yellow-500/20 border border-yellow-500 p-4 rounded-xl text-center">No record found.</div>{% elif shipment %}<div class="bg-white/10 backdrop-blur rounded-xl p-6 mb-6"><div class="flex justify-between mb-4"><h2 class="text-3xl font-bold text-blue-300">{{ shipment.awb_no }}</h2><span class="px-4 py-1 rounded-full font-bold text-sm {% if shipment.status=='DELIVERED' %}bg-green-500{% elif shipment.status=='OUTWARD' %}bg-purple-500{% else %}bg-blue-500{% endif %}">{{ shipment.status }}</span></div><div class="grid grid-cols-2 gap-4 text-sm"><div><span class="text-slate-400">From:</span> <b>{{ shipment.origin_name }}</b></div><div><span class="text-slate-400">To:</span> <b>{{ shipment.dest_name }}</b></div><div><span class="text-slate-400">Weight:</span> <b>{{ shipment.weight_kg }} KG</b></div><div><span class="text-slate-400">Date:</span> <b>{{ shipment.booking_date }}</b></div></div></div><div class="bg-white/10 backdrop-blur rounded-xl p-6"><h3 class="font-bold mb-4">📍 Tracking History</h3><div class="space-y-3">{% for e in events %}<div class="flex gap-4 bg-white/5 p-3 rounded-lg"><div class="text-2xl">{% if e.scan_type=='BOOKED' %}📦{% elif e.scan_type=='OUTWARD' %}🚚{% elif e.scan_type=='INWARD' %}📥{% elif e.scan_type=='DELIVERED' %}✅{% else %}📍{% endif %}</div><div class="flex-1"><div class="flex justify-between"><b>{{ e.scan_type }}</b><span class="text-xs text-slate-400">{{ e.f_date }}</span></div><p class="text-sm text-slate-300">{{ e.location }}</p>{% if e.remarks %}<p class="text-xs text-slate-400 mt-1">{{ e.remarks }}</p>{% endif %}</div></div>{% endfor %}{% if not events %}<p class="text-center text-slate-400 py-4">No history yet.</p>{% endif %}</div></div>{% endif %}</div></body></html>"""
-    return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
-
+# ==========================================
+# 🔍 FOOTER TRACKING ENGINE (C.NOTE, DRS, MANIFEST, ETC.)
+# ==========================================
 @app.route('/track_doc', methods=['POST'])
 @login_required
 def track_doc():
-    doc_no = request.form.get('awb', '').strip().upper(); doc_type = request.form.get('doc_type', '')
-    err = "<html><body style='font-family:Inter;padding:40px;background:#fee2e2;color:#991b1b;text-align:center;'><h2>Error!</h2><p>{}</p><button onclick='window.close()' style='margin-top:10px;padding:10px 20px;background:#ef4444;color:white;border:none;border-radius:8px;'>Close</button></body></html>"
-    if not doc_no: return err.format("Enter Document Number.")
+    doc_no = request.form.get('awb', '').strip().upper()
+    doc_type = request.form.get('doc_type', '')
+    
+    error_html = "<html><body style='font-family:Tahoma; padding:20px; background:#fee2e2; color:#991b1b; border:1px solid #ef4444; text-align:center; border-radius:8px;'><h2>Error!</h2><p>{}</p><br><button onclick='window.close()' style='padding:8px 15px; cursor:pointer; background:#ef4444; color:white; border:none; border-radius:4px;'>Close Tab</button></body></html>"
+    
+    view_html = """
+    <html>
+    <head>
+        <title>{{ title }}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            body { font-family: 'Inter', sans-serif; background: #f1f5f9; padding: 30px; color: #1e293b; }
+            .card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); max-width: 900px; margin: 0 auto; border-top: 4px solid #2563eb; }
+            h2 { margin-top: 0; color: #0f172a; text-transform: uppercase; font-size: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; }
+            .info-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 6px; margin-bottom: 20px; font-weight: 600; color: #b45309; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th { background: #f8fafc; color: #475569; padding: 12px; text-align: left; font-size: 13px; text-transform: uppercase; border-bottom: 2px solid #e2e8f0; }
+            td { padding: 12px; border-bottom: 1px solid #e2e8f0; font-size: 14px; }
+            .btn { background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-weight: 600; cursor: pointer; margin-top: 20px; }
+            .btn:hover { background: #1d4ed8; }
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h2>{{ title }}</h2>
+            <div class="info-box">{{ info_html | safe }}</div>
+            {% if rows %}
+            <table>
+                <tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr>
+                {% for r in rows %}<tr>{% for c in r %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}
+            </table>
+            {% endif %}
+            <div style="text-align:right;"><button class="btn" onclick="window.close()">Close Window</button></div>
+        </div>
+    </body>
+    </html>
+    """
+    
+    if not doc_no: return error_html.format("Please enter a Document Number in the bottom bar to track or search.")
+    
     conn = get_db()
     try:
         with conn.cursor() as c:
-            if doc_type in ['c_note', 'pkg_slip']: return redirect(url_for('track', awb=doc_no))
+            if doc_type == 'c_note' or doc_type == 'pkg_slip':
+                return redirect(url_for('track', awb=doc_no))
+            
             elif doc_type == 'drs':
-                c.execute("SELECT * FROM drs WHERE drs_no=%s", (doc_no,)); drs = c.fetchone()
+                doc_no_clean = doc_no.replace('DRS', '').strip()
+                c.execute("SELECT * FROM drs WHERE drs_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                drs = c.fetchone()
                 if drs:
-                    c.execute("SELECT s.awb_no, di.receiver_name, s.dest_address, di.status FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (drs['id'],)); items = c.fetchall()
-                    return f"<html><body style='font-family:Inter;padding:20px;'><h2>DRS: {drs['drs_no']} | Rider: {drs['rider_name']}</h2><table border='1' cellpadding='8' style='border-collapse:collapse;width:100%;'><tr style='background:#2563eb;color:white;'><th>AWB</th><th>Receiver</th><th>Address</th><th>Status</th></tr>{''.join([f'<tr><td>{i[\"awb_no\"]}</td><td>{i[\"receiver_name\"]}</td><td>{i[\"dest_address\"]}</td><td>{i[\"status\"]}</td></tr>' for i in items])}</table></body></html>"
-                return err.format(f"DRS not found.")
+                    c.execute("SELECT s.awb_no, di.receiver_name, s.dest_address, di.status FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (drs['id'],))
+                    items = c.fetchall()
+                    info = f"DRS No: {drs['drs_no']} &nbsp;|&nbsp; Rider Name: {drs['rider_name']} &nbsp;|&nbsp; Vehicle/Area: {drs['vehicle_no']} &nbsp;|&nbsp; Status: {drs['status']}"
+                    headers = ["AWB No", "Receiver Name", "Address", "Status"]
+                    rows = [[i['awb_no'], i['receiver_name'], i['dest_address'], i['status']] for i in items]
+                    return render_template_string(view_html, title="D.R.S. (Delivery Run Sheet) Details", info_html=info, headers=headers, rows=rows)
+                else: 
+                    return error_html.format(f"DRS '{doc_no}' not found in system.")
+                    
+            elif doc_type == 'm_fest':
+                doc_no_clean = doc_no.replace('MF', '').strip()
+                c.execute("SELECT * FROM manifests WHERE manifest_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                m = c.fetchone()
+                if m:
+                    c.execute("SELECT s.awb_no, s.dest_name, s.weight_kg FROM manifest_items mi JOIN shipments s ON s.id=mi.shipment_id WHERE mi.manifest_id=%s", (m['id'],))
+                    items = c.fetchall()
+                    info = f"Manifest No: {m['manifest_no']} &nbsp;|&nbsp; Route: {m['from_location']} &rarr; {m['to_location']} &nbsp;|&nbsp; Status: {m['status']}"
+                    headers = ["AWB No", "Consignee", "Weight (KG)"]
+                    rows = [[i['awb_no'], i['dest_name'], i['weight_kg']] for i in items]
+                    return render_template_string(view_html, title="Manifest Details", info_html=info, headers=headers, rows=rows)
+                else: 
+                    return error_html.format(f"Manifest '{doc_no}' not found in system.")
+                    
             elif doc_type == 'invoice':
-                c.execute("SELECT id FROM invoices WHERE invoice_no=%s", (doc_no,)); inv = c.fetchone()
+                doc_no_clean = doc_no.replace('INV/', '').strip()
+                c.execute("SELECT id FROM invoices WHERE invoice_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                inv = c.fetchone()
                 if inv: return redirect(f"/print/invoice/{inv['id']}")
-                return err.format(f"Invoice not found.")
-    except Exception as e: return err.format(str(e))
-    finally: conn.close()
-    return err.format("Invalid type.")
+                else: return error_html.format(f"Invoice '{doc_no}' not found in system.")
+                
+            elif doc_type == 'network':
+                c.execute("SELECT awb_no, network, network_awb, destination, entry_date FROM outward_register WHERE awb_no=%s AND network != 'SELF'", (doc_no,))
+                net = c.fetchone()
+                if net:
+                    info = f"Forwarding Information for AWB: {net['awb_no']}"
+                    headers = ["Partner Network", "Forwarding AWB / Tracking", "Destination", "Dispatch Date"]
+                    rows = [[net['network'], net['network_awb'], net['destination'], net['entry_date']]]
+                    return render_template_string(view_html, title="Third-Party Network Status", info_html=info, headers=headers, rows=rows)
+                else:
+                    return error_html.format(f"No third-party network forwarding found for AWB '{doc_no}'.")
+                    
+            elif doc_type == 'pincode':
+                c.execute("SELECT awb_no, dest_name, dest_address, current_location, status FROM shipments WHERE dest_address LIKE %s OR dest_station LIKE %s ORDER BY id DESC LIMIT 100", (f"%{doc_no}%", f"%{doc_no}%"))
+                pins = c.fetchall()
+                if pins:
+                    info = f"Displaying recent shipments matching Location/Pincode: '{doc_no}'"
+                    headers = ["AWB No", "Receiver Name", "Full Address", "Current Hub", "Status"]
+                    rows = [[p['awb_no'], p['dest_name'], p['dest_address'], p['current_location'], p['status']] for p in pins]
+                    return render_template_string(view_html, title="Location & Pincode Search", info_html=info, headers=headers, rows=rows)
+                else:
+                    return error_html.format(f"No shipments found matching Location/Pincode '{doc_no}'.")
+    except Exception as e:
+        return error_html.format(str(e))
+    finally: 
+        conn.close()
+        
+    return error_html.format("Invalid document type requested.")
 
 # ==========================================
 # 📱 PWA
