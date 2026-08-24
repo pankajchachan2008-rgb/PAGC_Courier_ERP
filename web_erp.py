@@ -620,16 +620,6 @@ def track():
     return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
 
 # ==========================================
-# 🔄 7. SYNC API
-# ==========================================
-@app.route('/api/sync/download', methods=['GET'])
-def sync_download():
-    return jsonify({"success": True, "message": "Enterprise API active. Desktop app can sync data."})
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True, port=5000)
-
-# ==========================================
 # 📦 7. COUNTER BOOKING & API ENGINES
 # ==========================================
 @app.route('/api/calc_rate', methods=['POST'])
