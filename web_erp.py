@@ -626,6 +626,9 @@ def track():
 def sync_download():
     return jsonify({"success": True, "message": "Enterprise API active. Desktop app can sync data."})
 
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', debug=True, port=5000)
+
 # ==========================================
 # 📦 7. COUNTER BOOKING & API ENGINES
 # ==========================================
