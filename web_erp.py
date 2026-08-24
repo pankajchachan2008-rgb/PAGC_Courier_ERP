@@ -149,18 +149,33 @@ a { text-decoration: none; color: inherit; }
 .f-list { margin-top: 5px; background: white; height: 350px; border: 1px solid #CCC; }
 .f-list-row { border-bottom: 1px solid #EEE; height: 25px; }
 .content { flex: 1; background-color: transparent; }
+.card { background: #FFF; border: 1px solid #116B7A; padding: 12px; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1); border-top: 3px solid #116B7A !important;}
+h3, h4 { color: #116B7A !important; border-bottom: 1px dotted #D67A00; padding-bottom: 4px; margin-top: 0; font-size:13px; font-weight:bold;}
+.grid-2, .grid-3, .grid-4, .grid-6 { display: grid; gap: 8px; margin-bottom:10px;}
+.grid-2 { grid-template-columns: 1fr 1fr; }
+.grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+.grid-6 { grid-template-columns: repeat(6, 1fr); }
+label { font-weight: bold; color: #000; font-size: 11px; margin-bottom:2px; display:block;}
+input, select, textarea { width: 100%; border: 1px solid #116B7A; background: #FFFECC; padding: 4px; font-size: 11px; font-family: Tahoma; box-sizing: border-box;}
+input:focus, select:focus { background: #FFF; border: 1px solid #D67A00;}
+.btn, button { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #7F9DB9; color: #000 !important; padding: 5px 12px; font-weight: bold; cursor: pointer; font-size: 11px; border-radius: 2px; text-transform:uppercase;}
+.btn:hover, button:hover { background: linear-gradient(to bottom, #FFE8A1, #FFD25A); border-color: #D67A00; }
+.btn-blue, .btn-gold, .btn-green, .btn-red { background: linear-gradient(to bottom, #116B7A, #0B4A55) !important; color: white !important; border: 1px solid #000 !important;}
+.btn-red { background: linear-gradient(to bottom, #D64550, #9B2D37) !important; }
+.btn-ghost { background: #FFF !important; border: 1px solid #116B7A !important; color: #116B7A !important;}
 
 /* 🌟 DATATABLES CUSTOM AGC THEME */
 .dataTables_wrapper .dataTables_filter input { border: 1px solid #116B7A; background: #FFFECC; border-radius: 3px; padding: 4px; font-weight: bold; margin-bottom: 5px; }
 .dataTables_wrapper .dataTables_length select { border: 1px solid #116B7A; background: #FFFECC; font-weight: bold; }
 .dataTables_wrapper .dataTables_paginate .paginate_button.current { background: #116B7A !important; color: white !important; border: 1px solid #0D505B !important; }
-
 .datatable { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; border: 1px solid #116B7A; background:white;}
 table.dataTable thead th, .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B) !important; color: #FFF !important; padding: 6px !important; border: 1px solid #000 !important; font-weight: bold; text-align:left;}
 table.dataTable tbody td, .datatable td { padding: 5px 6px !important; border: 1px solid #CCC !important; color: #000;}
 table.dataTable tbody tr:nth-child(even), .datatable tr:nth-child(even) { background: #F4FAFA; }
 table.dataTable tbody tr:hover, .datatable tr:hover { background: #FFDE99 !important; }
 
+.badge { background: #D67A00; color: #FFF; padding: 2px 6px; border-radius: 2px; font-size: 10px; font-weight:bold;}
 .bottom-bar { background: linear-gradient(to bottom, #A9D9E0, #6EB3C0); padding: 5px 20px; border-top: 2px solid #FFF; display: flex; align-items: center; gap: 15px; position: fixed; bottom: 0; left:0; width: 100%; box-sizing: border-box; z-index: 1000;}
 .log-off { background: url('https://cdn-icons-png.flaticon.com/512/1828/1828479.png') no-repeat center center; background-size: contain; width: 40px; height: 40px; cursor: pointer; }
 .track-box { border: 1px solid #E00; padding: 2px 10px; display: flex; align-items: center; gap: 5px; background: transparent; }
@@ -212,16 +227,18 @@ By PANKAJ AGENCY
 <li><a href="/booking">Counter Booking</a></li>
 <li><a href="/outward">Outward Entry [Transhipment]</a></li>
 <li><a href="/module/transactions/outward_local">Outward Entry [Local]</a></li>
-<li><a href="/module/transactions/manifest_register">Outward Manifest Generator</a></li>
+<li><a href="/master_bag">Outward Manifest Generator</a></li>
 <li><a href="/module/transactions/packing_slip">Packing Slip [Cargo Outward]</a></li>
-<li><a href="/module/transactions/drs_status">D.R.S. Entry / Del Status</a></li>
+<li><a href="/drs">D.R.S. Entry</a></li>
+<li><a href="/drs">D.R.S. Delivery Status/Scan</a></li>
 <li><a href="/module/transactions/pod_entry">POD Entry / Del Status</a></li>
+<li><a href="/module/transactions/bulk_pod_entry">Bulk POD Entry</a></li>
 <li><a href="/module/transactions/cnote_return">C.Note Return Voucher</a></li>
-<li><a href="/invoices">Account Bill Section</a></li>
+<li><a href="/module/transactions/account_bill">Account Bill Section</a></li>
 <li><a href="/module/transactions/quotation">Quotation</a></li>
-<li><a href="/module/transactions/cash_book">Cash Book</a></li>
-<li><a href="/module/transactions/bank_book">Bank Book</a></li>
-<li><a href="/module/transactions/journal_voucher">Journal Voucher Entry</a></li>
+<li><a href="/accounts">Cash Book</a></li>
+<li><a href="/accounts">Bank Book</a></li>
+<li><a href="/expenses">Journal Voucher Entry</a></li>
 </ul>
 </li>
 <li>Main Reports
@@ -229,7 +246,7 @@ By PANKAJ AGENCY
 <li><a href="/module/main_reports/shipper_issue">Shipper Issue Register</a></li>
 <li><a href="/module/main_reports/cargo_inward">Cargo Pkt Inward Register</a></li>
 <li><a href="/module/main_reports/credit_billing">Credit Billing Data Register</a></li>
-<li><a href="/module/main_reports/cash_billing_register">Cash Billing Data Register</a></li>
+<li><a href="/module/main_reports/cash_billing">Cash Billing Data Register</a></li>
 <li><a href="/module/main_reports/outward_register">Outward Data Register</a></li>
 <li><a href="/module/main_reports/manifest_register">Manifest Data Register</a></li>
 <li><a href="/module/main_reports/transhipment_charges">Transhipment Charges Regist</a></li>
@@ -249,17 +266,18 @@ By PANKAJ AGENCY
 <li>FAS Reports
 <ul>
 <li><a href="/my_ledger">Party A/c Ledger</a></li>
-<li><a href="/module/fas_reports/cash_book">Cash Book Ledger</a></li>
-<li><a href="/module/fas_reports/bank_book">Bank Book Ledger</a></li>
+<li><a href="/my_ledger">Cash Book Ledger</a></li>
+<li><a href="/my_ledger">Bank Book Ledger</a></li>
 <li><a href="/module/fas_reports/service_tax_ledger">Service Tax Ledger</a></li>
 </ul>
 </li>
 <li>Info. Reports
 <ul>
+<li><a href="/reports">Master Reports</a></li>
 <li><a href="/module/info_reports/shipper_issue">Shipper Issue Report</a></li>
 <li><a href="/module/info_reports/cargo_inward">Cargo Packet Inward Report</a></li>
 <li><a href="/module/info_reports/shipper_inward">Shipper Inward Report</a></li>
-<li><a href="/module/info_reports/counter_booking">Counter Booking Report</a></li>
+<li><a href="/reports">Counter Booking Report</a></li>
 <li><a href="/module/info_reports/outward_transhipment">Outward Report [Trnspmnt]</a></li>
 <li><a href="/module/info_reports/outward_local">Outward Report [Local]</a></li>
 <li><a href="/module/info_reports/manifest">Manifest Report</a></li>
@@ -381,7 +399,6 @@ $(document).ready(function() {
 </body>
 </html>
 """
-
 def render_page(title, content):
     return render_template_string(AGCS_BASE_HTML, title=title, content=content)
 
@@ -487,13 +504,29 @@ def fetch_network_tracking(network_name, network_awb):
     network = str(network_name).strip().upper()
     
     try:
+        # 1. API Call Skeleton for Trackon (Example)
         if network == 'TRACKON':
+            # Uncomment and configure with actual API keys
+            # url = f"https://api.trackon.in/v1/track?awb={network_awb}&apikey=YOUR_KEY"
+            # response = requests.get(url, timeout=5).json()
+            # for event in response.get('events', []):
+            #     external_events.append({
+            #         'scan_type': 'PARTNER UPDATE',
+            #         'location': event['location'],
+            #         'f_date': event['date'],
+            #         'remarks': event['status']
+            #     })
             pass
+            
+        # 2. API Call Skeleton for Shree Maruti
         elif network == 'SHREE MARUTI':
             pass
+            
+        # 3. API Call Skeleton for Tirupati
         elif network == 'TIRUPATI':
             pass
 
+        # 📌 DEFAULT FALLBACK: Agar API abhi set nahi hai, toh ek generic event dikhayega
         if not external_events:
             external_events.append({
                 'scan_type': 'NETWORK DISPATCH',
@@ -1024,6 +1057,7 @@ def track_doc():
                     return error_html.format(f"No third-party network forwarding found for AWB '{doc_no}'.")
                     
             elif doc_type == 'pincode':
+                # Search shipments by pincode/city in destination address
                 c.execute("SELECT awb_no, dest_name, dest_address, current_location, status FROM shipments WHERE dest_address LIKE %s OR dest_station LIKE %s ORDER BY id DESC LIMIT 100", (f"%{doc_no}%", f"%{doc_no}%"))
                 pins = c.fetchall()
                 if pins:
@@ -1470,6 +1504,13 @@ def outward():
     .btn-blue { background: linear-gradient(to bottom, #38BDF8, #0284C7); color: white; border: 1px solid #000; }
     .btn-save-big { background: linear-gradient(to bottom, #38BDF8, #0284C7); color: white; border: 1px solid #000; width: 100%; padding: 8px; font-size: 13px; font-weight: bold; cursor: pointer; border-radius: 3px; }
     
+    .datatable { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #116B7A; background: white;}
+    .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: white; padding: 5px; border: 1px solid #000; text-align: left;}
+    .datatable td { padding: 4px 6px; border: 1px solid #CCC; color: #000;}
+    .datatable tr:nth-child(even) { background: #F4FAFA; }
+    .datatable tr:hover { background: #FFDE99; cursor: pointer; }
+    .row-selected { background-color: #FFDE99 !important; font-weight: bold; }
+    
     .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
     .modal-content { background: #E2FAFA; margin: 10% auto; padding: 15px; border: 3px solid #116B7A; width: 500px; border-radius: 5px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
     </style>
@@ -1770,6 +1811,9 @@ def outward():
     except Exception as e:
         return str(e)
 
+# ==========================================
+# 📥 WEB INWARD ENTRY MODULE
+# ==========================================
 @app.route('/inward', methods=['GET', 'POST'])
 @login_required
 def inward():
@@ -1816,6 +1860,9 @@ def inward():
     .agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
     .agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 4px 20px; font-weight: bold; cursor: pointer; color: #000; font-family: Tahoma; text-transform:uppercase;}
     .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 14px; margin: 0 0 5px 0; background:white; padding:5px;}
+    .datatable { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; border: 1px solid #116B7A; background:white;}
+    .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: #FFF; padding: 5px; border: 1px solid #000; text-align:left;}
+    .datatable td { padding: 4px 6px; border: 1px solid #CCC; color: #000;}
     </style>
     
     <div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
@@ -2158,7 +2205,7 @@ FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id WHERE 1=1"""
 <h2 style="color: #009933; font-style: italic; font-weight: bold; font-size: 13px; margin: 0 0 5px 0; background:white; padding:5px;">{% if session.role == 'CUSTOMER' %}MY SHIPMENTS{% else %}DELIVERY STATUS REGISTER{% endif %}</h2>
 <div style="background: white; border: 1px solid #116B7A; margin-top: 5px;">
 <div style="height: 450px; overflow-y: auto;">
-<table class="datatable">
+<table class="agcs-grid">
 <thead style="position: sticky; top: 0;">
 <tr><th>ID</th><th>C.Note</th><th>Date</th><th>Dest</th><th>Station</th><th>Wt</th><th>Status</th><th>Total</th><th>Options</th></tr>
 </thead>
@@ -2208,7 +2255,7 @@ def my_ledger():
 <h2 style="color: #009933; font-style: italic; font-weight: bold; font-size: 13px; margin: 0 0 5px 0; background:white; padding:5px;">MY ACCOUNT LEDGER <a href="/print/statement/{{ session.get('customer_id') }}" target="_blank" style="float:right; color:blue; font-size:11px; font-style:normal;">[Print PDF]</a></h2>
 <div style="background:#FFF; padding:5px; border:1px solid #CCC; margin-bottom:10px; font-weight:bold; color:red; text-align:right;">Outstanding Balance: Rs {{ c_bal }}</div>
 <div style="background: white; border: 1px solid #116B7A; height: 400px; overflow-y: auto;">
-<table class="datatable">
+<table class="agcs-grid">
 <thead style="position: sticky; top: 0;"><tr><th>Date</th><th>Voucher</th><th>Ref</th><th>Debit (Rs)</th><th>Credit (Rs)</th><th>Narration</th></tr></thead>
 <tbody>{% for l in l_data %}<tr><td>{{ l.entry_date }}</td><td>{{ l.voucher_type }}</td><td>{{ l.reference }}</td><td style="color:red; font-weight:bold;">{{ l.debit }}</td><td style="color:green; font-weight:bold;">{{ l.credit }}</td><td>{{ l.narration }}</td></tr>{% endfor %}</tbody>
 </table>
@@ -2403,6 +2450,251 @@ def dynamic_module(category, action):
 </div>
 """
     return render_page(page_title, render_template_string(html, title=page_title, has_data=data_found, headers=table_headers, rows=table_rows, f_date=f_date, t_date=t_date, session=session))
+
+# ==========================================
+# 🧾 WEB INVOICE ENGINE (BILLING & TAX CALCULATION)
+# ==========================================
+@app.route('/invoices', methods=['GET', 'POST'])
+@login_required
+def invoices():
+    if session.get('role') == 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    date_today = datetime.now().strftime('%Y-%m-%d')
+    
+    if request.method == 'POST':
+        action = request.form.get('action', '')
+        
+        with conn.cursor() as c:
+            # 🚀 1. AUTO-GENERATE INVOICE LOGIC (EXACTLY LIKE DESKTOP)
+            if action == 'generate':
+                cid = request.form.get('cust_id')
+                if not cid:
+                    flash("Please select a customer to generate an invoice.", "error")
+                else:
+                    # Uninvoiced shipments fetch karna (Cancel wale chhod kar)
+                    c.execute("""
+                        SELECT * FROM shipments 
+                        WHERE customer_id=%s 
+                        AND total_amount > 0 
+                        AND status != 'CANCELLED' 
+                        AND id NOT IN (SELECT shipment_id FROM invoice_lines WHERE shipment_id IS NOT NULL)
+                    """, (cid,))
+                    rows = c.fetchall()
+                    
+                    if not rows:
+                        flash("Is customer ke liye koi pending uninvoiced shipment nahi mila.", "error")
+                    else:
+                        # Mathematical Totals
+                        tt = sum(safe_float(r.get("taxable_amount")) for r in rows)
+                        cg = sum(safe_float(r.get("cgst")) for r in rows)
+                        sg = sum(safe_float(r.get("sgst")) for r in rows)
+                        ig = sum(safe_float(r.get("igst")) for r in rows)
+                        tot = sum(safe_float(r.get("total_amount")) for r in rows)
+                        
+                        # Generate Sequence Number
+                        inv_no = get_seq("invoice", "INV/", 5)
+                        
+                        # 1. Insert into Invoices Main Table
+                        c.execute("""
+                            INSERT INTO invoices(invoice_no, invoice_date, customer_id, taxable_amount, cgst, sgst, igst, total, status) 
+                            VALUES(%s, %s, %s, %s, %s, %s, %s, %s, 'UNPAID')
+                        """, (inv_no, date_today, cid, tt, cg, sg, ig, tot))
+                        iid = c.lastrowid
+                        
+                        # 2. Insert Invoice Lines
+                        for r in rows:
+                            c.execute("""
+                                INSERT INTO invoice_lines(invoice_id, description, shipment_id, taxable_amount, cgst, sgst, igst, total) 
+                                VALUES(%s, %s, %s, %s, %s, %s, %s, %s)
+                            """, (iid, f"AWB {r['awb_no']}", r['id'], safe_float(r['taxable_amount']), safe_float(r['cgst']), safe_float(r['sgst']), safe_float(r['igst']), safe_float(r['total_amount'])))
+                            
+                        # 3. Insert into Ledger (Outstanding Maintain karne ke liye)
+                        c.execute("""
+                            INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) 
+                            VALUES(%s, %s, 'INVOICE', %s, %s, 0, %s)
+                        """, (cid, date_today, inv_no, tot, f"Auto Generated Invoice: {inv_no}"))
+                        
+                        flash(f"✅ Auto-Invoice {inv_no} Generated! Total Billed: Rs {tot:,.2f}", "success")
+
+            # 🚀 2. UPDATE PAYMENT STATUS
+            elif action == 'edit_status':
+                iid = request.form.get('inv_id')
+                new_status = request.form.get('status')
+                c.execute("UPDATE invoices SET status=%s WHERE id=%s", (new_status, iid))
+                flash(f"Invoice status updated to {new_status}.", "success")
+                
+            # 🚀 3. DELETE INVOICE & ROLLBACK LEDGER
+            elif action == 'delete':
+                iid = request.form.get('del_id')
+                c.execute("SELECT invoice_no, customer_id FROM invoices WHERE id=%s", (iid,))
+                inv = c.fetchone()
+                if inv:
+                    # Rollback logic
+                    c.execute("DELETE FROM ledger WHERE voucher_type='INVOICE' AND reference=%s", (inv['invoice_no'],))
+                    c.execute("DELETE FROM invoice_lines WHERE invoice_id=%s", (iid,))
+                    c.execute("DELETE FROM invoices WHERE id=%s", (iid,))
+                    flash(f"🗑️ Invoice {inv['invoice_no']} deleted and Ledger reversed.", "success")
+
+        conn.commit()
+        return redirect('/invoices')
+
+    # Fetch Data for View
+    with conn.cursor() as c:
+        c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
+        custs = c.fetchall()
+        
+        c.execute("""
+            SELECT i.*, c.name as cust_name 
+            FROM invoices i 
+            LEFT JOIN customers c ON i.customer_id = c.id 
+            ORDER BY i.id DESC LIMIT 300
+        """)
+        inv_list = c.fetchall()
+    conn.close()
+
+    html = """
+    <style>
+    .agcs-container { background: #E2FAFA; padding: 10px; min-height: 550px; border: 1px solid #116B7A; border-top: 3px solid #116B7A; font-family: Tahoma; }
+    .page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 14px; margin: 0 0 10px 0; background: white; padding: 8px; border: 1px solid #116B7A; text-transform:uppercase; }
+    
+    .agcs-form-table { width: 100%; border-collapse: collapse; font-size: 11px; background: white; border: 1px solid #116B7A; margin-bottom: 15px;}
+    .agcs-form-table td { padding: 8px; vertical-align: middle; }
+    .agcs-label { color: #000; font-weight: bold; font-size: 11px; text-align: left; width: 150px; }
+    .agcs-input { border: 1px solid #009933; background: #FFFFCC; padding: 6px; font-size: 12px; font-weight: bold; width: 100%; box-sizing: border-box; border-radius:3px; }
+    
+    .btn-gold { background: linear-gradient(to bottom, #FFD25A, #D67A00); color: black; border: 1px solid #000; padding: 8px 20px; font-weight: bold; cursor: pointer; border-radius: 3px; font-size: 12px; text-transform:uppercase;}
+    .btn-blue { background: linear-gradient(to bottom, #38BDF8, #0284C7); color: white; border: 1px solid #000; padding: 4px 10px; font-weight: bold; cursor: pointer; border-radius: 3px; font-size: 11px; text-decoration: none;}
+    .btn-red { background: linear-gradient(to bottom, #EF4444, #B91C1C); color: white; border: 1px solid #000; padding: 4px 10px; font-weight: bold; cursor: pointer; border-radius: 3px; font-size: 11px;}
+    
+    .datatable { width: 100%; border-collapse: collapse; font-size: 11px; border: 1px solid #116B7A; background: white;}
+    .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: white; padding: 8px; border: 1px solid #000; text-align: left;}
+    .datatable td { padding: 6px; border: 1px solid #CCC; color: #000;}
+    .datatable tr:nth-child(even) { background: #F4FAFA; }
+    .datatable tr:hover { background: #FFDE99; cursor: default; }
+
+    .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); }
+    .modal-content { background: #E2FAFA; margin: 10% auto; padding: 15px; border: 3px solid #116B7A; width: 400px; border-radius: 5px; box-shadow: 0 5px 15px rgba(0,0,0,0.5); }
+    </style>
+    
+    <div class="agcs-container">
+        <h2 class="page-title-green">🧾 ACCOUNT BILL / INVOICE GENERATION SECTION <span style="float:right; color:#D67A00;">{{ date_today }}</span></h2>
+        
+        <!-- AUTO GENERATE PANEL -->
+        <form method="POST" onsubmit="return confirm('Ensure all bookings are correct. Generate Invoice for this customer?');">
+            <input type="hidden" name="action" value="generate">
+            <table class="agcs-form-table">
+                <tr>
+                    <td class="agcs-label" style="background:#116B7A; color:white; width: 25%;">🛠️ SYSTEMATIC AUTO-BILLING</td>
+                    <td class="agcs-label">Select Corporate Customer A/c:</td>
+                    <td style="width:40%;">
+                        <select name="cust_id" class="agcs-input" required>
+                            <option value="">-- Choose Customer --</option>
+                            {% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td>
+                        <button type="submit" class="btn-gold" style="width:100%;">⚡ GENERATE INVOICE</button>
+                    </td>
+                </tr>
+            </table>
+        </form>
+
+        <div style="font-weight: bold; color: #D67A00; margin-bottom: 5px;">Generated Invoice Register</div>
+        
+        <!-- INVOICE LIST PANEL -->
+        <div style="height: 380px; overflow-y: auto; border: 1px solid #116B7A;">
+            <table class="datatable">
+                <thead style="position: sticky; top: 0;">
+                    <tr>
+                        <th>Inv No</th>
+                        <th>Date</th>
+                        <th>Customer / Party A/c</th>
+                        <th>Taxable (₹)</th>
+                        <th>GST (₹)</th>
+                        <th>Grand Total (₹)</th>
+                        <th>Status</th>
+                        <th>Options</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for i in inv_list %}
+                <tr>
+                    <td style="font-weight:bold; color:red; font-size:12px;">{{ i.invoice_no }}</td>
+                    <td>{{ i.invoice_date }}</td>
+                    <td style="font-weight:bold; color:#116B7A;">{{ i.cust_name }}</td>
+                    <td>{{ i.taxable_amount }}</td>
+                    <td>{{ i.cgst + i.sgst + i.igst }}</td>
+                    <td style="font-weight:bold; font-size:13px;">{{ i.total }}</td>
+                    <td style="font-weight:bold; color:{% if i.status=='PAID' %}green{%else%}#D67A00{%endif%};">{{ i.status }}</td>
+                    <td style="display:flex; gap:5px;">
+                        <a href="/print/invoice/{{ i.id }}" target="_blank" class="btn-blue">🖨 PRINT</a>
+                        <button onclick="openStatusModal('{{ i.id }}', '{{ i.status }}')" class="btn-blue" style="background:linear-gradient(to bottom, #475569, #1E293B);">✏ STATUS</button>
+                        <form method="POST" style="margin:0;" onsubmit="return confirm('⚠️ Warning: Deleting invoice will reverse the Ledger Balance. Are you sure?');">
+                            <input type="hidden" name="action" value="delete">
+                            <input type="hidden" name="del_id" value="{{ i.id }}">
+                            <button type="submit" class="btn-red">🗑 DEL</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- MODAL: EDIT STATUS -->
+    <div id="statusModal" class="modal">
+        <div class="modal-content">
+            <h3 style="margin-top:0; color:#116B7A; border-bottom:2px solid #D67A00;">✏️ Update Invoice Status</h3>
+            <form method="POST">
+                <input type="hidden" name="action" value="edit_status">
+                <input type="hidden" name="inv_id" id="status_inv_id">
+                <table class="agcs-form-table">
+                    <tr>
+                        <td class="agcs-label">Payment Status</td>
+                        <td>
+                            <select name="status" id="status_select" class="agcs-input">
+                                <option value="UNPAID">UNPAID</option>
+                                <option value="PARTLY_PAID">PARTLY PAID</option>
+                                <option value="PAID">PAID</option>
+                            </select>
+                        </td>
+                    </tr>
+                </table>
+                <div style="margin-top:10px; text-align:right;">
+                    <button type="button" class="btn-red" style="padding: 6px 15px;" onclick="document.getElementById('statusModal').style.display='none'">CANCEL</button>
+                    <button type="submit" class="btn-blue" style="padding: 6px 15px;">💾 SAVE</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        function openStatusModal(id, currentStatus) {
+            document.getElementById('status_inv_id').value = id;
+            document.getElementById('status_select').value = currentStatus;
+            document.getElementById('statusModal').style.display = 'block';
+        }
+        
+        $(document).ready(function() {
+            if ($('.datatable').length) {
+                $('.datatable').DataTable({
+                    "pageLength": 50,
+                    "order": [], 
+                    "language": {
+                        "search": "<b>🔍 Search Invoice:</b>",
+                        "lengthMenu": "Show _MENU_ Entries"
+                    }
+                });
+            }
+        });
+    </script>
+    """
+    try:
+        from flask import render_template_string
+        return render_page("Account Bill Section", render_template_string(html, custs=custs, inv_list=inv_list, date_today=date_today))
+    except Exception as e:
+        return str(e)
 
 # ==========================================
 # 🔄 15. UNIVERSAL TWO-WAY SYNC API
