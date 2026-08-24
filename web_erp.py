@@ -2265,193 +2265,6 @@ def my_ledger():
     return render_page("My Ledger", render_template_string(html, l_data=l_data, c_bal=c_bal, session=session))
 
 # ==========================================
-#  8. OUTWARD HUB & EXCEL IMPORT
-# ==========================================
-@app.route('/import_csv', methods=['GET', 'POST'])
-@login_required
-def import_csv():
-    if session.get('role') != 'ADMIN': return redirect('/')
-    if request.method == 'POST':
-        file = request.files.get('file')
-        if not file or not file.filename.endswith('.csv'): flash("Invalid CSV file", "error"); return redirect('/import_csv')
-        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None); reader = csv.DictReader(stream); headers = {k.strip().lower(): k for k in reader.fieldnames if k}
-        conn = get_db(); added = 0
-        with conn.cursor() as c:
-            for row in reader:
-                awb = row.get(headers.get("awb", "AWB")) or row.get("AWB")
-                if not awb: continue
-                awb = str(awb).strip().upper(); c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
-                if c.fetchone(): continue
-                dest = row.get(headers.get("dest", "Dest")) or row.get("Dest Station", "UNKNOWN"); wt = row.get(headers.get("weight", "Weight")) or "1"; tot = row.get(headers.get("amount", "Amount")) or "0"; d = datetime.now().strftime("%Y-%m-%d")
-                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest.upper(),))
-                c.execute("INSERT INTO shipments(awb_no, dest_name, dest_station, weight_kg, total_amount, booking_date, status, current_location, service_type, origin_name) VALUES(%s, %s, %s, %s, %s, %s, 'BOOKED', 'Origin', 'SURFACE', %s)", (awb, dest, dest.upper(), safe_float(wt), safe_float(tot), d, session.get('branch','HQ')))
-                added += 1
-            conn.commit()
-        conn.close(); flash(f"Import Complete! {added} Booked.", "success")
-    html = """<div class="card"><h3>Bulk CSV Import</h3><form method="POST" enctype="multipart/form-data"><input type="file" name="file" accept=".csv" required style="margin-bottom:10px;"><button type="submit" class="btn btn-blue">Start Import</button></form></div>"""
-    return render_page("Excel Import", render_template_string(html))
-
-@app.route('/print/invoice/<int:inv_id>')
-@login_required
-def print_invoice_pdf(inv_id):
-    conn = get_db(); c = conn.cursor()
-    c.execute("SELECT i.*, c.name as cname, c.gstin as cgstin, c.address as caddr, c.state_code as cstate FROM invoices i JOIN customers c ON i.customer_id=c.id WHERE i.id=%s", (inv_id,)); inv = c.fetchone()
-    c.execute("SELECT il.*, s.awb_no FROM invoice_lines il LEFT JOIN shipments s ON il.shipment_id=s.id WHERE il.invoice_id=%s", (inv_id,)); lines = c.fetchall()
-    c.close(); conn.close()
-    if not inv: return "Invoice Not Found"
-
-    buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4)
-    cv.setFillColor(HexColor("#004B87")); cv.rect(0, 800, 600, 45, fill=1, stroke=0)
-    cv.setFillColor(HexColor("#FFFFFF")); cv.setFont("Helvetica-Bold", 16); cv.drawCentredString(300, 815, str(get_setting('company_name', 'AGC')))
-    cv.setFont("Helvetica", 9); cv.drawCentredString(300, 802, f"{get_setting('company_address', '')} | GSTIN: {get_setting('company_gstin', '')}")
-    cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 14); cv.drawCentredString(300, 770, "TAX INVOICE")
-    cv.setFont("Helvetica", 10); cv.drawString(40, 745, f"Invoice No: {inv['invoice_no']}"); cv.drawRightString(560, 745, f"Date: {inv['invoice_date']}")
-    cv.drawString(40, 725, f"Bill To: {inv['cname']}"); cv.drawString(40, 710, f"Address: {inv['caddr']}")
-    cv.drawString(40, 695, f"Customer GSTIN: {inv['cgstin']} | State: {inv['cstate']}")
-    y = 660; cv.setFillColor(HexColor("#E1E6EE")); cv.rect(40, y, 520, 20, fill=1, stroke=0)
-    cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 9)
-    cv.drawString(45, y+6, "AWB No"); cv.drawString(120, y+6, "Description"); cv.drawString(280, y+6, "Taxable"); cv.drawString(350, y+6, "CGST"); cv.drawString(410, y+6, "SGST"); cv.drawString(470, y+6, "IGST"); cv.drawString(520, y+6, "Total")
-    y -= 20; cv.setFont("Helvetica", 9)
-    for l in lines:
-        cv.drawString(45, y, str(l['awb_no'])); cv.drawString(120, y, str(l['description'])[:25])
-        cv.drawString(280, y, f"{l['taxable_amount']}"); cv.drawString(350, y, f"{l['cgst']}"); cv.drawString(410, y, f"{l['sgst']}"); cv.drawString(470, y, f"{l['igst']}")
-        cv.setFont("Helvetica-Bold"); cv.drawString(520, y, f"{l['total']}"); cv.setFont("Helvetica")
-        y -= 15
-        if y < 100: cv.showPage(); y = 800
-    cv.line(40, y-10, 560, y-10); y -= 30
-    cv.setFont("Helvetica-Bold", 11)
-    cv.drawString(300, y, f"Total Taxable: Rs {inv['taxable_amount']}")
-    cv.drawString(300, y-20, f"CGST: Rs {inv['cgst']} | SGST: Rs {inv['sgst']} | IGST: Rs {inv['igst']}")
-    cv.setFillColor(HexColor("#D97706")); cv.setFont("Helvetica-Bold", 14)
-    cv.drawString(300, y-45, f"Grand Total: Rs {inv['total']}")
-    cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica", 9)
-    cv.drawString(40, 100, f"Bank Details: {get_setting('bank_details', '')}")
-    cv.drawString(40, 80, str(get_setting('terms_note', '')))
-    cv.drawRightString(560, 100, f"For {get_setting('company_name', 'AGC')}"); cv.drawRightString(560, 80, "Authorised Signatory")
-    cv.showPage(); cv.save(); buf.seek(0)
-    return send_file(buf, download_name=f"Invoice_{inv['invoice_no'].replace('/', '_')}.pdf", mimetype='application/pdf')
-
-# ==========================================
-# 📊 12. DYNAMIC REPORTS ENGINE (WITH ADVANCED FILTERS & ACTIONS)
-# ==========================================
-@app.route('/module/<category>/<action>', methods=['GET', 'POST'])
-@login_required
-def dynamic_module(category, action):
-    title_category = category.replace('_', ' ').upper()
-    title_action = action.replace('_', ' ').upper()
-    page_title = f"{title_action} [{title_category}]"
-    
-    # 📅 User selected date range (default to today)
-    f_date = request.args.get('from_date', datetime.now().strftime('%Y-%m-%d'))
-    t_date = request.args.get('to_date', datetime.now().strftime('%Y-%m-%d'))
-    
-    data_found = False; table_headers = []; table_rows = []
-    
-    conn = get_db()
-    with conn.cursor() as c:
-        # Har query mein FROM DATE aur TO DATE ka filter lagaya gaya hai
-        # Har query mein 'id' (ya unique identifier) select kiya gaya hai taaki Edit/Print button lag sake
-        q_map = {
-            'cash_billing_register': (f"SELECT id, awb_no, booking_date, dest_name, weight_kg, total_amount FROM shipments WHERE customer_id IS NULL AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Dest", "Weight", "Total Amount", "Actions"]),
-            'credit_billing': (f"SELECT s.id, s.awb_no, s.booking_date, c.name, s.total_amount FROM shipments s JOIN customers c ON s.customer_id=c.id WHERE s.customer_id IS NOT NULL AND s.booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Customer", "Amount", "Actions"]),
-            'transhipment_charges': (f"SELECT id, awb_no, dest_station, weight_kg, total_amount FROM shipments WHERE status='OUTWARD' AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Dest Station", "Weight", "Amount", "Actions"]),
-            'inward_outward_pending': (f"SELECT id, awb_no, booking_date, status, current_location FROM shipments WHERE status IN ('BOOKED', 'OUTWARD', 'INWARD') AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Status", "Location", "Actions"]),
-            'invoice_data': (f"SELECT id, invoice_no, invoice_date, total, status FROM invoices WHERE invoice_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Invoice No", "Date", "Total", "Status", "Actions"]),
-            'bill_pending': (f"SELECT id, invoice_no, invoice_date, total, status FROM invoices WHERE status='UNPAID' AND invoice_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "Invoice No", "Date", "Total Amount", "Status", "Actions"]),
-            'drs_status': (f"SELECT id, drs_no, drs_date, rider_name, status FROM drs WHERE drs_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "DRS No", "Date", "Delivery Boy", "Status", "Actions"]),
-            'inward_history': (f"SELECT id, entry_date, awb_no, origin_station, in_station FROM inward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Date", "AWB", "Origin", "In-Station", "Actions"]),
-            'outward_history': (f"SELECT id, entry_date, awb_no, out_station, destination FROM outward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Date", "AWB", "Out-Station", "Dest", "Actions"]),
-            'cargo_inward': (f"SELECT id, entry_date, awb_no, origin_station, in_station, weight FROM inward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Origin", "In-Station", "Weight", "Actions"]),
-            'outward_register': (f"SELECT id, entry_date, awb_no, out_station, destination, weight FROM outward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Out-Station", "Dest", "Weight", "Actions"]),
-            'manifest_register': (f"SELECT id, manifest_no, manifest_type, from_location, to_location, status, DATE(created_at) FROM manifests WHERE DATE(created_at) BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Manifest No", "Type", "Origin", "Destination", "Status", "Date", "Actions"]),
-            'daily_collection': (f"SELECT id, payment_date, mode, amount as total_collected FROM payments WHERE payment_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "Date", "Payment Mode", "Amount", "Actions"]),
-            'counter_booking': (f"SELECT id, awb_no, booking_date, dest_name, total_amount FROM shipments WHERE booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Dest", "Amount", "Actions"]),
-            'outward_local': (f"SELECT id, entry_date, awb_no, destination, weight FROM outward_register WHERE network='LOCAL' AND entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Dest", "Weight", "Actions"]),
-            'drs_register': (f"SELECT id, drs_no, drs_date, rider_name FROM drs WHERE drs_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "DRS No", "Date", "Rider", "Actions"]),
-            'account_bill': (f"SELECT id, invoice_no, invoice_date, total FROM invoices WHERE invoice_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Invoice", "Date", "Total", "Actions"]),
-            'journal_voucher': (f"SELECT id, expense_date, category, amount FROM expenses WHERE expense_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "Category", "Amount", "Actions"])
-        }
-
-        # Fallback Query (Agar selected report map me na mile)
-        query_data = q_map.get(action, (f"SELECT id, awb_no, booking_date, dest_name, status FROM shipments WHERE booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 200", ["ID", "AWB", "Date", "Dest", "Status", "Actions"]))
-
-        try:
-            c.execute(query_data[0])
-            rows = c.fetchall()
-            if rows:
-                data_found = True
-                table_headers = query_data[1]
-                
-                # 🚀 Auto-generate Edit/Print Buttons for each row
-                for r in rows:
-                    row_vals = []
-                    for k, v in r.items():
-                        row_vals.append(str(v))
-                    
-                    # Identifiers for Action Buttons
-                    act_html = ""
-                    if 'awb_no' in r:
-                        act_html = f"<a href='/edit_shipment/{r['id']}' style='background:#116B7A; color:white; padding:3px 8px; border-radius:3px; text-decoration:none; font-weight:bold;'>✏ Edit</a>"
-                    elif 'invoice_no' in r:
-                        act_html = f"<a href='/print/invoice/{r['id']}' target='_blank' style='background:#D67A00; color:white; padding:3px 8px; border-radius:3px; text-decoration:none; font-weight:bold;'>🖨 Print</a>"
-                    else:
-                        act_html = f"<button style='background:#D64550; color:white; padding:3px 8px; border-radius:3px; border:1px solid black; font-weight:bold; cursor:pointer;'>View / Del</button>"
-                    
-                    row_vals.append(act_html)
-                    table_rows.append(row_vals)
-        except Exception as e:
-            logging.error(f"Report Mapping Error: {e}")
-
-    conn.close()
-    
-    html = """
-<style>
-.agcs-label { color: #003366; font-weight: bold; width: 150px; font-size: 11px;}
-.agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 4px; font-size: 11px; font-weight: bold; border-radius: 2px;}
-.agcs-top-bar { display: flex; gap: 10px; padding: 8px; border-bottom: 2px solid #116B7A; margin-bottom: 10px; background: white;}
-.agcs-btn-grey { background: linear-gradient(to bottom, #116B7A, #0B4A55); border: 1px solid #000; padding: 5px 20px; font-weight: bold; cursor: pointer; color: #FFF; font-size:11px; border-radius:3px; text-transform:uppercase;}
-.page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 15px; margin: 0 0 10px 0; background:white; padding:8px; border: 1px solid #116B7A; text-transform:uppercase;}
-</style>
-
-<div style="background: #E2FAFA; padding: 10px; min-height: 550px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
-    <h2 class="page-title-green">{{ title }}</h2>
-    
-    <div style="background: white; padding: 10px; border: 1px solid #116B7A; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
-        <form method="GET" style="margin:0; display:flex; gap:15px; align-items:center;">
-            <div style="display:flex; align-items:center; gap:5px;">
-                <span class="agcs-label" style="width:auto;">📅 From Date:</span>
-                <input type="date" name="from_date" class="agcs-input" style="width:130px;" value="{{ f_date }}">
-            </div>
-            <div style="display:flex; align-items:center; gap:5px;">
-                <span class="agcs-label" style="width:auto;">📅 To Date:</span>
-                <input type="date" name="to_date" class="agcs-input" style="width:130px;" value="{{ t_date }}">
-            </div>
-            <button type="submit" class="agcs-btn-grey" style="padding:4px 15px;">🔍 SHOW DATA</button>
-            <button type="button" class="agcs-btn-grey" style="background:linear-gradient(to bottom, #D67A00, #965500);" onclick="window.print()">🖨 PRINT REPORT</button>
-        </form>
-    </div>
-    
-    <div style="background: white; border: 1px solid #116B7A; padding: 10px;">
-        {% if has_data %}
-            <table class="datatable">
-                <thead>
-                    <tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr>
-                </thead>
-                <tbody>
-                    {% for row in rows %}
-                        <tr>{% for cell in row %}<td>{{ cell | safe }}</td>{% endfor %}</tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <div style="padding:30px; text-align:center; color:#D64550; font-weight:bold; font-size:16px;">❌ No Data Found For Selected Date Range.</div>
-        {% endif %}
-    </div>
-</div>
-"""
-    return render_page(page_title, render_template_string(html, title=page_title, has_data=data_found, headers=table_headers, rows=table_rows, f_date=f_date, t_date=t_date, session=session))
-
-# ==========================================
 # 🧾 WEB INVOICE ENGINE (BILLING & TAX CALCULATION)
 # ==========================================
 @app.route('/invoices', methods=['GET', 'POST'])
@@ -2695,6 +2508,193 @@ def invoices():
         return render_page("Account Bill Section", render_template_string(html, custs=custs, inv_list=inv_list, date_today=date_today))
     except Exception as e:
         return str(e)
+
+# ==========================================
+#  8. OUTWARD HUB & EXCEL IMPORT
+# ==========================================
+@app.route('/import_csv', methods=['GET', 'POST'])
+@login_required
+def import_csv():
+    if session.get('role') != 'ADMIN': return redirect('/')
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if not file or not file.filename.endswith('.csv'): flash("Invalid CSV file", "error"); return redirect('/import_csv')
+        stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None); reader = csv.DictReader(stream); headers = {k.strip().lower(): k for k in reader.fieldnames if k}
+        conn = get_db(); added = 0
+        with conn.cursor() as c:
+            for row in reader:
+                awb = row.get(headers.get("awb", "AWB")) or row.get("AWB")
+                if not awb: continue
+                awb = str(awb).strip().upper(); c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
+                if c.fetchone(): continue
+                dest = row.get(headers.get("dest", "Dest")) or row.get("Dest Station", "UNKNOWN"); wt = row.get(headers.get("weight", "Weight")) or "1"; tot = row.get(headers.get("amount", "Amount")) or "0"; d = datetime.now().strftime("%Y-%m-%d")
+                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest.upper(),))
+                c.execute("INSERT INTO shipments(awb_no, dest_name, dest_station, weight_kg, total_amount, booking_date, status, current_location, service_type, origin_name) VALUES(%s, %s, %s, %s, %s, %s, 'BOOKED', 'Origin', 'SURFACE', %s)", (awb, dest, dest.upper(), safe_float(wt), safe_float(tot), d, session.get('branch','HQ')))
+                added += 1
+            conn.commit()
+        conn.close(); flash(f"Import Complete! {added} Booked.", "success")
+    html = """<div class="card"><h3>Bulk CSV Import</h3><form method="POST" enctype="multipart/form-data"><input type="file" name="file" accept=".csv" required style="margin-bottom:10px;"><button type="submit" class="btn btn-blue">Start Import</button></form></div>"""
+    return render_page("Excel Import", render_template_string(html))
+
+@app.route('/print/invoice/<int:inv_id>')
+@login_required
+def print_invoice_pdf(inv_id):
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT i.*, c.name as cname, c.gstin as cgstin, c.address as caddr, c.state_code as cstate FROM invoices i JOIN customers c ON i.customer_id=c.id WHERE i.id=%s", (inv_id,)); inv = c.fetchone()
+    c.execute("SELECT il.*, s.awb_no FROM invoice_lines il LEFT JOIN shipments s ON il.shipment_id=s.id WHERE il.invoice_id=%s", (inv_id,)); lines = c.fetchall()
+    c.close(); conn.close()
+    if not inv: return "Invoice Not Found"
+
+    buf = io.BytesIO(); cv = canvas.Canvas(buf, pagesize=A4)
+    cv.setFillColor(HexColor("#004B87")); cv.rect(0, 800, 600, 45, fill=1, stroke=0)
+    cv.setFillColor(HexColor("#FFFFFF")); cv.setFont("Helvetica-Bold", 16); cv.drawCentredString(300, 815, str(get_setting('company_name', 'AGC')))
+    cv.setFont("Helvetica", 9); cv.drawCentredString(300, 802, f"{get_setting('company_address', '')} | GSTIN: {get_setting('company_gstin', '')}")
+    cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 14); cv.drawCentredString(300, 770, "TAX INVOICE")
+    cv.setFont("Helvetica", 10); cv.drawString(40, 745, f"Invoice No: {inv['invoice_no']}"); cv.drawRightString(560, 745, f"Date: {inv['invoice_date']}")
+    cv.drawString(40, 725, f"Bill To: {inv['cname']}"); cv.drawString(40, 710, f"Address: {inv['caddr']}")
+    cv.drawString(40, 695, f"Customer GSTIN: {inv['cgstin']} | State: {inv['cstate']}")
+    y = 660; cv.setFillColor(HexColor("#E1E6EE")); cv.rect(40, y, 520, 20, fill=1, stroke=0)
+    cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica-Bold", 9)
+    cv.drawString(45, y+6, "AWB No"); cv.drawString(120, y+6, "Description"); cv.drawString(280, y+6, "Taxable"); cv.drawString(350, y+6, "CGST"); cv.drawString(410, y+6, "SGST"); cv.drawString(470, y+6, "IGST"); cv.drawString(520, y+6, "Total")
+    y -= 20; cv.setFont("Helvetica", 9)
+    for l in lines:
+        cv.drawString(45, y, str(l['awb_no'])); cv.drawString(120, y, str(l['description'])[:25])
+        cv.drawString(280, y, f"{l['taxable_amount']}"); cv.drawString(350, y, f"{l['cgst']}"); cv.drawString(410, y, f"{l['sgst']}"); cv.drawString(470, y, f"{l['igst']}")
+        cv.setFont("Helvetica-Bold"); cv.drawString(520, y, f"{l['total']}"); cv.setFont("Helvetica")
+        y -= 15
+        if y < 100: cv.showPage(); y = 800
+    cv.line(40, y-10, 560, y-10); y -= 30
+    cv.setFont("Helvetica-Bold", 11)
+    cv.drawString(300, y, f"Total Taxable: Rs {inv['taxable_amount']}")
+    cv.drawString(300, y-20, f"CGST: Rs {inv['cgst']} | SGST: Rs {inv['sgst']} | IGST: Rs {inv['igst']}")
+    cv.setFillColor(HexColor("#D97706")); cv.setFont("Helvetica-Bold", 14)
+    cv.drawString(300, y-45, f"Grand Total: Rs {inv['total']}")
+    cv.setFillColor(HexColor("#000000")); cv.setFont("Helvetica", 9)
+    cv.drawString(40, 100, f"Bank Details: {get_setting('bank_details', '')}")
+    cv.drawString(40, 80, str(get_setting('terms_note', '')))
+    cv.drawRightString(560, 100, f"For {get_setting('company_name', 'AGC')}"); cv.drawRightString(560, 80, "Authorised Signatory")
+    cv.showPage(); cv.save(); buf.seek(0)
+    return send_file(buf, download_name=f"Invoice_{inv['invoice_no'].replace('/', '_')}.pdf", mimetype='application/pdf')
+
+# ==========================================
+# 📊 12. DYNAMIC REPORTS ENGINE (WITH ADVANCED FILTERS & ACTIONS)
+# ==========================================
+@app.route('/module/<category>/<action>', methods=['GET', 'POST'])
+@login_required
+def dynamic_module(category, action):
+    title_category = category.replace('_', ' ').upper()
+    title_action = action.replace('_', ' ').upper()
+    page_title = f"{title_action} [{title_category}]"
+    
+    # 📅 User selected date range (default to today)
+    f_date = request.args.get('from_date', datetime.now().strftime('%Y-%m-%d'))
+    t_date = request.args.get('to_date', datetime.now().strftime('%Y-%m-%d'))
+    
+    data_found = False; table_headers = []; table_rows = []
+    
+    conn = get_db()
+    with conn.cursor() as c:
+        # Har query mein FROM DATE aur TO DATE ka filter lagaya gaya hai
+        # Har query mein 'id' (ya unique identifier) select kiya gaya hai taaki Edit/Print button lag sake
+        q_map = {
+            'cash_billing_register': (f"SELECT id, awb_no, booking_date, dest_name, weight_kg, total_amount FROM shipments WHERE customer_id IS NULL AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Dest", "Weight", "Total Amount", "Actions"]),
+            'credit_billing': (f"SELECT s.id, s.awb_no, s.booking_date, c.name, s.total_amount FROM shipments s JOIN customers c ON s.customer_id=c.id WHERE s.customer_id IS NOT NULL AND s.booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Customer", "Amount", "Actions"]),
+            'transhipment_charges': (f"SELECT id, awb_no, dest_station, weight_kg, total_amount FROM shipments WHERE status='OUTWARD' AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Dest Station", "Weight", "Amount", "Actions"]),
+            'inward_outward_pending': (f"SELECT id, awb_no, booking_date, status, current_location FROM shipments WHERE status IN ('BOOKED', 'OUTWARD', 'INWARD') AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Status", "Location", "Actions"]),
+            'invoice_data': (f"SELECT id, invoice_no, invoice_date, total, status FROM invoices WHERE invoice_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Invoice No", "Date", "Total", "Status", "Actions"]),
+            'bill_pending': (f"SELECT id, invoice_no, invoice_date, total, status FROM invoices WHERE status='UNPAID' AND invoice_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "Invoice No", "Date", "Total Amount", "Status", "Actions"]),
+            'drs_status': (f"SELECT id, drs_no, drs_date, rider_name, status FROM drs WHERE drs_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "DRS No", "Date", "Delivery Boy", "Status", "Actions"]),
+            'inward_history': (f"SELECT id, entry_date, awb_no, origin_station, in_station FROM inward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Date", "AWB", "Origin", "In-Station", "Actions"]),
+            'outward_history': (f"SELECT id, entry_date, awb_no, out_station, destination FROM outward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Date", "AWB", "Out-Station", "Dest", "Actions"]),
+            'cargo_inward': (f"SELECT id, entry_date, awb_no, origin_station, in_station, weight FROM inward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Origin", "In-Station", "Weight", "Actions"]),
+            'outward_register': (f"SELECT id, entry_date, awb_no, out_station, destination, weight FROM outward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Out-Station", "Dest", "Weight", "Actions"]),
+            'manifest_register': (f"SELECT id, manifest_no, manifest_type, from_location, to_location, status, DATE(created_at) FROM manifests WHERE DATE(created_at) BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Manifest No", "Type", "Origin", "Destination", "Status", "Date", "Actions"]),
+            'daily_collection': (f"SELECT id, payment_date, mode, amount as total_collected FROM payments WHERE payment_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "Date", "Payment Mode", "Amount", "Actions"]),
+            'counter_booking': (f"SELECT id, awb_no, booking_date, dest_name, total_amount FROM shipments WHERE booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Dest", "Amount", "Actions"]),
+            'outward_local': (f"SELECT id, entry_date, awb_no, destination, weight FROM outward_register WHERE network='LOCAL' AND entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Dest", "Weight", "Actions"]),
+            'drs_register': (f"SELECT id, drs_no, drs_date, rider_name FROM drs WHERE drs_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "DRS No", "Date", "Rider", "Actions"]),
+            'account_bill': (f"SELECT id, invoice_no, invoice_date, total FROM invoices WHERE invoice_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Invoice", "Date", "Total", "Actions"]),
+            'journal_voucher': (f"SELECT id, expense_date, category, amount FROM expenses WHERE expense_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "Category", "Amount", "Actions"])
+        }
+
+        # Fallback Query (Agar selected report map me na mile)
+        query_data = q_map.get(action, (f"SELECT id, awb_no, booking_date, dest_name, status FROM shipments WHERE booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 200", ["ID", "AWB", "Date", "Dest", "Status", "Actions"]))
+
+        try:
+            c.execute(query_data[0])
+            rows = c.fetchall()
+            if rows:
+                data_found = True
+                table_headers = query_data[1]
+                
+                # 🚀 Auto-generate Edit/Print Buttons for each row
+                for r in rows:
+                    row_vals = []
+                    for k, v in r.items():
+                        row_vals.append(str(v))
+                    
+                    # Identifiers for Action Buttons
+                    act_html = ""
+                    if 'awb_no' in r:
+                        act_html = f"<a href='/edit_shipment/{r['id']}' style='background:#116B7A; color:white; padding:3px 8px; border-radius:3px; text-decoration:none; font-weight:bold;'>✏ Edit</a>"
+                    elif 'invoice_no' in r:
+                        act_html = f"<a href='/print/invoice/{r['id']}' target='_blank' style='background:#D67A00; color:white; padding:3px 8px; border-radius:3px; text-decoration:none; font-weight:bold;'>🖨 Print</a>"
+                    else:
+                        act_html = f"<button style='background:#D64550; color:white; padding:3px 8px; border-radius:3px; border:1px solid black; font-weight:bold; cursor:pointer;'>View / Del</button>"
+                    
+                    row_vals.append(act_html)
+                    table_rows.append(row_vals)
+        except Exception as e:
+            logging.error(f"Report Mapping Error: {e}")
+
+    conn.close()
+    
+    html = """
+<style>
+.agcs-label { color: #003366; font-weight: bold; width: 150px; font-size: 11px;}
+.agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 4px; font-size: 11px; font-weight: bold; border-radius: 2px;}
+.agcs-top-bar { display: flex; gap: 10px; padding: 8px; border-bottom: 2px solid #116B7A; margin-bottom: 10px; background: white;}
+.agcs-btn-grey { background: linear-gradient(to bottom, #116B7A, #0B4A55); border: 1px solid #000; padding: 5px 20px; font-weight: bold; cursor: pointer; color: #FFF; font-size:11px; border-radius:3px; text-transform:uppercase;}
+.page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 15px; margin: 0 0 10px 0; background:white; padding:8px; border: 1px solid #116B7A; text-transform:uppercase;}
+</style>
+
+<div style="background: #E2FAFA; padding: 10px; min-height: 550px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+    <h2 class="page-title-green">{{ title }}</h2>
+    
+    <div style="background: white; padding: 10px; border: 1px solid #116B7A; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
+        <form method="GET" style="margin:0; display:flex; gap:15px; align-items:center;">
+            <div style="display:flex; align-items:center; gap:5px;">
+                <span class="agcs-label" style="width:auto;">📅 From Date:</span>
+                <input type="date" name="from_date" class="agcs-input" style="width:130px;" value="{{ f_date }}">
+            </div>
+            <div style="display:flex; align-items:center; gap:5px;">
+                <span class="agcs-label" style="width:auto;">📅 To Date:</span>
+                <input type="date" name="to_date" class="agcs-input" style="width:130px;" value="{{ t_date }}">
+            </div>
+            <button type="submit" class="agcs-btn-grey" style="padding:4px 15px;">🔍 SHOW DATA</button>
+            <button type="button" class="agcs-btn-grey" style="background:linear-gradient(to bottom, #D67A00, #965500);" onclick="window.print()">🖨 PRINT REPORT</button>
+        </form>
+    </div>
+    
+    <div style="background: white; border: 1px solid #116B7A; padding: 10px;">
+        {% if has_data %}
+            <table class="datatable">
+                <thead>
+                    <tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>{% for cell in row %}<td>{{ cell | safe }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div style="padding:30px; text-align:center; color:#D64550; font-weight:bold; font-size:16px;">❌ No Data Found For Selected Date Range.</div>
+        {% endif %}
+    </div>
+</div>
+"""
+    return render_page(page_title, render_template_string(html, title=page_title, has_data=data_found, headers=table_headers, rows=table_rows, f_date=f_date, t_date=t_date, session=session))
 
 # ==========================================
 # 🔄 15. UNIVERSAL TWO-WAY SYNC API
