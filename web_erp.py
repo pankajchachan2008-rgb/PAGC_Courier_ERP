@@ -371,6 +371,7 @@ By PANKAJAGENCY<br><span style="font-size: 9px; color: #000; font-style:normal;"
 </body>
 </html>
 """
+
 def render_page(title, content):
     return render_template_string(AGCS_BASE_HTML, title=title, content=content)
 
@@ -466,6 +467,53 @@ var myChart = new Chart(ctx, {{ type: 'bar', data: {{ labels: {chart_labels}, da
 """
     return render_page("Dashboard", html)
 
+
+# ==========================================
+# 🌍 THIRD-PARTY NETWORK API INTEGRATION
+# ==========================================
+def fetch_network_tracking(network_name, network_awb):
+    """ Fetch real-time tracking data from partner networks (Trackon, Maruti, etc.) """
+    external_events = []
+    network = str(network_name).strip().upper()
+    
+    try:
+        # 1. API Call Skeleton for Trackon (Example)
+        if network == 'TRACKON':
+            # Uncomment and configure with actual API keys
+            # url = f"https://api.trackon.in/v1/track?awb={network_awb}&apikey=YOUR_KEY"
+            # response = requests.get(url, timeout=5).json()
+            # for event in response.get('events', []):
+            #     external_events.append({
+            #         'scan_type': 'PARTNER UPDATE',
+            #         'location': event['location'],
+            #         'f_date': event['date'],
+            #         'remarks': event['status']
+            #     })
+            pass
+            
+        # 2. API Call Skeleton for Shree Maruti
+        elif network == 'SHREE MARUTI':
+            pass
+            
+        # 3. API Call Skeleton for Tirupati
+        elif network == 'TIRUPATI':
+            pass
+
+        # 📌 DEFAULT FALLBACK: Agar API abhi set nahi hai, toh ek generic event dikhayega
+        if not external_events:
+            external_events.append({
+                'scan_type': 'NETWORK DISPATCH',
+                'location': f'Forwarded to {network}',
+                'f_date': datetime.now().strftime('%d-%b-%Y %I:%M %p'),
+                'remarks': f"Partner AWB / Tracking ID: {network_awb} (API integration pending)"
+            })
+            
+    except Exception as e:
+        logging.error(f"External API Error for {network}: {e}")
+        
+    return external_events
+
+
 # ==========================================
 # 🎯 LUXURIOUS STANDALONE TRACKING PAGE (NO LOGIN REQUIRED)
 # ==========================================
@@ -484,9 +532,22 @@ def track():
                 c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
                 shipment = c.fetchone()
                 if shipment:
-                    # History fetch karega (Newest at top)
+                    # 1. Pehle Local History Fetch karein
                     c.execute("SELECT scan_type, location, remarks, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM scan_events WHERE shipment_id=%s ORDER BY id DESC", (shipment['id'],))
-                    events = c.fetchall()
+                    local_events = list(c.fetchall())
+                    
+                    # 2. Check karein ki Outward me koi Third-Party Network hai kya?
+                    c.execute("SELECT network, network_awb FROM outward_register WHERE awb_no=%s AND network IS NOT NULL AND network != 'SELF' ORDER BY id DESC LIMIT 1", (awb,))
+                    out_data = c.fetchone()
+                    
+                    external_events = []
+                    if out_data and out_data['network_awb']:
+                        # 3. Agar Network AWB mila, toh Live External API call karein
+                        external_events = fetch_network_tracking(out_data['network'], out_data['network_awb'])
+                    
+                    # Merge events (External at the top since it's the latest in the journey)
+                    events = external_events + local_events
+
         except Exception as e: 
             error_msg = str(e)
         finally:
@@ -819,8 +880,8 @@ def track():
                 {% if events %}
                     {% for e in events %}
                     <div class="timeline-item {% if loop.first %}active{% endif %}">
-                        <div class="timeline-dot" style="{% if loop.first %}border-color:#10B981; background:rgba(16,185,129,0.2);{% endif %}">
-                            <span class="timeline-icon">{% if e.scan_type == 'BOOKED' %}📦{% elif e.scan_type == 'OUTWARD' %}🚚{% elif e.scan_type == 'INWARD' %}📥{% elif e.scan_type == 'ON_DRS' %}🛵{% elif e.scan_type == 'DELIVERED' %}✅{% else %}📍{% endif %}</span>
+                        <div class="timeline-dot" style="{% if loop.first %}border-color:#10B981; background:rgba(16,185,129,0.2);{% elif e.scan_type == 'NETWORK DISPATCH' or e.scan_type == 'PARTNER UPDATE' %}border-color:#F59E0B; background:rgba(245, 158, 11, 0.2);{% endif %}">
+                            <span class="timeline-icon">{% if e.scan_type == 'BOOKED' %}📦{% elif e.scan_type == 'OUTWARD' %}🚚{% elif e.scan_type == 'INWARD' %}📥{% elif e.scan_type == 'ON_DRS' %}🛵{% elif e.scan_type == 'DELIVERED' %}✅{% elif e.scan_type == 'NETWORK DISPATCH' or e.scan_type == 'PARTNER UPDATE' %}🌐{% else %}📍{% endif %}</span>
                         </div>
                         <div class="timeline-content">
                             <div class="t-head">
