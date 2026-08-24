@@ -111,7 +111,7 @@ def login_required(f):
     return decorated_function
 
 # ==========================================
-# 🎨 1.5 AGCSINFO CLASSIC ASP.NET THEME SHELL (WITH CUSTOMER PORTAL)
+# 🎨 1.5 AGCSINFO CLASSIC ASP.NET THEME SHELL (WITH ADVANCED SEARCH)
 # ==========================================
 AGCS_BASE_HTML = """
 <!DOCTYPE html>
@@ -120,6 +120,12 @@ AGCS_BASE_HTML = """
 <title>{{ title }} - CourierInfo</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+<!-- 🚀 ADVANCED DATATABLES FILTER ENGINE LINKS -->
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+<script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+
 <style>
 body { margin: 0; padding: 0; font-family: Tahoma, Arial, sans-serif; background-color: #E2FAFA; color: #000; font-size: 11px; }
 a { text-decoration: none; color: inherit; }
@@ -158,11 +164,17 @@ input:focus, select:focus { background: #FFF; border: 1px solid #D67A00;}
 .btn-blue, .btn-gold, .btn-green, .btn-red { background: linear-gradient(to bottom, #116B7A, #0B4A55) !important; color: white !important; border: 1px solid #000 !important;}
 .btn-red { background: linear-gradient(to bottom, #D64550, #9B2D37) !important; }
 .btn-ghost { background: #FFF !important; border: 1px solid #116B7A !important; color: #116B7A !important;}
+
+/* 🌟 DATATABLES CUSTOM AGC THEME */
+.dataTables_wrapper .dataTables_filter input { border: 1px solid #116B7A; background: #FFFECC; border-radius: 3px; padding: 4px; font-weight: bold; margin-bottom: 5px; }
+.dataTables_wrapper .dataTables_length select { border: 1px solid #116B7A; background: #FFFECC; font-weight: bold; }
+.dataTables_wrapper .dataTables_paginate .paginate_button.current { background: #116B7A !important; color: white !important; border: 1px solid #0D505B !important; }
 .datatable { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; border: 1px solid #116B7A; background:white;}
-.datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: #FFF; padding: 5px; border: 1px solid #000; font-weight: bold; text-align:left;}
-.datatable td { padding: 4px 6px; border: 1px solid #CCC; color: #000;}
-.datatable tr:nth-child(even) { background: #F4FAFA; }
-.datatable tr:hover { background: #FFDE99; }
+table.dataTable thead th, .datatable th { background: linear-gradient(to bottom, #116B7A, #0D505B) !important; color: #FFF !important; padding: 6px !important; border: 1px solid #000 !important; font-weight: bold; text-align:left;}
+table.dataTable tbody td, .datatable td { padding: 5px 6px !important; border: 1px solid #CCC !important; color: #000;}
+table.dataTable tbody tr:nth-child(even), .datatable tr:nth-child(even) { background: #F4FAFA; }
+table.dataTable tbody tr:hover, .datatable tr:hover { background: #FFDE99 !important; }
+
 .badge { background: #D67A00; color: #FFF; padding: 2px 6px; border-radius: 2px; font-size: 10px; font-weight:bold;}
 .bottom-bar { background: linear-gradient(to bottom, #A9D9E0, #6EB3C0); padding: 5px 20px; border-top: 2px solid #FFF; display: flex; align-items: center; gap: 15px; position: fixed; bottom: 0; left:0; width: 100%; box-sizing: border-box; z-index: 1000;}
 .log-off { background: url('https://cdn-icons-png.flaticon.com/512/1828/1828479.png') no-repeat center center; background-size: contain; width: 40px; height: 40px; cursor: pointer; }
@@ -368,10 +380,25 @@ Date Period &nbsp;&nbsp;From 01/04/2026 To 31/03/2027
 By PANKAJAGENCY<br><span style="font-size: 9px; color: #000; font-style:normal;">www.pagcerp.cgsmart.in</span>
 </div>
 </div>
+
+<!-- 🚀 ACTIVATE DATATABLES ON ALL TABLES -->
+<script>
+$(document).ready(function() {
+    if ($('.datatable').length) {
+        $('.datatable').DataTable({
+            "pageLength": 50,
+            "order": [], // Prevents auto-sorting so your SQL order stays
+            "language": {
+                "search": "<b>🔍 Advance Filter / Search:</b>",
+                "lengthMenu": "Show _MENU_ Entries"
+            }
+        });
+    }
+});
+</script>
 </body>
 </html>
 """
-
 def render_page(title, content):
     return render_template_string(AGCS_BASE_HTML, title=title, content=content)
 
@@ -2305,7 +2332,7 @@ def print_invoice_pdf(inv_id):
     return send_file(buf, download_name=f"Invoice_{inv['invoice_no'].replace('/', '_')}.pdf", mimetype='application/pdf')
 
 # ==========================================
-# 📊 12. DYNAMIC REPORTS ENGINE
+# 📊 12. DYNAMIC REPORTS ENGINE (WITH ADVANCED FILTERS & ACTIONS)
 # ==========================================
 @app.route('/module/<category>/<action>', methods=['GET', 'POST'])
 @login_required
@@ -2313,111 +2340,116 @@ def dynamic_module(category, action):
     title_category = category.replace('_', ' ').upper()
     title_action = action.replace('_', ' ').upper()
     page_title = f"{title_action} [{title_category}]"
+    
+    # 📅 User selected date range (default to today)
+    f_date = request.args.get('from_date', datetime.now().strftime('%Y-%m-%d'))
+    t_date = request.args.get('to_date', datetime.now().strftime('%Y-%m-%d'))
+    
     data_found = False; table_headers = []; table_rows = []
     
     conn = get_db()
     with conn.cursor() as c:
-        # Pura q_map 'with' block ke andar indented (andar) hona chahiye
+        # Har query mein FROM DATE aur TO DATE ka filter lagaya gaya hai
+        # Har query mein 'id' (ya unique identifier) select kiya gaya hai taaki Edit/Print button lag sake
         q_map = {
-            'cash_billing_register': ("SELECT awb_no, booking_date, dest_name, weight_kg, total_amount FROM shipments WHERE customer_id IS NULL LIMIT 100", ["AWB", "Date", "Dest", "Weight", "Total Amount"]),
-            'credit_billing': ("SELECT s.awb_no, s.booking_date, c.name, s.total_amount FROM shipments s JOIN customers c ON s.customer_id=c.id WHERE s.customer_id IS NOT NULL LIMIT 100", ["AWB", "Date", "Customer", "Amount"]),
-            'transhipment_charges': ("SELECT awb_no, dest_station, weight_kg, total_amount FROM shipments WHERE status='OUTWARD' LIMIT 100", ["AWB", "Dest Station", "Weight", "Amount"]),
-            'inward_outward_pending': ("SELECT awb_no, booking_date, status, current_location FROM shipments WHERE status IN ('BOOKED', 'OUTWARD', 'INWARD') LIMIT 100", ["AWB", "Date", "Status", "Location"]),
-            'inward_outward_wgt': ("SELECT awb_no, weight_kg FROM shipments WHERE weight_kg > 0 LIMIT 100", ["AWB", "Weight"]),
-            'invoice_data': ("SELECT invoice_no, invoice_date, total, status FROM invoices ORDER BY id DESC LIMIT 100", ["Invoice No", "Date", "Total", "Status"]),
-            'bill_pending': ("SELECT invoice_no, invoice_date, total, status FROM invoices WHERE status='UNPAID'", ["Invoice No", "Date", "Total Amount", "Status"]),
-            'franchisee_invoice_audit': ("SELECT origin_name, COUNT(*) as docs, SUM(total_amount) as total FROM shipments GROUP BY origin_name", ["Branch", "Docs", "Total"]),
-            'drs_status': ("SELECT drs_no, drs_date, rider_name, status FROM drs", ["DRS No", "Date", "Delivery Boy", "Status"]),
-            'drs_summary': ("SELECT drs_no, rider_name, status FROM drs", ["DRS No", "Rider", "Status"]),
-            'inward_history': ("SELECT entry_date, awb_no, origin_station, in_station FROM inward_register ORDER BY id DESC LIMIT 100", ["Date", "AWB", "Origin", "In-Station"]),
-            'outward_history': ("SELECT entry_date, awb_no, out_station, destination FROM outward_register ORDER BY id DESC LIMIT 100", ["Date", "AWB", "Out-Station", "Dest"]),
-            'cargo_inward': ("SELECT entry_date, awb_no, origin_station, in_station, weight FROM inward_register LIMIT 100", ["Date", "AWB", "Origin", "In-Station", "Weight"]),
-            'outward_register': ("SELECT entry_date, awb_no, out_station, destination, weight FROM outward_register LIMIT 100", ["Date", "AWB", "Out-Station", "Dest", "Weight"]),
-            'manifest_register': ("SELECT manifest_no, manifest_type, from_location, to_location, status, created_at FROM manifests LIMIT 100", ["Manifest No", "Type", "Origin", "Destination", "Status", "Date"]),
-            'repeat_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM shipments GROUP BY awb_no HAVING cnt > 1", ["AWB No", "Duplicate Count"]),
-            'daily_collection': ("SELECT payment_date, mode, SUM(amount) as total_collected FROM payments GROUP BY payment_date, mode", ["Date", "Payment Mode", "Total Collected"]),
-            'daily_req': ("SELECT booking_date, COUNT(*) as bookings, SUM(total_amount) as revenue FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Bookings", "Revenue"]),
-            'counter_booking': ("SELECT awb_no, booking_date, dest_name, total_amount FROM shipments LIMIT 100", ["AWB", "Date", "Dest", "Amount"]),
-            'shipper_issue': ("SELECT awb_no, booking_date, origin_name, status FROM shipments WHERE status='STATIONERY' LIMIT 100", ["AWB", "Issue Date", "Issued To", "Status"]),
-            'shipper_stock': ("SELECT origin_name, COUNT(*) as stock FROM shipments WHERE status='STATIONERY' GROUP BY origin_name", ["Branch/Shipper", "Unused Stock"]),
-            'shipper_inward': ("SELECT entry_date, awb_no, origin_station FROM inward_register LIMIT 100", ["Date", "AWB", "Origin"]),
-            'outward_transhipment': ("SELECT entry_date, awb_no, destination, weight FROM outward_register LIMIT 100", ["Date", "AWB", "Dest", "Weight"]),
-            'outward_local': ("SELECT entry_date, awb_no, destination, weight FROM outward_register WHERE network='LOCAL' LIMIT 100", ["Date", "AWB", "Dest", "Weight"]),
-            'manifest': ("SELECT manifest_no, created_at, from_location, to_location FROM manifests LIMIT 100", ["Manifest No", "Date", "From", "To"]),
-            'packing_slip': ("SELECT awb_no, dest_station, weight_kg FROM shipments WHERE status='OUTWARD' LIMIT 100", ["AWB", "Dest", "Weight"]),
-            'drs_register': ("SELECT drs_no, drs_date, rider_name FROM drs LIMIT 100", ["DRS No", "Date", "Rider"]),
-            'pod_register': ("SELECT s.awb_no, s.dest_name, se.remarks, se.created_at FROM scan_events se JOIN shipments s ON se.shipment_id=s.id WHERE se.scan_type='DELIVERED' LIMIT 100", ["AWB", "Dest Name", "Receiver", "Date"]),
-            'pod_entry': ("SELECT s.awb_no, s.dest_name FROM shipments s WHERE s.status='ON_DRS' LIMIT 100", ["AWB", "Dest Name"]),
-            'bulk_pod_entry': ("SELECT s.awb_no, s.dest_name FROM shipments s WHERE s.status='ON_DRS' LIMIT 100", ["AWB", "Dest Name"]),
-            'cnote_return': ("SELECT awb_no, booking_date, dest_name FROM shipments WHERE status='RETURNED' LIMIT 100", ["AWB", "Date", "Dest"]),
-            'account_bill': ("SELECT invoice_no, invoice_date, total FROM invoices LIMIT 100", ["Invoice", "Date", "Total"]),
-            'quotation': ("SELECT id, awb_no, total_amount FROM shipments LIMIT 100", ["ID", "AWB", "Amount"]),
-            'local_packet_inward': ("SELECT entry_date, awb_no, in_station FROM inward_register LIMIT 100", ["Date", "AWB", "Station"]),
-            'inward_mfest': ("SELECT inward_no, MIN(entry_date) as d, COUNT(*) as c FROM inward_register WHERE finalized=1 GROUP BY inward_no", ["Inward No", "Date", "Docs"]),
-            'cash_book': ("SELECT payment_date, mode, SUM(amount) as total FROM payments WHERE mode='CASH' GROUP BY payment_date, mode", ["Date", "Mode", "Total"]),
-            'bank_book': ("SELECT payment_date, mode, SUM(amount) as total FROM payments WHERE mode='BANK' GROUP BY payment_date, mode", ["Date", "Mode", "Total"]),
-            'journal_voucher': ("SELECT expense_date, category, amount FROM expenses LIMIT 100", ["Date", "Category", "Amount"]),
-            'service_tax_ledger': ("SELECT invoice_date, taxable_amount, cgst, sgst, igst FROM invoices LIMIT 100", ["Date", "Taxable", "CGST", "SGST", "IGST"]),
-            'fuel_surcharge': ("SELECT booking_date, SUM(total_amount) as total FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Total"]),
-            'pending_outward': ("SELECT awb_no, booking_date, status FROM shipments WHERE status='BOOKED' LIMIT 100", ["AWB", "Date", "Status"]),
-            'franchisee_summary': ("SELECT origin_name, COUNT(*) as docs, SUM(total_amount) as rev FROM shipments GROUP BY origin_name", ["Branch", "Docs", "Revenue"]),
-            'drs_pending': ("SELECT awb_no FROM shipments WHERE status='ON_DRS' LIMIT 100", ["AWB"]),
-            'pod_pending': ("SELECT awb_no FROM shipments WHERE status IN ('INWARD', 'OUTWARD') LIMIT 100", ["AWB"]),
-            'duplicate_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM shipments GROUP BY awb_no HAVING cnt > 1", ["AWB No", "Duplicate Count"]),
-            'charts': ("SELECT booking_date, COUNT(*) as c FROM shipments GROUP BY booking_date ORDER BY booking_date DESC LIMIT 30", ["Date", "Count"]),
-            'circular_issue': ("SELECT id, awb_no, info FROM shipments WHERE info LIKE '%circular%' LIMIT 100", ["ID", "AWB", "Info"]),
-            'account_code_updator': ("SELECT id, code, name FROM customers LIMIT 100", ["ID", "Code", "Name"]),
-            'bulk_print': ("SELECT awb_no FROM shipments ORDER BY id DESC LIMIT 100", ["AWB"]),
-            'mailbox': ("SELECT id, awb_no, info FROM shipments LIMIT 100", ["ID", "AWB", "Info"]),
-            'merging': ("SELECT id, name FROM customers LIMIT 100", ["ID", "Name"]),
-            'data_manager': ("SELECT 'Shipments' as tbl, COUNT(*) as cnt FROM shipments UNION SELECT 'Customers', COUNT(*) FROM customers UNION SELECT 'Invoices', COUNT(*) FROM invoices", ["Table", "Count"])
+            'cash_billing_register': (f"SELECT id, awb_no, booking_date, dest_name, weight_kg, total_amount FROM shipments WHERE customer_id IS NULL AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Dest", "Weight", "Total Amount", "Actions"]),
+            'credit_billing': (f"SELECT s.id, s.awb_no, s.booking_date, c.name, s.total_amount FROM shipments s JOIN customers c ON s.customer_id=c.id WHERE s.customer_id IS NOT NULL AND s.booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Customer", "Amount", "Actions"]),
+            'transhipment_charges': (f"SELECT id, awb_no, dest_station, weight_kg, total_amount FROM shipments WHERE status='OUTWARD' AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Dest Station", "Weight", "Amount", "Actions"]),
+            'inward_outward_pending': (f"SELECT id, awb_no, booking_date, status, current_location FROM shipments WHERE status IN ('BOOKED', 'OUTWARD', 'INWARD') AND booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Status", "Location", "Actions"]),
+            'invoice_data': (f"SELECT id, invoice_no, invoice_date, total, status FROM invoices WHERE invoice_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Invoice No", "Date", "Total", "Status", "Actions"]),
+            'bill_pending': (f"SELECT id, invoice_no, invoice_date, total, status FROM invoices WHERE status='UNPAID' AND invoice_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "Invoice No", "Date", "Total Amount", "Status", "Actions"]),
+            'drs_status': (f"SELECT id, drs_no, drs_date, rider_name, status FROM drs WHERE drs_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "DRS No", "Date", "Delivery Boy", "Status", "Actions"]),
+            'inward_history': (f"SELECT id, entry_date, awb_no, origin_station, in_station FROM inward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Date", "AWB", "Origin", "In-Station", "Actions"]),
+            'outward_history': (f"SELECT id, entry_date, awb_no, out_station, destination FROM outward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' ORDER BY id DESC LIMIT 500", ["ID", "Date", "AWB", "Out-Station", "Dest", "Actions"]),
+            'cargo_inward': (f"SELECT id, entry_date, awb_no, origin_station, in_station, weight FROM inward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Origin", "In-Station", "Weight", "Actions"]),
+            'outward_register': (f"SELECT id, entry_date, awb_no, out_station, destination, weight FROM outward_register WHERE entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Out-Station", "Dest", "Weight", "Actions"]),
+            'manifest_register': (f"SELECT id, manifest_no, manifest_type, from_location, to_location, status, DATE(created_at) FROM manifests WHERE DATE(created_at) BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Manifest No", "Type", "Origin", "Destination", "Status", "Date", "Actions"]),
+            'daily_collection': (f"SELECT id, payment_date, mode, amount as total_collected FROM payments WHERE payment_date BETWEEN '{f_date}' AND '{t_date}'", ["ID", "Date", "Payment Mode", "Amount", "Actions"]),
+            'counter_booking': (f"SELECT id, awb_no, booking_date, dest_name, total_amount FROM shipments WHERE booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "AWB", "Date", "Dest", "Amount", "Actions"]),
+            'outward_local': (f"SELECT id, entry_date, awb_no, destination, weight FROM outward_register WHERE network='LOCAL' AND entry_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "AWB", "Dest", "Weight", "Actions"]),
+            'drs_register': (f"SELECT id, drs_no, drs_date, rider_name FROM drs WHERE drs_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "DRS No", "Date", "Rider", "Actions"]),
+            'account_bill': (f"SELECT id, invoice_no, invoice_date, total FROM invoices WHERE invoice_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Invoice", "Date", "Total", "Actions"]),
+            'journal_voucher': (f"SELECT id, expense_date, category, amount FROM expenses WHERE expense_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 500", ["ID", "Date", "Category", "Amount", "Actions"])
         }
 
-        if action in q_map:
-            c.execute(q_map[action][0])
+        # Fallback Query (Agar selected report map me na mile)
+        query_data = q_map.get(action, (f"SELECT id, awb_no, booking_date, dest_name, status FROM shipments WHERE booking_date BETWEEN '{f_date}' AND '{t_date}' LIMIT 200", ["ID", "AWB", "Date", "Dest", "Status", "Actions"]))
+
+        try:
+            c.execute(query_data[0])
             rows = c.fetchall()
             if rows:
                 data_found = True
-                table_headers = q_map[action][1]
-                table_rows = [[str(val) for val in r.values()] for r in rows]
-        else:
-            table_headers = ["Module Information", "System Status", "Action Required"]
-            table_rows = [[f"'{title_action}' module linked.", "Pending Mapping", f"Add '{action}' in web_erp.py q_map"]]
-            data_found = True
+                table_headers = query_data[1]
+                
+                # 🚀 Auto-generate Edit/Print Buttons for each row
+                for r in rows:
+                    row_vals = []
+                    for k, v in r.items():
+                        row_vals.append(str(v))
+                    
+                    # Identifiers for Action Buttons
+                    act_html = ""
+                    if 'awb_no' in r:
+                        act_html = f"<a href='/edit_shipment/{r['id']}' style='background:#116B7A; color:white; padding:3px 8px; border-radius:3px; text-decoration:none; font-weight:bold;'>✏ Edit</a>"
+                    elif 'invoice_no' in r:
+                        act_html = f"<a href='/print/invoice/{r['id']}' target='_blank' style='background:#D67A00; color:white; padding:3px 8px; border-radius:3px; text-decoration:none; font-weight:bold;'>🖨 Print</a>"
+                    else:
+                        act_html = f"<button style='background:#D64550; color:white; padding:3px 8px; border-radius:3px; border:1px solid black; font-weight:bold; cursor:pointer;'>View / Del</button>"
+                    
+                    row_vals.append(act_html)
+                    table_rows.append(row_vals)
+        except Exception as e:
+            logging.error(f"Report Mapping Error: {e}")
+
     conn.close()
+    
     html = """
 <style>
-.agcs-form-table { width: 100%; border-collapse: collapse; font-family: Tahoma; font-size: 11px; margin-bottom: 5px; background: #E2FAFA;}
 .agcs-label { color: #003366; font-weight: bold; width: 150px; font-size: 11px;}
-.agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 2px 4px; font-size: 11px; width: 100%; box-sizing: border-box; }
-.agcs-top-bar { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid #116B7A; margin-bottom: 5px; background: white;}
-.agcs-btn-grey { background: linear-gradient(to bottom, #F4F4F4, #D4D4D4); border: 1px solid #888; padding: 3px 15px; font-weight: bold; cursor: pointer; color: #000; font-size:11px; border-radius:3px; text-transform:uppercase;}
-.page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 14px; margin: 0 0 5px 0; background:white; padding:5px; text-transform:uppercase;}
-.agcs-grid { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; border: 1px solid #116B7A; background:white;}
-.agcs-grid th { background: linear-gradient(to bottom, #116B7A, #0D505B); color: #FFF; padding: 5px; border: 1px solid #000; text-align:left;}
-.agcs-grid td { padding: 4px 6px; border: 1px solid #CCC; color: #000;}
+.agcs-input { border: 1px solid #009933; background-color: #FFFFCC; padding: 4px; font-size: 11px; font-weight: bold; border-radius: 2px;}
+.agcs-top-bar { display: flex; gap: 10px; padding: 8px; border-bottom: 2px solid #116B7A; margin-bottom: 10px; background: white;}
+.agcs-btn-grey { background: linear-gradient(to bottom, #116B7A, #0B4A55); border: 1px solid #000; padding: 5px 20px; font-weight: bold; cursor: pointer; color: #FFF; font-size:11px; border-radius:3px; text-transform:uppercase;}
+.page-title-green { color: #009933; font-style: italic; font-weight: bold; font-size: 15px; margin: 0 0 10px 0; background:white; padding:8px; border: 1px solid #116B7A; text-transform:uppercase;}
 </style>
-<div style="background: #E2FAFA; padding: 5px; min-height: 500px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
-<h2 class="page-title-green">{{ title }}</h2>
-<div class="agcs-top-bar"><button type="button" class="agcs-btn-grey" onclick="window.print()">PRINT REPORT</button><button type="button" class="agcs-btn-grey" onclick="window.location.href='/'">EXIT</button><div style="margin-left: auto; color: #D67A00; font-weight: bold; font-size:12px; padding-right:10px;">Center : {{ session.branch | default('NOHAR') }}</div></div>
-<div style="background: #E2FAFA; padding: 5px; border: 1px solid #CCC; margin-bottom: 10px;">
-<form method="GET" style="margin:0; display:flex; gap:10px; align-items:center;">
-<span class="agcs-label" style="width:auto;">From Date:</span><input type="date" name="from_date" class="agcs-input" style="width:120px;" value="{{ current_date }}">
-<span class="agcs-label" style="width:auto;">To Date:</span><input type="date" name="to_date" class="agcs-input" style="width:120px;" value="{{ current_date }}">
-<button type="submit" class="agcs-btn-grey" style="padding:2px 10px;">SHOW</button>
-</form>
-</div>
-<div style="background: white; border: 1px solid #116B7A; height: 380px; overflow-y: auto;">
-{% if has_data %}
-<table class="agcs-grid"><thead style="position: sticky; top: 0;"><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead><tbody>{% for row in rows %}<tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>{% endfor %}</tbody></table>
-{% else %}
-<div style="padding:20px; text-align:center; color:red; font-weight:bold; font-size:14px;">No Data Found For Selected Criteria.</div>
-{% endif %}
-</div>
+
+<div style="background: #E2FAFA; padding: 10px; min-height: 550px; border: 1px solid #116B7A; border-top: 3px solid #116B7A;">
+    <h2 class="page-title-green">{{ title }}</h2>
+    
+    <div style="background: white; padding: 10px; border: 1px solid #116B7A; margin-bottom: 15px; box-shadow: 2px 2px 5px rgba(0,0,0,0.1);">
+        <form method="GET" style="margin:0; display:flex; gap:15px; align-items:center;">
+            <div style="display:flex; align-items:center; gap:5px;">
+                <span class="agcs-label" style="width:auto;">📅 From Date:</span>
+                <input type="date" name="from_date" class="agcs-input" style="width:130px;" value="{{ f_date }}">
+            </div>
+            <div style="display:flex; align-items:center; gap:5px;">
+                <span class="agcs-label" style="width:auto;">📅 To Date:</span>
+                <input type="date" name="to_date" class="agcs-input" style="width:130px;" value="{{ t_date }}">
+            </div>
+            <button type="submit" class="agcs-btn-grey" style="padding:4px 15px;">🔍 SHOW DATA</button>
+            <button type="button" class="agcs-btn-grey" style="background:linear-gradient(to bottom, #D67A00, #965500);" onclick="window.print()">🖨 PRINT REPORT</button>
+        </form>
+    </div>
+    
+    <div style="background: white; border: 1px solid #116B7A; padding: 10px;">
+        {% if has_data %}
+            <table class="datatable">
+                <thead>
+                    <tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr>{% for cell in row %}<td>{{ cell | safe }}</td>{% endfor %}</tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <div style="padding:30px; text-align:center; color:#D64550; font-weight:bold; font-size:16px;">❌ No Data Found For Selected Date Range.</div>
+        {% endif %}
+    </div>
 </div>
 """
-    current_date = datetime.now().strftime('%Y-%m-%d')
-    return render_page(page_title, render_template_string(html, title=page_title, has_data=data_found, headers=table_headers, rows=table_rows, current_date=current_date, session=session))
+    return render_page(page_title, render_template_string(html, title=page_title, has_data=data_found, headers=table_headers, rows=table_rows, f_date=f_date, t_date=t_date, session=session))
 
 # ==========================================
 # 🔄 15. UNIVERSAL TWO-WAY SYNC API
