@@ -361,8 +361,8 @@ Date Period &nbsp;&nbsp;From 01/04/2026 To 31/03/2027
 <button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='m_fest'; document.getElementById('trackForm').submit();">M.Fest</button>
 <button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='pkg_slip'; document.getElementById('trackForm').submit();">Pkg.Slip</button>
 <button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='invoice'; document.getElementById('trackForm').submit();">Invoice</button>
-<button type="button" class="t-btn">Network</button>
-<button type="button" class="t-btn">PinCode</button>
+<button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='network'; document.getElementById('trackForm').submit();">Network</button>
+<button type="button" class="t-btn" onclick="document.getElementById('doc_type').value='pincode'; document.getElementById('trackForm').submit();">PinCode</button>
 </form>
 <div style="margin-left: auto; font-style: italic; color: #116B7A; font-weight: bold; text-align:right; font-size:12px;">
 By PANKAJAGENCY<br><span style="font-size: 9px; color: #000; font-style:normal;">www.pagcerp.cgsmart.in</span>
@@ -371,7 +371,6 @@ By PANKAJAGENCY<br><span style="font-size: 9px; color: #000; font-style:normal;"
 </body>
 </html>
 """
-
 def render_page(title, content):
     return render_template_string(AGCS_BASE_HTML, title=title, content=content)
 
@@ -870,6 +869,122 @@ def track():
         return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
     except Exception:
         return render_template_string("<html><body>" + html + "</body></html>", awb=awb, shipment=shipment, events=events, error_msg=error_msg)
+
+# ==========================================
+# 🌐 4. BRANDED PUBLIC TRACKING PAGE & AGCS BOTTOM BAR LOGIC
+# ==========================================
+@app.route('/track_doc', methods=['POST'])
+@login_required
+def track_doc():
+    doc_no = request.form.get('awb', '').strip().upper()
+    doc_type = request.form.get('doc_type', '')
+    
+    error_html = "<html><body style='font-family:Tahoma; padding:20px; background:#FFCCCC; color:red; border:1px solid red; text-align:center;'><h2>Error!</h2><p>{}</p><br><button onclick='window.close()' style='padding:8px 15px; cursor:pointer;'>Close Tab</button></body></html>"
+    
+    view_html = """
+    <html>
+    <head>
+        <title>{{ title }}</title>
+        <style>
+            body { font-family: Tahoma, sans-serif; padding: 20px; background: #F4F7F6; font-size: 13px; }
+            .box { background: white; border: 2px solid #116B7A; padding: 20px; border-radius: 8px; max-width: 900px; margin: 0 auto; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+            h2 { color: #116B7A; border-bottom: 2px solid #D67A00; padding-bottom: 10px; margin-top: 0; text-transform: uppercase; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th { background: #116B7A; color: white; padding: 10px; text-align: left; border: 1px solid #000; }
+            td { border: 1px solid #CCC; padding: 8px; color: #000; }
+            tr:nth-child(even) { background: #E2FAFA; }
+            .info { background: #FFFECC; padding: 10px; border-left: 4px solid #D67A00; margin-bottom: 15px; font-size: 14px; font-weight: bold; color: #116B7A; }
+            .btn { background: #D67A00; color: white; border: 1px solid #000; padding: 8px 15px; font-weight: bold; cursor: pointer; border-radius: 4px; margin-top: 15px; text-transform: uppercase; }
+            .btn:hover { background: #116B7A; }
+        </style>
+    </head>
+    <body>
+        <div class="box">
+            <h2>{{ title }}</h2>
+            <div class="info">{{ info_html | safe }}</div>
+            {% if rows %}
+            <table>
+                <tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr>
+                {% for r in rows %}<tr>{% for c in r %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}
+            </table>
+            {% endif %}
+            <button class="btn" onclick="window.close()">Close Window</button>
+        </div>
+    </body>
+    </html>
+    """
+    
+    if not doc_no: return error_html.format("Please enter a Document Number in the bottom bar to track or search.")
+    
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            if doc_type == 'c_note' or doc_type == 'pkg_slip':
+                return redirect(url_for('track', awb=doc_no))
+            
+            elif doc_type == 'drs':
+                doc_no_clean = doc_no.replace('DRS', '').strip()
+                c.execute("SELECT * FROM drs WHERE drs_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                drs = c.fetchone()
+                if drs:
+                    c.execute("SELECT s.awb_no, di.receiver_name, s.dest_address, di.status FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (drs['id'],))
+                    items = c.fetchall()
+                    info = f"DRS No: {drs['drs_no']} &nbsp;|&nbsp; Rider Name: {drs['rider_name']} &nbsp;|&nbsp; Vehicle/Area: {drs['vehicle_no']} &nbsp;|&nbsp; Status: {drs['status']}"
+                    headers = ["AWB No", "Receiver Name", "Address", "Status"]
+                    rows = [[i['awb_no'], i['receiver_name'], i['dest_address'], i['status']] for i in items]
+                    return render_template_string(view_html, title="D.R.S. (Delivery Run Sheet) Details", info_html=info, headers=headers, rows=rows)
+                else: 
+                    return error_html.format(f"DRS '{doc_no}' not found in system.")
+                    
+            elif doc_type == 'm_fest':
+                doc_no_clean = doc_no.replace('MF', '').strip()
+                c.execute("SELECT * FROM manifests WHERE manifest_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                m = c.fetchone()
+                if m:
+                    c.execute("SELECT s.awb_no, s.dest_name, s.weight_kg FROM manifest_items mi JOIN shipments s ON s.id=mi.shipment_id WHERE mi.manifest_id=%s", (m['id'],))
+                    items = c.fetchall()
+                    info = f"Manifest No: {m['manifest_no']} &nbsp;|&nbsp; Route: {m['from_location']} ➔ {m['to_location']} &nbsp;|&nbsp; Status: {m['status']}"
+                    headers = ["AWB No", "Consignee", "Weight (KG)"]
+                    rows = [[i['awb_no'], i['dest_name'], i['weight_kg']] for i in items]
+                    return render_template_string(view_html, title="Manifest Details", info_html=info, headers=headers, rows=rows)
+                else: 
+                    return error_html.format(f"Manifest '{doc_no}' not found in system.")
+                    
+            elif doc_type == 'invoice':
+                doc_no_clean = doc_no.replace('INV/', '').strip()
+                c.execute("SELECT id FROM invoices WHERE invoice_no=%s OR id=%s", (doc_no, doc_no_clean if doc_no_clean.isdigit() else None))
+                inv = c.fetchone()
+                if inv: return redirect(f"/print/invoice/{inv['id']}")
+                else: return error_html.format(f"Invoice '{doc_no}' not found in system.")
+                
+            elif doc_type == 'network':
+                c.execute("SELECT awb_no, network, network_awb, destination, entry_date FROM outward_register WHERE awb_no=%s AND network != 'SELF'", (doc_no,))
+                net = c.fetchone()
+                if net:
+                    info = f"Forwarding Information for AWB: {net['awb_no']}"
+                    headers = ["Partner Network", "Forwarding AWB / Tracking", "Destination", "Dispatch Date"]
+                    rows = [[net['network'], net['network_awb'], net['destination'], net['entry_date']]]
+                    return render_template_string(view_html, title="Third-Party Network Status", info_html=info, headers=headers, rows=rows)
+                else:
+                    return error_html.format(f"No third-party network forwarding found for AWB '{doc_no}'.")
+                    
+            elif doc_type == 'pincode':
+                # Search shipments by pincode/city in destination address
+                c.execute("SELECT awb_no, dest_name, dest_address, current_location, status FROM shipments WHERE dest_address LIKE %s OR dest_station LIKE %s ORDER BY id DESC LIMIT 100", (f"%{doc_no}%", f"%{doc_no}%"))
+                pins = c.fetchall()
+                if pins:
+                    info = f"Displaying recent shipments matching Location/Pincode: '{doc_no}'"
+                    headers = ["AWB No", "Receiver Name", "Full Address", "Current Hub", "Status"]
+                    rows = [[p['awb_no'], p['dest_name'], p['dest_address'], p['current_location'], p['status']] for p in pins]
+                    return render_template_string(view_html, title="Location & Pincode Search", info_html=info, headers=headers, rows=rows)
+                else:
+                    return error_html.format(f"No shipments found matching Location/Pincode '{doc_no}'.")
+    except Exception as e:
+        return error_html.format(str(e))
+    finally: 
+        conn.close()
+        
+    return error_html.format("Invalid document type requested.")
 
 # ==========================================
 # 🏢 MASTER ENTRIES
