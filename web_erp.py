@@ -1,7 +1,7 @@
 # ============================================================
-AGC ENTERPRISE ERP - COMPLETE MASTER CODE
-File: web_erp.py
-Version: 5.1 Enterprise Edition (Logo & Bug Fixes)
+# AGC ENTERPRISE ERP - COMPLETE MASTER CODE
+# File: web_erp.py
+# Version: 5.1 Enterprise Edition (Logo & Bug Fixes)
 # ============================================================
 from flask import Flask, request, session, redirect, url_for, render_template_string, flash, send_file, jsonify
 import pymysql, configparser, hashlib, io, os, csv, logging, json, datetime, threading, requests
