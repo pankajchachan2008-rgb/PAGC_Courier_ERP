@@ -411,7 +411,7 @@ def track_doc():
 def manifest():
     return jsonify({ "name": "AGC ERP", "short_name": "AGC", "start_url": "/", "display": "standalone", "background_color": "#0f172a", "theme_color": "#2563eb"})
 
-⚠️ PART 1 ENDS HERE. PART 2 (Master Entries) agle message me aayega.
+#⚠ PART 1 ENDS HERE. PART 2 (Master Entries) agle message me aayega.
 
 # ==========================================
 # MASTER ENTRIES (Customers, Locations, Rates, Users, Settings)
@@ -1097,7 +1097,7 @@ def settings():
                 else: flash("❌ Old Password Incorrect!", "error")
         # 🏢 COMPANY SETTINGS (Admin only)
         else:
-            if session.get('role') != 'ADMIN': flash("⚠️ Only Admins can change system settings.", "error")
+            if session.get('role') != 'ADMIN': flash("#⚠ Only Admins can change system settings.", "error")
             else:
                 with conn.cursor() as c:
                     # ✅ FIX: Trailing spaces removed from keys
@@ -1147,7 +1147,7 @@ def settings():
     """
     return render_page("System Settings", render_template_string(html, s=settings_data))
 
-⚠️ PART 2 ENDS HERE. PART 3 (Transactions) agle message me aayega.
+#⚠ PART 2 ENDS HERE. PART 3 (Transactions) agle message me aayega.
 
 # ============================================================
 # 📦 PART 3: TRANSACTIONS MODULE (FULL CRUD)
@@ -2002,7 +2002,7 @@ def my_ledger():
     """
     return render_page("Account Ledger", render_template_string(html, custs=custs, cid=cid, l_data=l_data, c_bal=c_bal, customer_name=customer_name))
 
-⚠️ PART 3 ENDS HERE. PART 4 (DRS, Master Bag, Accounts, Expenses, Invoices) agle message me aayega.
+#⚠ PART 3 ENDS HERE. PART 4 (DRS, Master Bag, Accounts, Expenses, Invoices) agle message me aayega.
 
 # ============================================================
 # 📦 PART 4: DRS, FINANCE & BILLING MODULE (FULL CRUD)
@@ -2195,7 +2195,7 @@ def drs():
                     <td>{{ s.a }}</td>
                     <td class="font-bold text-blue-600">{{ s.cnt }} Docs</td>
                     <td>
-                        <form method="POST" style="display:inline;" onsubmit="return confirm('⚠️ Unfinalize this DRS? Parcels will go back to pending.');">
+                        <form method="POST" style="display:inline;" onsubmit="return confirm('#⚠ Unfinalize this DRS? Parcels will go back to pending.');">
                             <input type="hidden" name="action" value="unfinalize">
                             <input type="hidden" name="drs_no" value="{{ s.drs_no }}">
                             <button type="submit" class="btn-warning" style="padding:3px 8px; font-size:11px;"><i class="fas fa-undo"></i></button>
@@ -2438,7 +2438,7 @@ def accounts():
                 <td><span class="px-2 py-1 rounded-full text-xs font-bold {% if p.mode == 'CASH' %}bg-green-100 text-green-700{% else %}bg-blue-100 text-blue-700{% endif %}">{{ p.mode }}</span></td>
                 <td>{{ p.reference or '-' }}</td>
                 <td>
-                    <form method="POST" style="display:inline;" onsubmit="return confirm('⚠️ Delete payment & reverse ledger?');">
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('#⚠ Delete payment & reverse ledger?');">
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="del_id" value="{{ p.id }}">
                         <button type="submit" class="btn-danger" style="padding:3px 8px; font-size:11px;"><i class="fas fa-trash"></i></button>
@@ -2668,7 +2668,7 @@ def invoices():
                     {% if i.status != 'PAID' %}
                     <button onclick="openPayModal('{{ i.id }}', '{{ i.invoice_no }}', '{{ i.total - i.paid_amount }}')" class="btn-success" style="padding:3px 8px; font-size:11px;"><i class="fas fa-rupee-sign"></i></button>
                     {% endif %}
-                    <form method="POST" style="display:inline;" onsubmit="return confirm('⚠️ Delete invoice & reverse ledger?');">
+                    <form method="POST" style="display:inline;" onsubmit="return confirm('#⚠ Delete invoice & reverse ledger?');">
                         <input type="hidden" name="action" value="delete">
                         <input type="hidden" name="del_id" value="{{ i.id }}">
                         <button type="submit" class="btn-danger" style="padding:3px 8px; font-size:11px;"><i class="fas fa-trash"></i></button>
@@ -2871,7 +2871,7 @@ def reports():
     """
     return render_page("Reports Hub", render_template_string(html))
 
-⚠️ PART 4 ENDS HERE. PART 5 (Print Routes, CSV Import, Dynamic Reports, Sync API, Flask Run) agle message me aayega.
+#⚠ PART 4 ENDS HERE. PART 5 (Print Routes, CSV Import, Dynamic Reports, Sync API, Flask Run) agle message me aayega.
 
 # ============================================================
 # 📦 PART 5: PRINT ENGINE, REPORTS, SYNC API, SERVER LAUNCH
