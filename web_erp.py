@@ -1,8 +1,8 @@
-============================================================
+# ============================================================
 AGC ENTERPRISE ERP - COMPLETE MASTER CODE
 File: web_erp.py
 Version: 5.1 Enterprise Edition (Logo & Bug Fixes)
-============================================================
+# ============================================================
 from flask import Flask, request, session, redirect, url_for, render_template_string, flash, send_file, jsonify
 import pymysql, configparser, hashlib, io, os, csv, logging, json, datetime, threading, requests
 from functools import wraps
@@ -15,18 +15,18 @@ from reportlab.lib.utils import ImageReader
 try: import qrcode
 except ImportError: qrcode = None
 
-==========================================
-🛡️ LOGGING & CONFIG
-==========================================
+# ==========================================
+# 🛡️ LOGGING & CONFIG
+# ==========================================
 logging.basicConfig(filename='agc_erp.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'agc_super_secret_erp_v5_master')
 config = configparser.ConfigParser()
 config.read('db_config.ini')
 
-==========================================
-🔧 HELPER FUNCTIONS & AUTO HEAL DB
-==========================================
+# ==========================================
+# 🔧 HELPER FUNCTIONS & AUTO HEAL DB
+# ==========================================
 def safe_float(val):
     try: return float(val) if val else 0.0
     except: return 0.0
@@ -131,9 +131,9 @@ def serve_logo():
         return send_file('logo.png', mimetype='image/png')
     return "Logo not found", 404
 
-==========================================
-🎨 ENTERPRISE THEME (MODERN SAAS UI)
-==========================================
+# ==========================================
+# 🎨 ENTERPRISE THEME (MODERN SAAS UI)
+# ==========================================
 AGCS_BASE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -244,9 +244,9 @@ $(document).ready(function(){if($('.datatable').length){$('.datatable').DataTabl
 def render_page(title, content):
     return render_template_string(AGCS_BASE_HTML, title=title, content=content)
 
-==========================================
-🔐 LOGIN / LOGOUT
-==========================================
+# ==========================================
+# 🔐 LOGIN / LOGOUT
+# ==========================================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -299,9 +299,9 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-==========================================
-📊 DASHBOARD
-==========================================
+# ==========================================
+# 📊 DASHBOARD
+# ==========================================
 @app.route('/')
 @login_required
 def dashboard():
@@ -342,9 +342,9 @@ def dashboard():
     """
     return render_page("Dashboard", html)
 
-==========================================
-🌍 NETWORK TRACKING
-==========================================
+# ==========================================
+# 🌍 NETWORK TRACKING
+# ==========================================
 def fetch_network_tracking(network_name, network_awb):
     events = []
     try:
@@ -404,22 +404,18 @@ def track_doc():
     finally: conn.close()
     return err.format("Invalid type.")
 
-==========================================
-📱 PWA MANIFEST
-==========================================
+# ==========================================
+# 📱 PWA MANIFEST
+# ==========================================
 @app.route('/manifest.json')
 def manifest():
     return jsonify({ "name": "AGC ERP", "short_name": "AGC", "start_url": "/", "display": "standalone", "background_color": "#0f172a", "theme_color": "#2563eb"})
 
 ⚠️ PART 1 ENDS HERE. PART 2 (Master Entries) agle message me aayega.
 
-============================================================
-🏢 PART 2: MASTER ENTRIES (FULL CRUD - ENTERPRISE EDITION)
-============================================================
-
-==========================================
-🏢 2.1 CUSTOMERS / CARGO / CREDIT PARTY (ADD + DELETE + RESTORE)
-==========================================
+# ==========================================
+# MASTER ENTRIES (Customers, Locations, Rates, Users, Settings)
+# ==========================================
 @app.route('/customers', methods=['GET', 'POST'])
 @app.route('/cargo_master', methods=['GET', 'POST'])
 @app.route('/credit_party', methods=['GET', 'POST'])
@@ -430,21 +426,18 @@ def customers():
     page_type = 'cargo' if 'cargo' in request.path else ('credit' if 'credit' in request.path else 'franchisee')
     page_title = {'cargo': 'Cargo Party A/c Master', 'credit': 'Credit Party A/c Master', 'franchisee': 'Franchisee Master Setup'}[page_type]
     
-    # 🗑️ DELETE (Soft Delete)
     if request.args.get('delete'):
         with conn.cursor() as c:
             c.execute("UPDATE customers SET is_active=0 WHERE id=%s", (request.args.get('delete'),))
-        conn.commit(); flash("Record Deactivated Successfully!", "success")
+        conn.commit()
+        flash("Record Deactivated Successfully!", "success")
         return redirect(request.path)
-    
-    # 🔄 RESTORE (Undo Delete)
     if request.args.get('restore'):
         with conn.cursor() as c:
             c.execute("UPDATE customers SET is_active=1 WHERE id=%s", (request.args.get('restore'),))
-        conn.commit(); flash("Record Restored!", "success")
+        conn.commit()
+        flash("Record Restored!", "success")
         return redirect(request.path)
-    
-    # ➕ ADD NEW
     if request.method == 'POST':
         d = request.form
         with conn.cursor() as c:
@@ -453,18 +446,19 @@ def customers():
                 (d.get('code',''), d.get('name',''), d.get('gstin',''), d.get('phone',''),
                  d.get('email',''), d.get('state',''), d.get('scode',''), d.get('address',''),
                  safe_float(d.get('limit'))))
-        conn.commit(); flash(f"✅ New Record Added in {page_title}!", "success")
+        conn.commit()
+        flash(f"New Record Added in {page_title}!", "success")
         return redirect(request.path)
     
     with conn.cursor() as c:
-        c.execute("SELECT * FROM customers WHERE is_active=1 ORDER BY id DESC"); custs = c.fetchall()
-        c.execute("SELECT COUNT(*) as cnt FROM customers WHERE is_active=0"); deleted = c.fetchone()
+        c.execute("SELECT * FROM customers WHERE is_active=1 ORDER BY id DESC")
+        custs = c.fetchall()
     conn.close()
     
     html = """
     <div class="card" style="border-top:4px solid #2563eb;">
         <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-bold text-slate-800">➕ {{ page_title }} — New Entry</h3>
+            <h3 class="text-lg font-bold text-slate-800">New Entry: {{ page_title }}</h3>
             <span class="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">Total Active: {{ custs|length }}</span>
         </div>
         <form method="POST" class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-2">
@@ -476,12 +470,12 @@ def customers():
             <div><label class="label-modern">State</label><input type="text" name="state" class="input-modern uppercase"></div>
             <div><label class="label-modern">State Code</label><input type="text" name="scode" class="input-modern uppercase" maxlength="2"></div>
             <div><label class="label-modern">GSTIN</label><input type="text" name="gstin" class="input-modern uppercase"></div>
-            <div><label class="label-modern">Credit Limit (₹)</label><input type="number" step="0.01" name="limit" class="input-modern" value="0.00"></div>
+            <div><label class="label-modern">Credit Limit (Rs)</label><input type="number" step="0.01" name="limit" class="input-modern" value="0.00"></div>
             <div class="flex items-end"><button type="submit" class="btn-primary w-full"><i class="fas fa-save"></i> Save Record</button></div>
         </form>
     </div>
     <div class="card">
-        <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Registered Accounts</h3>
+        <h3 class="text-lg font-bold text-slate-800 mb-4">Registered Accounts</h3>
         <div class="table-responsive">
         <table class="datatable">
             <thead><tr><th>Code</th><th>Name</th><th>Phone</th><th>GSTIN</th><th>State</th><th>Credit Limit</th><th style="width:280px;">Actions</th></tr></thead>
@@ -493,11 +487,11 @@ def customers():
                 <td>{{ r.phone or '-' }}</td>
                 <td>{{ r.gstin or '-' }}</td>
                 <td>{{ r.state or '-' }} {% if r.state_code %}({{ r.state_code }}){% endif %}</td>
-                <td class="text-red-600 font-bold">₹ {{ r.credit_limit }}</td>
+                <td class="text-red-600 font-bold">Rs {{ r.credit_limit }}</td>
                 <td>
                     <a href="/edit_customer/{{ r.id }}" class="btn-primary" style="padding:4px 10px; font-size:11px;"><i class="fas fa-edit"></i> Edit</a>
                     <a href="/print/statement/{{ r.id }}" target="_blank" class="btn-warning" style="padding:4px 10px; font-size:11px;"><i class="fas fa-file-pdf"></i></a>
-                    <a href="?delete={{ r.id }}" class="btn-danger" style="padding:4px 10px; font-size:11px;" onclick="return confirm('⚠️ Delete this record?');"><i class="fas fa-trash"></i></a>
+                    <a href="?delete={{ r.id }}" class="btn-danger" style="padding:4px 10px; font-size:11px;" onclick="return confirm('Delete this record?');"><i class="fas fa-trash"></i></a>
                 </td>
             </tr>
             {% endfor %}
@@ -506,11 +500,11 @@ def customers():
         </div>
     </div>
     """
-    return render_page(page_title, render_template_string(html, custs=custs, page_title=page_title))
+    return render_page(page_title, render_template_string(html, custs=custs, page_title=page_tit
 
-==========================================
-✏️ 2.2 EDIT CUSTOMER (DEDICATED EDIT PAGE) — FIXED SYNTAX
-==========================================
+# ==========================================
+# ✏️ 2.2 EDIT CUSTOMER (DEDICATED EDIT PAGE) — FIXED SYNTAX
+# ==========================================
 @app.route('/edit_customer/<int:cid>', methods=['GET', 'POST'])
 @login_required
 def edit_customer(cid):
@@ -519,9 +513,9 @@ def edit_customer(cid):
     with conn.cursor() as c:
         c.execute("SELECT * FROM customers WHERE id=%s", (cid,))
         cust = c.fetchone()
-        if not cust: flash("❌ Record Not Found!", "error"); return redirect('/customers')
-        
-        # 💾 UPDATE
+        if not cust: 
+            flash("Record Not Found!", "error")
+            return redirect('/customers')
         if request.method == 'POST':
             d = request.form
             c.execute("""UPDATE customers SET code=%s, name=%s, gstin=%s, phone=%s, email=%s,
@@ -529,14 +523,15 @@ def edit_customer(cid):
                 (d.get('code',''), d.get('name',''), d.get('gstin',''), d.get('phone',''),
                  d.get('email',''), d.get('state',''), d.get('scode',''), d.get('address',''),
                  safe_float(d.get('limit')), cid))
-            conn.commit(); flash("✅ Record Updated Successfully!", "success")
+            conn.commit()
+            flash("Record Updated Successfully!", "success")
             return redirect('/customers')
     conn.close()
     
     html = """
     <div class="card" style="max-width:800px; margin:0 auto; border-top:4px solid #f59e0b;">
         <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-bold text-slate-800">✏️ Edit: <span class="text-blue-600">{{ cust.name }}</span></h3>
+            <h3 class="text-lg font-bold text-slate-800">Edit: <span class="text-blue-600">{{ cust.name }}</span></h3>
             <span class="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">EDIT MODE</span>
         </div>
         <form method="POST" class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -548,7 +543,7 @@ def edit_customer(cid):
             <div><label class="label-modern">State</label><input type="text" name="state" value="{{ cust.state }}" class="input-modern uppercase"></div>
             <div><label class="label-modern">State Code</label><input type="text" name="scode" value="{{ cust.state_code }}" class="input-modern uppercase" maxlength="2"></div>
             <div><label class="label-modern">GSTIN</label><input type="text" name="gstin" value="{{ cust.gstin }}" class="input-modern uppercase"></div>
-            <div><label class="label-modern">Credit Limit (₹)</label><input type="number" step="0.01" name="limit" value="{{ cust.credit_limit }}" class="input-modern"></div>
+            <div><label class="label-modern">Credit Limit (Rs)</label><input type="number" step="0.01" name="limit" value="{{ cust.credit_limit }}" class="input-modern"></div>
             <div class="md:col-span-2 flex gap-3 mt-4">
                 <button type="submit" class="btn-success flex-1"><i class="fas fa-save"></i> Update Record</button>
                 <a href="/customers" class="btn-danger flex-1" style="text-align:center;">Cancel</a>
@@ -556,11 +551,11 @@ def edit_customer(cid):
         </form>
     </div>
     """
-    return render_page(f"Edit: {cust['name']}", render_template_string(html, cust=cust))
+    return render_page(f"Edit: {cust['name']}", render_template_string(html, cust=cust)
 
-==========================================
-📍 2.3 LOCATION MASTER (ADD + EDIT + DELETE)
-==========================================
+# ==========================================
+# 📍 2.3 LOCATION MASTER (ADD + EDIT + DELETE)
+# ==========================================
 @app.route('/location_master', methods=['GET', 'POST'])
 @login_required
 def location_master():
@@ -647,9 +642,9 @@ def edit_location(lid):
     """
     return render_page(f"Edit Location: {loc['name']}", render_template_string(html, loc=loc))
 
-==========================================
-💰 2.4 RATE MASTER (ADD + EDIT + DELETE)
-==========================================
+# ==========================================
+# 💰 2.4 RATE MASTER (ADD + EDIT + DELETE)
+# ==========================================
 @app.route('/rates', methods=['GET', 'POST'])
 @login_required
 def rates():
@@ -767,9 +762,9 @@ def edit_rate(rid):
     """
     return render_page(f"Edit Rate #{rid}", render_template_string(html, rate=rate, custs=custs))
 
-==========================================
-📦 2.5 STATIONERY / SHIPPER ISSUE (ISSUE + RELEASE)
-==========================================
+# ==========================================
+# 📦 2.5 STATIONERY / SHIPPER ISSUE (ISSUE + RELEASE)
+# ==========================================
 @app.route('/stationery', methods=['GET', 'POST'])
 @login_required
 def stationery():
@@ -835,9 +830,9 @@ def stationery():
     """
     return render_page("Shipper/Barcode Issue", render_template_string(html, custs=custs, hist=hist))
 
-==========================================
-🛵 2.6 DELIVERY BOY MASTER (ADD + EDIT + DELETE)
-==========================================
+# ==========================================
+# 🛵 2.6 DELIVERY BOY MASTER (ADD + EDIT + DELETE)
+# ==========================================
 @app.route('/delivery_boy', methods=['GET', 'POST'])
 @login_required
 def delivery_boy():
@@ -935,9 +930,9 @@ def edit_delivery_boy(bid):
     """
     return render_page(f"Edit Rider: {boy['full_name']}", render_template_string(html, boy=boy))
 
-==========================================
-👥 2.7 USER MANAGEMENT (ADD + EDIT + DEACTIVATE/ACTIVATE)
-==========================================
+# ==========================================
+# 👥 2.7 USER MANAGEMENT (ADD + EDIT + DEACTIVATE/ACTIVATE)
+# ==========================================
 @app.route('/users', methods=['GET', 'POST'])
 @login_required
 def users():
@@ -1082,9 +1077,9 @@ def edit_user(uid):
     """
     return render_page(f"Edit User: {user['username']}", render_template_string(html, user=user, custs=custs, branches=branches))
 
-==========================================
-⚙️ 2.8 SETTINGS (Company + Password) — FIXED TRAILING SPACES
-==========================================
+# ==========================================
+# ⚙️ 2.8 SETTINGS (Company + Password) — FIXED TRAILING SPACES
+# ==========================================
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
@@ -1154,13 +1149,13 @@ def settings():
 
 ⚠️ PART 2 ENDS HERE. PART 3 (Transactions) agle message me aayega.
 
-============================================================
-📦 PART 3: TRANSACTIONS MODULE (FULL CRUD)
-============================================================
+# ============================================================
+# 📦 PART 3: TRANSACTIONS MODULE (FULL CRUD)
+# ============================================================
 
-==========================================
+# ==========================================
 🔌 3.1 AUTO-RATE CALCULATION API
-==========================================
+# ==========================================
 @app.route('/api/calc_rate', methods=['POST'])
 @login_required
 def api_calc_rate():
@@ -1207,9 +1202,9 @@ def api_get_awb_info(awb):
     if s: return jsonify({"success": True, "dest_station": s['dest_station'], "dest_name": s['dest_name'], "weight": s['weight_kg']})
     return jsonify({"success": False})
 
-==========================================
-📤 3.2 COUNTER BOOKING (ADD + AUTO-RATE)
-==========================================
+# ==========================================
+# 📤 3.2 COUNTER BOOKING (ADD + AUTO-RATE)
+# ==========================================
 @app.route('/booking', methods=['GET', 'POST'])
 @login_required
 def booking():
@@ -1372,9 +1367,9 @@ def booking():
     """
     return render_page("Counter Booking", render_template_string(html, custs=custs, stations=stations, recent=recent, my_cust=my_cust))
 
-==========================================
-✏️ 3.3 EDIT SHIPMENT (FULL UPDATE + STATUS)
-==========================================
+# ==========================================
+# ✏️ 3.3 EDIT SHIPMENT (FULL UPDATE + STATUS)
+# ==========================================
 @app.route('/edit_shipment/<int:sid>', methods=['GET', 'POST'])
 @login_required
 def edit_shipment(sid):
@@ -1489,9 +1484,9 @@ def edit_shipment(sid):
     """
     return render_page(f"Edit AWB: {s['awb_no']}", render_template_string(html, s=s, stations=stations))
 
-==========================================
-📋 3.4 SHIPMENTS REGISTER (LIST + DELETE)
-==========================================
+# ==========================================
+# 📋 3.4 SHIPMENTS REGISTER (LIST + DELETE)
+# ==========================================
 @app.route('/shipments', methods=['GET', 'POST'])
 @login_required
 def shipments():
@@ -1557,9 +1552,9 @@ def shipments():
     """
     return render_page("Shipments Register", render_template_string(html, rows=rows))
 
-==========================================
-📥 3.5 CARGO INWARD (ADD + DELETE)
-==========================================
+# ==========================================
+# 📥 3.5 CARGO INWARD (ADD + DELETE)
+# ==========================================
 @app.route('/inward', methods=['GET', 'POST'])
 @login_required
 def inward():
@@ -1641,9 +1636,9 @@ def inward():
     """
     return render_page("Packet Inward", render_template_string(html, pending=pending, stations=stations))
 
-==========================================
-📤 3.6 OUTWARD HUB (FULL: Voice, Camera, Bag, Edit, Delete, Finalize)
-==========================================
+# ==========================================
+# 📤 3.6 OUTWARD HUB (FULL: Voice, Camera, Bag, Edit, Delete, Finalize)
+# ==========================================
 @app.route('/outward', methods=['GET', 'POST'])
 @login_required
 def outward():
@@ -1929,9 +1924,9 @@ def outward():
     """
     return render_page("Outward Hub", render_template_string(html, pending=pending, sessions_list=sessions_list, stations=stations, date_today=date_today))
 
-==========================================
-💰 3.7 LEDGER (FIXED: Admin + Customer Access)
-==========================================
+# ==========================================
+# 💰 3.7 LEDGER (FIXED: Admin + Customer Access)
+# ==========================================
 @app.route('/my_ledger')
 @app.route('/party_ledger')
 @login_required
@@ -2009,13 +2004,13 @@ def my_ledger():
 
 ⚠️ PART 3 ENDS HERE. PART 4 (DRS, Master Bag, Accounts, Expenses, Invoices) agle message me aayega.
 
-============================================================
-📦 PART 4: DRS, FINANCE & BILLING MODULE (FULL CRUD)
-============================================================
+# ============================================================
+# 📦 PART 4: DRS, FINANCE & BILLING MODULE (FULL CRUD)
+# ============================================================
 
-==========================================
-🛵 4.1 D.R.S. (DELIVERY RUN SHEET) — FULL CRUD
-==========================================
+# ==========================================
+# 🛵 4.1 D.R.S. (DELIVERY RUN SHEET) — FULL CRUD
+# ==========================================
 @app.route('/drs', methods=['GET', 'POST'])
 @login_required
 def drs():
@@ -2248,9 +2243,9 @@ def drs():
     """
     return render_page("D.R.S. Management", render_template_string(html, pending=pending, sessions_list=sessions_list, boys=boys, active_drs=active_drs))
 
-==========================================
-🎒 4.2 MASTER BAG / MANIFEST GENERATOR
-==========================================
+# ==========================================
+# 🎒 4.2 MASTER BAG / MANIFEST GENERATOR
+# ==========================================
 @app.route('/master_bag', methods=['GET', 'POST'])
 @login_required
 def master_bag():
@@ -2338,9 +2333,9 @@ def master_bag():
     """
     return render_page("Outward Manifest Generator", render_template_string(html, bags=bags, stations=stations))
 
-==========================================
-💰 4.3 ACCOUNTS — CASH BOOK / BANK BOOK
-==========================================
+# ==========================================
+# 💰 4.3 ACCOUNTS — CASH BOOK / BANK BOOK
+# ==========================================
 @app.route('/accounts', methods=['GET', 'POST'])
 @login_required
 def accounts():
@@ -2457,9 +2452,9 @@ def accounts():
     """
     return render_page("Cash / Bank Book", render_template_string(html, custs=custs, pay_list=pay_list, date_today=date_today, total_cash=total_cash, total_bank=total_bank))
 
-==========================================
-💸 4.4 EXPENSES — JOURNAL VOUCHER
-==========================================
+# ==========================================
+# 💸 4.4 EXPENSES — JOURNAL VOUCHER
+# ==========================================
 @app.route('/expenses', methods=['GET', 'POST'])
 @login_required
 def expenses():
@@ -2550,9 +2545,9 @@ def expenses():
     """
     return render_page("Journal Voucher Entry", render_template_string(html, exp_list=exp_list, total_exp=total_exp, date_today=date_today))
 
-==========================================
-🧾 4.5 INVOICES — FULL BILLING ENGINE WITH PAYMENT SYNC
-==========================================
+# ==========================================
+# 🧾 4.5 INVOICES — FULL BILLING ENGINE WITH PAYMENT SYNC
+# ==========================================
 @app.route('/invoices', methods=['GET', 'POST'])
 @login_required
 def invoices():
@@ -2722,9 +2717,9 @@ def invoices():
     """
     return render_page("Account Bill Section", render_template_string(html, custs=custs, inv_list=inv_list, date_today=date_today))
 
-==========================================
-📒 4.6 PARTY LEDGER (ADMIN ACCESS — FIXED)
-==========================================
+# ==========================================
+# 📒 4.6 PARTY LEDGER (ADMIN ACCESS — FIXED)
+# ==========================================
 @app.route('/party_ledger', methods=['GET'])
 @login_required
 def party_ledger():
@@ -2804,9 +2799,9 @@ def party_ledger():
     """
     return render_page("Party Account Ledger", render_template_string(html, custs=custs, cid=cid, l_data=l_data, c_bal=c_bal, f_date=f_date, t_date=t_date, customer_name=customer_name))
 
-==========================================
-📊 4.7 REPORTS HUB (Central Reports Page)
-==========================================
+# ==========================================
+# 📊 4.7 REPORTS HUB (Central Reports Page)
+# ==========================================
 @app.route('/reports')
 @login_required
 def reports():
@@ -2878,13 +2873,13 @@ def reports():
 
 ⚠️ PART 4 ENDS HERE. PART 5 (Print Routes, CSV Import, Dynamic Reports, Sync API, Flask Run) agle message me aayega.
 
-============================================================
-📦 PART 5: PRINT ENGINE, REPORTS, SYNC API, SERVER LAUNCH
-============================================================
+# ============================================================
+# 📦 PART 5: PRINT ENGINE, REPORTS, SYNC API, SERVER LAUNCH
+# ============================================================
 
-==========================================
-🖨️ 5.1 SHIPPING LABEL PDF PRINT (WITH LOGO)
-==========================================
+# ==========================================
+# 🖨️ 5.1 SHIPPING LABEL PDF PRINT (WITH LOGO)
+# ==========================================
 @app.route('/print/label/<awb>')
 @login_required
 def print_label(awb):
@@ -3004,9 +2999,9 @@ def print_label(awb):
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Label_{s['awb_no']}.pdf", mimetype='application/pdf')
 
-==========================================
-🧾 5.2 BOOKING RECEIPT PDF PRINT (WITH LOGO)
-==========================================
+# ==========================================
+# 🧾 5.2 BOOKING RECEIPT PDF PRINT (WITH LOGO)
+# ==========================================
 @app.route('/print/receipt/<awb>')
 @login_required
 def print_receipt(awb):
@@ -3153,9 +3148,9 @@ def print_receipt(awb):
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Receipt_{s['awb_no']}.pdf", mimetype='application/pdf')
 
-==========================================
-📊 5.3 ACCOUNT STATEMENT PDF PRINT (WITH LOGO)
-==========================================
+# ==========================================
+# 📊 5.3 ACCOUNT STATEMENT PDF PRINT (WITH LOGO)
+# ==========================================
 @app.route('/print/statement/<int:cid>')
 @login_required
 def print_statement(cid):
@@ -3264,9 +3259,9 @@ def print_statement(cid):
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Statement_{cust['code']}.pdf", mimetype='application/pdf')
 
-==========================================
-🧾 5.4 TAX INVOICE PDF PRINT (WITH LOGO)
-==========================================
+# ==========================================
+# 🧾 5.4 TAX INVOICE PDF PRINT (WITH LOGO)
+# ==========================================
 @app.route('/print/invoice/<int:inv_id>')
 @login_required
 def print_invoice_pdf(inv_id):
@@ -3405,9 +3400,9 @@ def print_invoice_pdf(inv_id):
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Invoice_{inv['invoice_no'].replace('/', '_')}.pdf", mimetype='application/pdf')
 
-==========================================
-📥 5.5 BULK CSV IMPORT
-==========================================
+# ==========================================
+# 📥 5.5 BULK CSV IMPORT
+# ==========================================
 @app.route('/import_csv', methods=['GET', 'POST'])
 @login_required
 def import_csv():
@@ -3469,9 +3464,9 @@ def import_csv():
     """
     return render_page("Excel Import", render_template_string(html))
 
-==========================================
-📊 5.6 SMART DYNAMIC REPORTS ENGINE (60+ REPORTS) - FIXED
-==========================================
+# ==========================================
+# 📊 5.6 SMART DYNAMIC REPORTS ENGINE (60+ REPORTS) - FIXED
+# ==========================================
 @app.route('/module/<category>/<action>', methods=['GET', 'POST'])
 @login_required
 def dynamic_module(category, action):
@@ -3606,9 +3601,9 @@ def dynamic_module(category, action):
     """
     return render_page(page_title, render_template_string(html, title=page_title, has_data=data_found, headers=table_headers, rows=table_rows, f_date=f_date, t_date=t_date))
 
-==========================================
-🔄 5.8 UNIVERSAL SYNC API FOR DESKTOP
-==========================================
+# ==========================================
+# 🔄 5.8 UNIVERSAL SYNC API FOR DESKTOP
+# ==========================================
 @app.route('/api/sync/download', methods=['GET', 'POST'])
 def sync_download():
     """
@@ -3648,24 +3643,20 @@ def sync_download():
     finally:
         conn.close()
 
-==========================================
-🚀 5.9 SERVER LAUNCHER (DO NOT TOUCH)
-==========================================
+# ==========================================
+# ==========================================
+# SERVER LAUNCHER
+# ==========================================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     debug_mode = os.environ.get("DEBUG", "True").lower() == "true"
     print(f"""
-╔═══════════════════════════════════════════════════════════╗
-║                                                           ║
-║   🚀 AGC ENTERPRISE ERP v5.1 - SERVER STARTED!           ║
-║                                                           ║
-║   🌐 Local:  http://localhost:{port}                       ║
-║   🔐 Login:  admin / admin123                            ║
-║                                                           ║
-║   🖼️  Logo:  Place 'logo.png' in same folder             ║
-║                                                           ║
-║   ⚠️  Production me DEBUG=False rakhein!                  ║
-║                                                           ║
-╚═══════════════════════════════════════════════════════════╝
+============================================================
+   AGC ENTERPRISE ERP v5.1 - SERVER STARTED!           
+   Local:  http://localhost:{port}                       
+   Login:  admin / admin123                            
+   Logo:  Place 'logo.png' in same folder             
+   Production me DEBUG=False rakhein!                  
+============================================================
 """)
     app.run(host='0.0.0.0', debug=debug_mode, port=port)
