@@ -3,8 +3,8 @@
 # File: web_erp.py
 # Version: 5.1 Enterprise Edition (Logo & Bug Fixes)
 # ============================================================
-from flask import Flask, request, session, redirect, url_for, render_template_string, flash, send_file, jsonify
-import pymysql, configparser, hashlib, io, os, csv, logging, json, datetime, threading, requests
+from flask import Flask, request, session, redirect, url_for, render_template_string, flash, send_file, jsonify, abort
+import pymysql, configparser, hashlib, io, os, csv, logging, json, datetime, threading, requests, secrets, hmac, re
 from functools import wraps
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -20,7 +20,18 @@ except ImportError: qrcode = None
 # ==========================================
 logging.basicConfig(filename='agc_erp.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'agc_super_secret_erp_v5_master')
+SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    # Development fallback: sessions are invalidated on every restart.
+    # Production deployments must set a persistent SECRET_KEY.
+    SECRET_KEY = secrets.token_hex(32)
+    logging.warning("SECRET_KEY is not configured; using an ephemeral development key.")
+app.secret_key = SECRET_KEY
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=os.environ.get('COOKIE_SECURE', 'false').lower() == 'true',
+)
 config = configparser.ConfigParser()
 config.read('db_config.ini')
 
@@ -34,6 +45,26 @@ def safe_float(val):
 def safe_int(val):
     try: return int(val) if val else 0
     except: return 0
+
+def csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_csrf_token'] = token
+    return token
+
+app.jinja_env.globals['csrf_token'] = csrf_token
+
+@app.before_request
+def validate_csrf():
+    if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        return
+    if request.endpoint in ('login', 'track', 'sync_download'):
+        return
+    supplied = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
+    expected = session.get('_csrf_token')
+    if not supplied or not expected or not hmac.compare_digest(supplied, expected):
+        abort(400, description='Invalid or missing CSRF token.')
 
 def get_db():
     try:
@@ -111,10 +142,19 @@ def get_setting(key, default=""):
 
 def get_seq(name, prefix, length):
     conn = get_db(); c = conn.cursor()
-    c.execute("SELECT value FROM sequences WHERE name=%s", (name,)); r = c.fetchone()
-    val = (r["value"] + 1) if r else 1
-    c.execute("INSERT INTO sequences(name,value) VALUES(%s, %s) ON DUPLICATE KEY UPDATE value=VALUES(value)", (name, val))
-    conn.commit(); conn.close()
+    try:
+        # Atomic increment prevents duplicate document numbers under concurrent requests.
+        c.execute(
+            "INSERT INTO sequences(name,value) VALUES(%s, LAST_INSERT_ID(1)) "
+            "ON DUPLICATE KEY UPDATE value=LAST_INSERT_ID(value+1)",
+            (name,)
+        )
+        c.execute("SELECT LAST_INSERT_ID() AS value")
+        val = c.fetchone()["value"]
+        conn.commit()
+    finally:
+        c.close()
+        conn.close()
     return f"{prefix}{val:0{length}d}"
 
 def login_required(f):
@@ -217,6 +257,7 @@ AGCS_BASE_HTML = """
         <h2 class="text-lg font-semibold text-slate-800">{{ title }}</h2>
         <div class="flex items-center gap-6">
             <form action="/track_doc" method="POST" target="_blank" class="flex items-center bg-slate-100 rounded-lg px-3 py-2">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <i class="fas fa-search text-slate-400 mr-2"></i>
                 <input type="text" name="awb" placeholder="Track AWB/DRS/Invoice..." class="bg-transparent outline-none text-sm w-56">
                 <input type="hidden" name="doc_type" value="c_note">
@@ -242,7 +283,11 @@ $(document).ready(function(){if($('.datatable').length){$('.datatable').DataTabl
 </html>
 """
 def render_page(title, content):
-    return render_template_string(AGCS_BASE_HTML, title=title, content=content)
+    # Individual module templates are rendered as strings. Add the token here so
+    # every generated POST form is protected without duplicating it in every form.
+    token_input = '<input type="hidden" name="_csrf_token" value="' + csrf_token() + '">'
+    protected_content = re.sub(r'<form(\s[^>]*)?>', lambda m: '<form' + (m.group(1) or '') + '>' + token_input, content)
+    return render_template_string(AGCS_BASE_HTML, title=title, content=protected_content)
 
 # ==========================================
 # 🔐 LOGIN / LOGOUT
@@ -255,7 +300,8 @@ def login():
         conn = get_db(); c = conn.cursor()
         c.execute("SELECT * FROM users WHERE username=%s AND active=1", (u,))
         r = c.fetchone()
-        if (r and r['password_hash'] == hashlib.sha256(p.encode()).hexdigest()) or (u == "admin" and p == "admin123"):
+        if r and r['password_hash'] == hashlib.sha256(p.encode()).hexdigest():
+            session.clear()
             user_id = r.get('id', 1) if r else 1
             session.update({
                 'user_id': user_id, 'username': u,
@@ -314,16 +360,18 @@ def dashboard():
         c.execute("SELECT COALESCE(SUM(debit-credit),0) o FROM ledger WHERE customer_id=%s", (cid,)); out = c.fetchone()
         rev = {'a': 0.0}
         c.execute("SELECT booking_date as dt, COUNT(id) as cnt FROM shipments WHERE customer_id=%s GROUP BY booking_date ORDER BY dt DESC LIMIT 7", (cid,))
+        chart_data = c.fetchall()
     else:
         q_s = "SELECT COUNT(*) c, COALESCE(SUM(total_amount),0) t FROM shipments WHERE 1=1"
         q_d = "SELECT COUNT(*) c FROM shipments WHERE status='DELIVERED'"
         c.execute("SELECT booking_date as dt, COUNT(id) as cnt FROM shipments GROUP BY booking_date ORDER BY dt DESC LIMIT 7")
+        chart_data = c.fetchall()
         c.execute("SELECT COALESCE(SUM(amount),0) a FROM payments "); rev = c.fetchone()
         c.execute("SELECT COALESCE(SUM(debit-credit),0) o FROM ledger "); out = c.fetchone()
     
     c.execute(q_s, tuple(params)); s = c.fetchone()
     c.execute(q_d, tuple(params)); d = c.fetchone()
-    chart_data = c.fetchall(); c.close(); conn.close()
+    c.close(); conn.close()
     
     chart_labels = json.dumps([str(r['dt']) for r in chart_data][::-1])
     chart_values = json.dumps([r['cnt'] for r in chart_data][::-1])
@@ -1169,7 +1217,9 @@ def settings():
 @app.route('/api/calc_rate', methods=['POST'])
 @login_required
 def api_calc_rate():
-    d = request.json
+    d = request.get_json(silent=True)
+    if not isinstance(d, dict):
+        return jsonify({"success": False, "error": "Request body must be valid JSON."}), 400
     cid = safe_int(d.get('cust_id')) if d.get('cust_id') else None
     ost = d.get('ostate', '')
     dst = d.get('dstate', '')
@@ -1180,12 +1230,12 @@ def api_calc_rate():
     if fr == 0.0:
         conn = get_db(); c = conn.cursor()
         # Customer-specific rate
-        c.execute("""SELECT * FROM rates WHERE customer_id=%s AND origin_state_code=%s AND dest_state_code=%s 
+        c.execute("""SELECT * FROM rates WHERE active=1 AND customer_id=%s AND origin_state_code=%s AND dest_state_code=%s 
             AND %s BETWEEN min_weight AND max_weight ORDER BY id DESC LIMIT 1""", (cid, ost, dst, wt))
         r = c.fetchone()
         if not r:
             # Default rate
-            c.execute("""SELECT * FROM rates WHERE customer_id IS NULL AND origin_state_code=%s AND dest_state_code=%s 
+            c.execute("""SELECT * FROM rates WHERE active=1 AND customer_id IS NULL AND origin_state_code=%s AND dest_state_code=%s 
                 AND %s BETWEEN min_weight AND max_weight ORDER BY id DESC LIMIT 1""", (ost, dst, wt))
             r = c.fetchone()
         c.close(); conn.close()
@@ -1908,8 +1958,8 @@ def outward():
         document.getElementById('awb_input').placeholder = "🎙️ Listening...";
         recognition.onresult = function(event) {
             const text = event.results[0][0].transcript.toLowerCase();
-            const awbMatch = text.match(/(?:awb|parcel|number)\s*([a-z0-9]+)/);
-            const destMatch = text.match(/(?:destination|to)\s*([a-z]+)/);
+            const awbMatch = text.match(/(?:awb|parcel|number)\\s*([a-z0-9]+)/);
+            const destMatch = text.match(/(?:destination|to)\\s*([a-z]+)/);
             if(awbMatch) document.getElementById('awb_input').value = awbMatch[1].toUpperCase();
             if(destMatch) document.getElementById('dest_input').value = destMatch[1].toUpperCase();
             if(awbMatch) document.getElementById('addForm').submit();
@@ -1938,7 +1988,6 @@ def outward():
 # 💰 3.7 LEDGER (FIXED: Admin + Customer Access)
 # ==========================================
 @app.route('/my_ledger')
-@app.route('/party_ledger')
 @login_required
 def my_ledger():
     conn = get_db()
@@ -2043,14 +2092,20 @@ def drs():
                 if c.fetchone():
                     flash(f"AWB {awb} already pending for delivery!", "error")
                 else:
-                    c.execute("INSERT INTO delivery_register(entry_date, delivery_boy, delivery_area, awb_no, receiver_name, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, 0)",
-                        (date_today, boy, area, awb, rec, info))
                     c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
                     s = c.fetchone()
                     if s:
+                        if s.get('status') in ('DELIVERED', 'CANCELLED'):
+                            flash(f"AWB {awb} cannot be assigned in its current status.", "error")
+                            conn.rollback()
+                            return redirect('/drs')
+                        c.execute("INSERT INTO delivery_register(entry_date, delivery_boy, delivery_area, awb_no, receiver_name, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, 0)",
+                            (date_today, boy, area, awb, rec, info))
                         c.execute("UPDATE shipments SET status='ON_DRS', current_location=%s WHERE id=%s", (area, s['id']))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'ON_DRS', %s, %s)", (s['id'], area, f"Assigned to {boy}"))
-                    flash(f"✅ {awb} added to delivery queue for {boy}.", "success")
+                        flash(f"✅ {awb} added to delivery queue for {boy}.", "success")
+                    else:
+                        flash(f"AWB {awb} does not exist in shipments.", "error")
             
             # 🗑️ DELETE FROM QUEUE
             elif action == 'delete':
@@ -3524,7 +3579,10 @@ def dynamic_module(category, action):
         
         try:
             # ✅ FIX: Parameterized query execution
-            c.execute(query_data[0], (f_date, t_date))
+            if '%s' in query_data[0]:
+                c.execute(query_data[0], (f_date, t_date))
+            else:
+                c.execute(query_data[0])
             rows = c.fetchall()
             if rows:
                 data_found = True
@@ -3615,6 +3673,7 @@ def dynamic_module(category, action):
 # 🔄 5.8 UNIVERSAL SYNC API FOR DESKTOP
 # ==========================================
 @app.route('/api/sync/download', methods=['GET', 'POST'])
+@login_required
 def sync_download():
     """
     Desktop App ko poora latest data (all tables & all columns)
@@ -3638,6 +3697,8 @@ def sync_download():
                     for row in rows:
                         clean_row = {}
                         for key, value in row.items():
+                            if tbl == 'users' and key == 'password_hash':
+                                continue
                             if isinstance(value, (datetime.date, datetime.datetime)):
                                 clean_row[key] = str(value)
                             else:
@@ -3658,7 +3719,7 @@ def sync_download():
 # ==========================================
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    debug_mode = os.environ.get("DEBUG", "True").lower() == "true"
+    debug_mode = os.environ.get("DEBUG", "False").lower() == "true"
     print(f"""
 ============================================================
    AGC ENTERPRISE ERP v5.1 - SERVER STARTED!           
