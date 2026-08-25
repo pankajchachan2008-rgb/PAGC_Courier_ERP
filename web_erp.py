@@ -500,7 +500,14 @@ def customers():
         </div>
     </div>
     """
-    return render_page(page_title, render_template_string(html, custs=custs, page_title=page_tit
+    return render_page(
+        page_title,
+        render_template_string(
+            html,
+            custs=custs,
+            page_title=page_title
+        )
+    )
 
 # ==========================================
 # ✏️ 2.2 EDIT CUSTOMER (DEDICATED EDIT PAGE) — FIXED SYNTAX
@@ -551,7 +558,10 @@ def edit_customer(cid):
         </form>
     </div>
     """
-    return render_page(f"Edit: {cust['name']}", render_template_string(html, cust=cust)
+    return render_page(
+        f"Edit: {cust['name']}",
+        render_template_string(html, cust=cust)
+    )
 
 # ==========================================
 # 📍 2.3 LOCATION MASTER (ADD + EDIT + DELETE)
