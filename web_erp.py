@@ -104,7 +104,7 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS inward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), in_station VARCHAR(100), weight VARCHAR(50), info TEXT, finalized INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS manifests (id INT AUTO_INCREMENT PRIMARY KEY, manifest_no VARCHAR(100), manifest_type VARCHAR(50), from_location VARCHAR(100), to_location VARCHAR(100), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS manifest_items (id INT AUTO_INCREMENT PRIMARY KEY, manifest_id INT, shipment_id INT, received INT DEFAULT 0)")
-           c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_no VARCHAR(100), drs_date DATE, rider_name VARCHAR(100), rider_phone VARCHAR(50), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_no VARCHAR(100), drs_date DATE, rider_name VARCHAR(100), rider_phone VARCHAR(50), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             
             # Auto-patch existing cloud database
             try: c.execute("ALTER TABLE drs ADD COLUMN rider_phone VARCHAR(50) AFTER rider_name")
@@ -113,10 +113,11 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100), remarks TEXT, pod_photo TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bags (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100) UNIQUE, destination VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bag_items (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))")
-# ✅ FIX: Missing delivery_register table added for DRS
+            
+            # ✅ FIX: Missing delivery_register table added for DRS
             c.execute("CREATE TABLE IF NOT EXISTS delivery_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, delivery_boy VARCHAR(100), delivery_area VARCHAR(100), awb_no VARCHAR(100), receiver_name VARCHAR(100), info TEXT, finalized INT DEFAULT 0, drs_no VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
 
-# 🚀 SYNC FIX: Add missing 'updated_at' to cloud shipments table for Smart Sync
+            # 🚀 SYNC FIX: Add missing 'updated_at' to cloud shipments table for Smart Sync
             try: c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
             except: pass
 
@@ -127,10 +128,6 @@ def auto_heal_db():
             except: pass
             
             try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
-            except: pass
-
-            # 🚀 SYNC FIX: Add missing 'updated_at' to cloud shipments table for Smart Sync
-            try: c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
             except: pass
             
             # ✅ FIX: Trailing spaces removed from keys
@@ -147,11 +144,11 @@ def auto_heal_db():
             }
             for k, v in defs.items(): 
                 c.execute("INSERT IGNORE INTO settings(key_name, value) VALUES(%s, %s)", (k, v))
-        conn.commit(); conn.close()
+        
+        conn.commit()
+        conn.close()
     except Exception as e: 
         logging.error(f"Heal Error: {e}")
-
-auto_heal_db()
 
 def get_setting(key, default=""):
     try:
