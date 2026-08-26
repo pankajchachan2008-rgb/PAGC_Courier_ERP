@@ -264,8 +264,8 @@ AGCS_BASE_HTML = """
 <aside class="fixed top-0 left-0 z-40 w-64 h-screen bg-slate-900 text-slate-300 overflow-y-auto">
     <div class="p-5 border-b border-slate-800 flex items-center gap-3">
         <!-- ✅ LOGO INTEGRATION -->
-        <div class="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xl overflow-hidden">
-            <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-cover">
+        <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden p-1 shadow-sm">
+            <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
         </div>
         <div> <h1 class="text-white font-bold text-lg leading-tight">AGC ERP</h1> <p class="text-xs text-slate-500">Enterprise Courier</p> </div>
     </div>
@@ -391,8 +391,8 @@ def login():
 <body class="bg-slate-900 flex items-center justify-center min-h-screen">
     <div class="bg-white p-8 rounded-2xl shadow-2xl w-96">
         <div class="text-center mb-6">
-            <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white text-2xl font-bold mx-auto mb-3 overflow-hidden">
-                <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-cover">
+            <div class="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-blue-600 text-2xl font-bold mx-auto mb-3 overflow-hidden p-2 shadow-md">
+                <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
             </div>
             <h1 class="text-2xl font-bold text-slate-800">AGC Enterprise</h1>
             <p class="text-slate-500 text-sm">Staff Login Portal</p>
@@ -475,19 +475,26 @@ def track():
     awb = (request.args.get('awb') or request.form.get('awb') or '').strip().upper()
     events = []; shipment = None; error_msg = None
     if awb:
+        conn = None
         try:
             conn = get_db()
             with conn.cursor() as c:
-                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,)); shipment = c.fetchone()
+                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
+                shipment = c.fetchone()
                 if shipment:
                     c.execute("SELECT scan_type, location, remarks, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM scan_events WHERE shipment_id=%s ORDER BY id DESC", (shipment['id'],))
                     events = list(c.fetchall())
                     c.execute("SELECT network, network_awb FROM outward_register WHERE awb_no=%s AND network != 'SELF' ORDER BY id DESC LIMIT 1", (awb,))
                     od = c.fetchone()
-                    if od and od['network_awb']: events = fetch_network_tracking(od['network'], od['network_awb']) + events
-        except Exception as e: error_msg = str(e)
+                    if od and od['network_awb']: 
+                        events = fetch_network_tracking(od['network'], od['network_awb']) + events
+        except Exception as e: 
+            error_msg = str(e)
         finally:
-            if 'conn' in locals() and conn.open: conn.close()
+            # 🚀 BUG FIX: Safe close for pooled connections
+            if conn:
+                try: conn.close()
+                except: pass
             
     html = """ <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Track | AGC</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gradient-to-br from-slate-900 to-indigo-900 min-h-screen p-8 text-white"><div class="max-w-3xl mx-auto"><div class="text-center mb-8"><h1 class="text-4xl font-bold mb-2">📦 Track Shipment</h1><p class="text-slate-400">Real-time Logistics Tracking</p></div><form method="GET" action="/track" class="flex gap-3 mb-8 bg-white/10 backdrop-blur p-2 rounded-xl"><input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB..." class="flex-1 bg-transparent px-4 py-3 outline-none text-white uppercase" required><button type="submit" class="bg-blue-600 px-6 py-3 rounded-lg font-semibold hover:bg-blue-700">Track</button></form>{% if error_msg %}<div class="bg-red-500/20 border border-red-500 p-4 rounded-xl">{{ error_msg }}</div>{% elif awb and not shipment %}<div class="bg-yellow-500/20 border border-yellow-500 p-4 rounded-xl text-center">No record found.</div>{% elif shipment %}<div class="bg-white/10 backdrop-blur rounded-xl p-6 mb-6"><div class="flex justify-between mb-4"><h2 class="text-3xl font-bold text-blue-300">{{ shipment.awb_no }}</h2><span class="px-4 py-1 rounded-full font-bold text-sm {% if shipment.status=='DELIVERED' %}bg-green-500{% elif shipment.status=='OUTWARD' %}bg-purple-500{% else %}bg-blue-500{% endif %}">{{ shipment.status }}</span></div><div class="grid grid-cols-2 gap-4 text-sm"><div><span class="text-slate-400">From:</span> <b>{{ shipment.origin_name }}</b></div><div><span class="text-slate-400">To:</span> <b>{{ shipment.dest_name }}</b></div><div><span class="text-slate-400">Weight:</span> <b>{{ shipment.weight_kg }} KG</b></div><div><span class="text-slate-400">Date:</span> <b>{{ shipment.booking_date }}</b></div></div></div><div class="bg-white/10 backdrop-blur rounded-xl p-6"><h3 class="font-bold mb-4">📍 Tracking History</h3><div class="space-y-3">{% for e in events %}<div class="flex gap-4 bg-white/5 p-3 rounded-lg"><div class="text-2xl">{% if e.scan_type=='BOOKED' %}📦{% elif e.scan_type=='OUTWARD' %}🚚{% elif e.scan_type=='INWARD' %}📥{% elif e.scan_type=='DELIVERED' %}✅{% else %}📍{% endif %}</div><div class="flex-1"><div class="flex justify-between"><b>{{ e.scan_type }}</b><span class="text-xs text-slate-400">{{ e.f_date }}</span></div><p class="text-sm text-slate-300">{{ e.location }}</p>{% if e.remarks %}<p class="text-xs text-slate-400 mt-1">{{ e.remarks }}</p>{% endif %}</div></div>{% endfor %}{% if not events %}<p class="text-center text-slate-400 py-4">No history yet.</p>{% endif %}</div></div>{% endif %}</div></body></html> """
     return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
@@ -499,8 +506,9 @@ def track_doc():
     doc_type = request.form.get('doc_type', '')
     err = "<html><body style='font-family:Inter;padding:40px;background:#fee2e2;color:#991b1b;text-align:center;'><h2>Error!</h2><p>{}</p><button onclick='window.close()' style='margin-top:10px;padding:10px 20px;background:#ef4444;color:white;border:none;border-radius:8px;'>Close</button></body></html>"
     if not doc_no: return err.format("Enter Document Number.")
-    conn = get_db()
+    conn = None
     try:
+        conn = get_db()
         with conn.cursor() as c:
             if doc_type in ['c_note', 'pkg_slip']: return redirect(url_for('track', awb=doc_no))
             elif doc_type == 'drs':
@@ -533,7 +541,10 @@ def track_doc():
     except Exception as e: 
         # Escape the error string to prevent injection via exception messages
         return err.format(escape(str(e)))
-    finally: conn.close()
+    finally: 
+        if conn:
+            try: conn.close()
+            except: pass
     return err.format("Invalid type.")
 
 # ==========================================
@@ -3438,7 +3449,8 @@ def print_invoice_pdf(inv_id):
     logo_path = 'logo.png'
     if os.path.exists(logo_path):
         try:
-            cv.drawImage(ImageReader(logo_path), 20, 788, width=45, height=45, mask='auto')
+            # ✅ LOGO ASPECT RATIO FIX
+            cv.drawImage(ImageReader(logo_path), 20, 788, width=45, height=45, preserveAspectRatio=True, mask='auto')
         except Exception as e:
             logging.error(f"Logo draw error: {e}")
     
