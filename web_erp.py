@@ -1499,7 +1499,8 @@ def booking():
                 <td><span class="px-2 py-1 rounded-full text-xs font-bold {% if r.status=='BOOKED' %}bg-blue-100 text-blue-700{% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.status }}</span></td>
                 <td>
                     <a href="/edit_shipment/{{ r.id }}" class="btn-primary" style="padding:4px 8px; font-size:11px;"><i class="fas fa-edit"></i></a>
-                    <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;"><i class="fas fa-print"></i></a>
+                    <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;"><i class="fas fa-tag"></i> Label</a>
+                    <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn-success" style="padding:4px 8px; font-size:11px;"><i class="fas fa-receipt"></i> Receipt</a>
                 </td>
             </tr>
             {% endfor %}
@@ -3051,288 +3052,246 @@ def reports():
 # ============================================================
 
 # ==========================================
-# 🖨️ 5.1 SHIPPING LABEL PDF PRINT (UPGRADED DESIGN)
+# 🖨️ 5.1 SHIPPING LABEL PDF PRINT (PREMIUM 4x6 DESIGN)
 # ==========================================
 @app.route('/print/label/<awb>')
 @login_required
 def print_label(awb):
     conn = get_db(); c = conn.cursor()
-    c.execute("""SELECT s.*, c.name as cust_name, c.phone as cust_phone
+    c.execute("""SELECT s.*, c.name as cust_name, c.address as cust_address, c.gstin as cust_gstin, c.phone as cust_phone
         FROM shipments s LEFT JOIN customers c ON s.customer_id=c.id
         WHERE s.awb_no=%s""", (awb.upper(),))
     s = c.fetchone()
     c.close(); conn.close()
     if not s: return "Shipment Not Found", 404
-    
+
     buf = io.BytesIO()
-    # 4x6 inch exact points calculation (Width: 288, Height: 432)
-    w_pts = 4 * inch
-    h_pts = 6 * inch
-    cv = canvas.Canvas(buf, pagesize=(w_pts, h_pts))
-    
-    # 1. Outer Border
-    cv.setStrokeColor(HexColor("#000000"))
-    cv.setLineWidth(2)
-    cv.rect(8, 8, w_pts - 16, h_pts - 16)
-    
-    # 2. Header - Dark Slate/Teal
-    cv.setFillColor(HexColor("#0F172A"))
-    cv.rect(8, h_pts - 55, w_pts - 16, 47, fill=1, stroke=0)
-    
-    # ✅ LOGO FIX: 'preserveAspectRatio=True' se logo stretch nahi hoga
+    w, h = 4 * inch, 6 * inch
+    cv = canvas.Canvas(buf, pagesize=(w, h))
+
+    # Outer Border
+    cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
+    cv.setStrokeColor(HexColor("#E3E6EA")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
+
+    # Header & Logo
+    x = 14
     logo_path = 'logo.png'
     if os.path.exists(logo_path):
         try:
-            cv.drawImage(ImageReader(logo_path), 12, h_pts - 51, width=40, height=39, preserveAspectRatio=True, mask='auto')
-        except Exception as e:
-            logging.error(f"Logo draw error: {e}")
+            cv.drawImage(ImageReader(logo_path), x, h - 56, width=68, height=40, preserveAspectRatio=True, mask='auto')
+            x = 90
+        except: pass
+
+    # Company Details
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 11)
+    cv.drawString(x, h - 26, str(get_setting('company_name', 'AGC COURIER'))[:30])
+    cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica", 6.2)
+    addr = str(get_setting('company_address', ''))
+    cv.drawString(x, h - 36, addr[:40])
+    cv.drawString(x, h - 44, addr[40:80])
+    cv.drawString(x, h - 53, f"GSTIN: {get_setting('company_gstin', '')} | Ph: {get_setting('company_phone', '')}")
+
+    # PREMIUM EXPRESS Tag
+    cv.setStrokeColor(HexColor("#B08A47")); cv.setLineWidth(1.2); cv.rect(w - 90, h - 42, 80, 16)
+    cv.setFillColor(HexColor("#B08A47")); cv.setFont("Helvetica-Bold", 6.5)
+    cv.drawCentredString(w - 50, h - 37, "PREMIUM EXPRESS")
+    cv.setStrokeColor(HexColor("#B08A47")); cv.setLineWidth(1.5); cv.line(10, h - 62, w - 10, h - 62)
+
+    # AWB & Barcode
+    cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(14, h - 74, "AWB NUMBER")
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, s["awb_no"])
     
-    # Header Text
-    cv.setFillColor(HexColor("#FFFFFF"))
-    cv.setFont("Helvetica-Bold", 14)
-    cv.drawCentredString(w_pts / 2 + 10, h_pts - 32, str(get_setting('company_name', 'AGC COURIER')))
-    cv.setFont("Helvetica", 9)
-    cv.drawCentredString(w_pts / 2 + 10, h_pts - 46, f"Ph: {get_setting('company_phone', '')}")
-    
-    # 3. AWB & Barcode Section
-    cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica-Bold", 22)
-    cv.drawCentredString(w_pts / 2, h_pts - 85, str(s['awb_no']))
-    
-    # ✅ BARCODE FIX: Taller Barcode for easy scanning
     try:
-        barcode = code128.Code128(str(s['awb_no']), barHeight=40, barWidth=1.2)
-        barcode.drawOn(cv, 25, h_pts - 138)
-    except Exception as e:
-        logging.error(f"Barcode Error: {e}")
+        barcode = code128.Code128(str(s['awb_no']), barHeight=28.8, barWidth=0.8)
+        barcode.drawOn(cv, 18, h - 128)
+    except Exception as e: logging.error(f"Barcode: {e}")
     
-    # QR Code Alignment
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, s["awb_no"])
+
+    # QR Code
     try:
         if qrcode:
-            qr_img = qrcode.make(f"AWB:{s['awb_no']}|DEST:{s['dest_station']}")
+            qr_img = qrcode.make(f"AWB:{s['awb_no']}|DEST:{s['dest_state_code'] or ''}|WT:{s['weight_kg']}")
             qr_buf = io.BytesIO()
             qr_img.save(qr_buf, format='PNG')
             qr_buf.seek(0)
-            cv.drawImage(ImageReader(qr_buf), w_pts - 85, h_pts - 145, width=75, height=75)
-    except Exception as e:
-        logging.error(f"QR Error: {e}")
-    
-    cv.setLineWidth(1)
-    cv.line(8, h_pts - 152, w_pts - 8, h_pts - 152)
+            cv.drawImage(ImageReader(qr_buf), w - 74, h - 138, width=58, height=58)
+    except: pass
+    cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawCentredString(w - 45, h - 148, "SCAN & TRACK")
 
-    # 4. Destination Box (Hero Section)
-    y_dest = h_pts - 202
-    cv.setFillColor(HexColor("#F1F5F9")) # Light grey/slate
-    cv.rect(15, y_dest, w_pts - 30, 42, fill=1, stroke=1)
-    cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica-Bold", 10)
-    cv.drawCentredString(w_pts / 2, y_dest + 28, "DESTINATION STATION")
-    cv.setFont("Helvetica-Bold", 18)
-    cv.drawCentredString(w_pts / 2, y_dest + 8, str(s['dest_station'] or 'N/A').upper())
+    # ORIGIN & DESTINATION Box
+    cv.setFillColor(HexColor("#F7F8FA")); cv.setStrokeColor(HexColor("#E3E6EA"))
+    cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
+    cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica-Bold", 6)
+    cv.drawString(20, h - 158, "ORIGIN"); cv.drawCentredString(w / 2, h - 158, "SERVICE"); cv.drawRightString(w - 20, h - 158, "DESTINATION")
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 13)
+    cv.drawString(20, h - 172, str(s["origin_name"] or "NOHAR")[:12].upper())
+    cv.drawRightString(w - 20, h - 170, str(s["dest_station"] or s["dest_name"] or "-")[:12].upper())
+    cv.setFont("Helvetica", 6); cv.drawRightString(w - 20, h - 178, str(s["dest_name"] or "")[:15])
 
-    cv.line(8, y_dest - 8, w_pts - 8, y_dest - 8)
+    stype = str(s.get("service_type") or "SURFACE")
+    cv.setStrokeColor(HexColor("#0E8A6D")); cv.setLineWidth(1.2); cv.rect(w / 2 - 40, h - 175, 80, 18)
+    cv.setFillColor(HexColor("#0E8A6D")); cv.setFont("Helvetica-Bold", 7.5); cv.drawCentredString(w / 2, h - 169, stype)
 
-    # 5. CONSIGNEE (Receiver) - Prominent Details
-    y_recv = y_dest - 26
-    cv.setFont("Helvetica-Bold", 9)
-    cv.drawString(15, y_recv, "DELIVER TO (CONSIGNEE):")
-    cv.setFont("Helvetica-Bold", 12)
-    cv.drawString(15, y_recv - 15, str(s['dest_name'] or '').upper())
-    cv.setFont("Helvetica", 9)
-    cv.drawString(15, y_recv - 28, f"Ph: {s['dest_phone'] or 'N/A'}")
-    
-    # Address Wrapper
-    addr = str(s['dest_address'] or '')
-    cv.drawString(15, y_recv - 40, f"Addr: {addr[:42]}")
-    if len(addr) > 42:
-        cv.drawString(45, y_recv - 50, f"{addr[42:85]}")
+    # CONSIGNEE Details
+    cv.setFillColor(HexColor("#FFFFFF")); cv.setStrokeColor(HexColor("#E3E6EA"))
+    cv.rect(12, h - 254, w - 24, 70, fill=1, stroke=1)
+    cv.setFillColor(HexColor("#0E8A6D")); cv.rect(12, h - 254, 4, 70, fill=1, stroke=0)
+    cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, h - 194, "DELIVER TO")
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 10)
+    cv.drawString(22, h - 206, str(s["dest_name"] or "")[:35])
+    cv.setFont("Helvetica", 7.5)
+    dest_addr = str(s["dest_address"] or "")
+    cv.drawString(22, h - 216, dest_addr[:45])
+    cv.drawString(22, h - 226, dest_addr[45:90])
+    cv.setFont("Helvetica-Bold", 7.5); cv.drawString(22, h - 236, f"Ph: {s['dest_phone'] or '-'}")
 
-    cv.line(8, y_recv - 60, w_pts - 8, y_recv - 60)
+    # Information Grid (Weight, Pieces, etc.)
+    cells = [("WEIGHT", f"{s['weight_kg']} KG"), ("PIECES", s["quantity"]),
+             ("COD", f"Rs {s['cod_amount'] or 0}"), ("DECLARED", f"Rs {s['declared_value'] or 0}"),
+             ("DATE", s["booking_date"]), ("MODE", stype),
+             ("DEST CITY", str(s["dest_station"] or "-")[:14]), ("BRANCH", str(get_setting("branch_name", "Head Office")))]
+    cw = (w - 24) / 4; chh = 19; y0 = h - 258
+    for i, (label, value) in enumerate(cells):
+        col, row = i % 4, i // 4
+        cx = 12 + col * cw; cy = y0 - (row + 1) * chh
+        cv.setFillColor(HexColor("#F7F8FA" if row % 2 == 0 else "#FFFFFF")); cv.setStrokeColor(HexColor("#E3E6EA"))
+        cv.rect(cx, cy, cw, chh, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica-Bold", 5.6); cv.drawString(cx + 4, cy + chh - 7, label)
+        cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, cy + 4, str(value))
 
-    # 6. CONSIGNOR (Sender) - Smaller Details
-    y_send = y_recv - 75
-    cv.setFont("Helvetica-Bold", 8)
-    cv.drawString(15, y_send, "FROM (SENDER):")
-    cv.setFont("Helvetica-Bold", 9)
-    cv.drawString(15, y_send - 12, str(s['origin_name'] or '').upper())
-    cv.setFont("Helvetica", 8)
-    cv.drawString(15, y_send - 22, f"Ph: {s['origin_phone'] or 'N/A'}")
+    # SHIPPER Details
+    st = y0 - 2 * chh - 6
+    cv.setFillColor(HexColor("#FFFFFF")); cv.setStrokeColor(HexColor("#E3E6EA")); cv.rect(12, st - 40, w - 24, 40, fill=1, stroke=1)
+    cv.setFillColor(HexColor("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(20, st - 10, "SHIPPER")
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica", 6.8)
+    cv.drawString(20, st - 20, f"{s['cust_name'] or ''} | {str(s['cust_address'] or '')[:25]}")
+    cv.drawString(20, st - 29, f"GSTIN: {s['cust_gstin'] or '-'}")
 
-    cv.line(8, y_send - 30, w_pts - 8, y_send - 30)
-    
-    # 7. Package Details
-    y_dets = y_send - 45
-    cv.setFont("Helvetica-Bold", 9)
-    cv.drawString(15, y_dets, f"Weight: {s['weight_kg'] or 0} KG")
-    cv.drawString(100, y_dets, f"Pieces: {s['quantity'] or 1}")
-    
-    # ✅ TEXT CUTOFF FIX: X coordinate 220 se ghata kar 180 kar diya hai
-    cv.drawString(180, y_dets, f"Service: {str(s['service_type'])[:10]}")
-    
-    # 8. COD Box (If applicable)
-    if s['cod_amount'] and safe_float(s['cod_amount']) > 0:
-        cv.setFillColor(HexColor("#000000"))
-        cv.rect(15, y_dets - 30, w_pts - 30, 22, fill=1, stroke=0)
-        cv.setFillColor(HexColor("#FFFFFF"))
-        cv.setFont("Helvetica-Bold", 12)
-        cv.drawCentredString(w_pts / 2, y_dets - 24, f"COD TO COLLECT: Rs {s['cod_amount']}")
-    
-    # 9. Footer - Clean Date Format
-    cv.setFillColor(HexColor("#64748B"))
-    cv.setFont("Helvetica", 7)
-    
-    # ✅ DATE FIX: "00:00:00" hata kar sirf Date dikhayega
-    date_str = str(s['booking_date'])[:10] if s['booking_date'] else "N/A"
-    cv.drawCentredString(w_pts / 2, 16, f"Booked On: {date_str}  |  AGC Enterprise ERP")
-    
+    # Terms & Signature
+    cv.setFillColor(HexColor("#F7F8FA")); cv.rect(10, 10, w - 20, 28, fill=1, stroke=0)
+    cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica", 5.8)
+    cv.drawCentredString(w / 2, 26, str(get_setting('terms_note', 'Liability limited to declared value.'))[:60])
+    cv.drawCentredString(w / 2, 17, "Computer Generated Label | AGC ERP")
+
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Label_{s['awb_no']}.pdf", mimetype='application/pdf')
 
+
 # ==========================================
-# 🧾 5.2 BOOKING RECEIPT PDF PRINT (WITH LOGO)
+# 🧾 5.2 BOOKING RECEIPT PDF PRINT (A5 LANDSCAPE DESIGN)
 # ==========================================
 @app.route('/print/receipt/<awb>')
 @login_required
 def print_receipt(awb):
     conn = get_db(); c = conn.cursor()
-    c.execute("""SELECT s.*, c.name as cust_name, c.address as cust_address
+    c.execute("""SELECT s.*, c.name as cust_name, c.address as cust_address, c.gstin as cust_gstin
         FROM shipments s LEFT JOIN customers c ON s.customer_id=c.id
         WHERE s.awb_no=%s""", (awb.upper(),))
     s = c.fetchone()
     c.close(); conn.close()
     if not s: return "Shipment Not Found", 404
-    
+
     buf = io.BytesIO()
-    cv = canvas.Canvas(buf, pagesize=A4)
-    
+    w, h = 595, 421 # A5 Landscape equivalent
+    cv = canvas.Canvas(buf, pagesize=(w, h))
+
     # Header
-    cv.setFillColor(HexColor("#116B7A"))
-    cv.rect(0, 780, 600, 60, fill=1, stroke=0)
-    
-    # ✅ LOGO INTEGRATION
+    x = 30
     logo_path = 'logo.png'
     if os.path.exists(logo_path):
         try:
-            cv.drawImage(ImageReader(logo_path), 20, 788, width=45, height=45, mask='auto')
-        except Exception as e:
-            logging.error(f"Logo draw error: {e}")
+            cv.drawImage(ImageReader(logo_path), x, h - 60, width=90, height=45, preserveAspectRatio=True, mask='auto')
+            x = 130
+        except: pass
+
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 13)
+    cv.drawString(x, h - 35, str(get_setting('company_name', 'AGC COURIER')))
+    cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica", 6.5)
+    cv.drawString(x, h - 46, str(get_setting('company_address', ''))[:80])
+    cv.drawString(x, h - 55, f"GSTIN: {get_setting('company_gstin', '')} | Ph: {get_setting('company_phone', '')}")
+
+    # Title Box
+    cv.setStrokeColor(HexColor("#B08A47")); cv.setLineWidth(1.5)
+    cv.roundRect(w - 175, h - 52, 145, 30, 8, fill=0, stroke=1)
+    cv.setFillColor(HexColor("#B08A47")); cv.setFont("Helvetica-Bold", 11)
+    cv.drawCentredString(w - 102, h - 41, "COURIER SLIP / RECEIPT")
+    cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica", 7)
+    cv.drawRightString(w - 30, h - 62, f"Date: {s['booking_date']}")
     
-    cv.setFillColor(HexColor("#FFFFFF"))
-    cv.setFont("Helvetica-Bold", 18)
-    cv.drawCentredString(300, 815, str(get_setting('company_name', 'AGC COURIER')))
-    cv.setFont("Helvetica", 9)
-    cv.drawCentredString(300, 795, f"{get_setting('company_address', '')} | Ph: {get_setting('company_phone', '')}")
-    cv.drawCentredString(300, 785, f"GSTIN: {get_setting('company_gstin', '')}")
+    cv.setStrokeColor(HexColor("#B08A47")); cv.setLineWidth(1.5); cv.line(20, h - 70, w - 20, h - 70)
+
+    # AWB Info
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 16)
+    cv.drawString(30, h - 90, s["awb_no"])
+    try:
+        barcode = code128.Code128(str(s['awb_no']), barHeight=21.6, barWidth=0.8)
+        barcode.drawOn(cv, 34, h - 125)
+    except: pass
+    cv.setFont("Courier-Bold", 8); cv.drawString(34, h - 135, s["awb_no"])
+
+    try:
+        if qrcode:
+            qr_img = qrcode.make(f"AWB:{s['awb_no']}|WT:{s['weight_kg']}|COD:{s['cod_amount'] or 0}")
+            qr_buf = io.BytesIO()
+            qr_img.save(qr_buf, format='PNG')
+            qr_buf.seek(0)
+            cv.drawImage(ImageReader(qr_buf), w - 95, h - 135, width=60, height=60)
+    except: pass
+
+    # Shipper / Consignee boxes
+    bw = (w - 70) / 2
+    yb = h - 235
+    cv.setStrokeColor(HexColor("#E3E6EA")); cv.setFillColor(HexColor("#F7F8FA"))
+    cv.roundRect(30, yb, bw, 90, 6, fill=1, stroke=1)
+    cv.roundRect(40 + bw, yb, bw, 90, 6, fill=1, stroke=1)
     
-    # Title
-    cv.setFillColor(HexColor("#D67A00"))
-    cv.setFont("Helvetica-Bold", 16)
-    cv.drawCentredString(300, 755, "BOOKING RECEIPT / CONSIGNMENT NOTE")
+    cv.setFillColor(HexColor("#B08A47")); cv.setFont("Helvetica-Bold", 7)
+    cv.drawString(38, yb + 80, "SHIPPER"); cv.drawString(48 + bw, yb + 80, "CONSIGNEE")
+    cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica", 7.5)
     
-    # AWB Box
-    cv.setStrokeColor(HexColor("#116B7A"))
-    cv.setLineWidth(2)
-    cv.rect(180, 710, 240, 35)
-    cv.setFillColor(HexColor("#116B7A"))
-    cv.setFont("Helvetica-Bold", 18)
-    cv.drawCentredString(300, 722, f"AWB: {s['awb_no']}")
-    
-    # Booking Details
-    y = 680
-    cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica-Bold", 11)
-    cv.drawString(40, y, "BOOKING DETAILS")
-    cv.line(40, y-5, 560, y-5)
-    cv.setFont("Helvetica", 10)
-    details = [
-        ("Booking Date:", str(s['booking_date'] or '')),
-        ("Customer A/c:", s['cust_name'] or 'CASH BOOKING'),
-        ("Service Type:", s['service_type'] or 'SURFACE'),
-        ("Origin:", f"{s['origin_name'] or ''} ({s['origin_state_code'] or ''})"),
-        ("Destination:", f"{s['dest_station'] or ''} ({s['dest_state_code'] or ''})"),
-        ("Weight:", f"{s['weight_kg'] or 0} KG"),
-        ("Pieces:", str(s['quantity'] or 1)),
+    # Shipper Details
+    cname = str(s["cust_name"] or s["origin_name"] or "")
+    caddr = str(s["cust_address"] or s["origin_address"] or "")
+    cv.drawString(38, yb + 68, cname[:35])
+    cv.drawString(38, yb + 59, caddr[:40])
+    cv.drawString(38, yb + 50, caddr[40:80])
+    cv.drawString(38, yb + 39, f"GSTIN: {s['cust_gstin'] or '-'}")
+
+    # Consignee Details
+    dname = str(s["dest_name"] or "")
+    daddr = str(s["dest_address"] or "")
+    cv.drawString(48 + bw, yb + 68, dname[:35])
+    cv.drawString(48 + bw, yb + 59, daddr[:40])
+    cv.drawString(48 + bw, yb + 50, daddr[40:80])
+    cv.drawString(48 + bw, yb + 39, f"Ph: {s['dest_phone'] or '-'} | State: {s['dest_state_code'] or '-'}")
+
+    # Summary Grid
+    stype = str(s.get("service_type") or "SURFACE")
+    gst_total = safe_float(s['cgst']) + safe_float(s['sgst']) + safe_float(s['igst'])
+    vals = [
+        ("WEIGHT", f"{s['weight_kg']} KG"), ("PIECES", s["quantity"]), ("SERVICE", stype),
+        ("COD", f"Rs {s['cod_amount'] or 0}"), ("TAXABLE", f"{s['taxable_amount'] or 0}"),
+        ("GST", f"{gst_total:.2f}"), ("TOTAL", f"Rs {s['total_amount'] or 0}")
     ]
-    y -= 25
-    for label, value in details:
-        cv.setFont("Helvetica-Bold", 10)
-        cv.drawString(40, y, label)
-        cv.setFont("Helvetica", 10)
-        cv.drawString(200, y, value)
-        y -= 18
     
-    # Consignor / Consignee Boxes
-    y -= 20
-    cv.setFont("Helvetica-Bold", 11)
-    cv.drawString(40, y, "CONSIGNOR (SENDER)")
-    cv.drawString(320, y, "CONSIGNEE (RECEIVER)")
-    cv.line(40, y-5, 280, y-5)
-    cv.line(320, y-5, 560, y-5)
-    cv.setFont("Helvetica", 9)
-    y -= 20
-    cv.drawString(40, y, f"Name: {s['origin_name'] or ''}")
-    cv.drawString(320, y, f"Name: {s['dest_name'] or ''}")
-    y -= 15
-    cv.drawString(40, y, f"Phone: {s['origin_phone'] or ''}")
-    cv.drawString(320, y, f"Phone: {s['dest_phone'] or ''}")
-    y -= 15
-    cv.drawString(40, y, f"Address: {str(s['origin_address'] or '')[:40]}")
-    cv.drawString(320, y, f"Address: {str(s['dest_address'] or '')[:40]}")
+    cw2 = (w - 60) / len(vals)
+    yc = yb - 18
+    for i, (lb, vl) in enumerate(vals):
+        cx = 30 + i * cw2
+        cv.setFillColor(HexColor("#EEF1F4")); cv.rect(cx, yc - 26, cw2 - 4, 26, fill=1, stroke=0)
+        cv.setFillColor(HexColor("#6B7280")); cv.setFont("Helvetica-Bold", 5.5); cv.drawString(cx + 4, yc - 8, lb)
+        cv.setFillColor(HexColor("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, yc - 19, str(vl))
+
+    cv.setFont("Helvetica", 6.5); cv.setFillColor(HexColor("#6B7280"))
+    cv.drawString(30, yc - 38, f"Grand Total: Rs {s['total_amount']}")
     
-    # Charges Table
-    y -= 40
-    cv.setFont("Helvetica-Bold", 11)
-    cv.drawString(40, y, "CHARGE DETAILS")
-    cv.line(40, y-5, 560, y-5)
-    y -= 25
-    cv.setFillColor(HexColor("#F1F5F9"))
-    cv.rect(40, y-5, 520, 20, fill=1, stroke=0)
-    cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica-Bold", 10)
-    cv.drawString(50, y+2, "Description")
-    cv.drawString(300, y+2, "Amount (Rs)")
-    cv.setFont("Helvetica", 10)
-    y -= 25
-    cv.drawString(50, y+2, "Freight Charges")
-    cv.drawString(300, y+2, f"{safe_float(s['taxable_amount']):,.2f}")
-    y -= 20
-    cv.drawString(50, y+2, f"CGST ({safe_float(s['tax_rate'])/2}%)")
-    cv.drawString(300, y+2, f"{safe_float(s['cgst']):,.2f}")
-    y -= 20
-    cv.drawString(50, y+2, f"SGST ({safe_float(s['tax_rate'])/2}%)")
-    cv.drawString(300, y+2, f"{safe_float(s['sgst']):,.2f}")
-    y -= 20
-    cv.drawString(50, y+2, f"IGST ({safe_float(s['tax_rate'])}%)")
-    cv.drawString(300, y+2, f"{safe_float(s['igst']):,.2f}")
+    cv.line(w - 170, yc - 30, w - 30, yc - 30)
+    cv.drawString(w - 170, yc - 40, "For " + str(get_setting('company_name', 'AGC')))
     
-    # Total Box
-    y -= 30
-    cv.setFillColor(HexColor("#116B7A"))
-    cv.rect(40, y-5, 520, 30, fill=1, stroke=0)
-    cv.setFillColor(HexColor("#FFFFFF"))
-    cv.setFont("Helvetica-Bold", 14)
-    cv.drawString(50, y+5, "GRAND TOTAL")
-    cv.drawRightString(550, y+5, f"Rs {safe_float(s['total_amount']):,.2f}")
-    
-    # COD Info
-    if s['cod_amount'] and safe_float(s['cod_amount']) > 0:
-        y -= 30
-        cv.setFillColor(HexColor("#DC2626"))
-        cv.setFont("Helvetica-Bold", 12)
-        cv.drawString(40, y, f"COD AMOUNT TO COLLECT: Rs {s['cod_amount']}")
-    
-    # Terms & Signature
-    y -= 50
-    cv.setFillColor(HexColor("#64748B"))
-    cv.setFont("Helvetica", 8)
-    cv.drawString(40, y, "Terms & Conditions:")
-    cv.drawString(40, y-12, str(get_setting('terms_note', 'Liability limited to declared value.')))
-    cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica", 10)
-    cv.drawString(40, 80, "Sender's Signature")
-    cv.line(40, 75, 200, 75)
-    cv.drawString(400, 80, "For AGC Courier")
-    cv.line(400, 75, 560, 75)
+    cv.setFont("Helvetica", 6)
+    cv.drawString(30, 20, str(get_setting('terms_note', 'Liability limited to declared value.'))[:100])
+    cv.drawRightString(w - 30, 20, str(get_setting('company_website', '')))
     
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Receipt_{s['awb_no']}.pdf", mimetype='application/pdf')
