@@ -3952,11 +3952,17 @@ def force_upload():
                 c.execute(f"TRUNCATE TABLE `{tbl}`")
                 if rows:
                     cols = list(rows[0].keys())
-                    cols_str = ", ".join([f"`{col}`" for col in cols])
+                    
+                    # 🚀 THE FIX: Automatically rename 'key' to 'key_name' for MySQL compatibility
+                    clean_cols = ['key_name' if col == 'key' and tbl == 'settings' else col for col in cols]
+                    
+                    cols_str = ", ".join([f"`{col}`" for col in clean_cols])
                     placeholders = ", ".join(["%s"] * len(cols))
                     insert_query = f"INSERT INTO `{tbl}` ({cols_str}) VALUES ({placeholders})"
+                    
                     bulk_data = [tuple(r.values()) for r in rows]
                     c.executemany(insert_query, bulk_data)
+                    
             c.execute("SET FOREIGN_KEY_CHECKS=1;")
         conn.commit()
         return jsonify({"success": True})
@@ -3964,7 +3970,6 @@ def force_upload():
         return jsonify({"success": False, "error": str(e)})
     finally:
         conn.close()
-
 
 # ==========================================
 # SERVER LAUNCHER
