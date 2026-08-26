@@ -274,10 +274,13 @@ AGCS_BASE_HTML = """
         {% if session.get('role') == 'CUSTOMER' %}
         <a href="/booking" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-plus-circle w-5"></i> New Booking </a>
         <a href="/customer_bulk" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-excel w-5"></i> Bulk Upload </a>
-        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-box w-5"></i> My Shipments </a>
-        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Ledger </a>        {% else %}
         <a href="/pickup" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-truck-pickup w-5"></i> Request Pickup </a>
         <a href="/address_book" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-address-book w-5"></i> Address Book </a>
+        <a href="/developer_api" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-code w-5"></i> API & Integration </a>
+        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-box w-5"></i> My Shipments </a>
+        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Ledger </a>
+        <a href="/wallet" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-rupee-sign w-5"></i> My Wallet </a>
+        {% else %}
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Master Entries</div>
         <a href="/customers" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-building w-5"></i> Franchisee Master </a>
         <a href="/cargo_master" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-handshake w-5"></i> Cargo Party </a>
@@ -298,6 +301,7 @@ AGCS_BASE_HTML = """
         <a href="/accounts" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-book w-5"></i> Cash/Bank Book </a>
         <a href="/expenses" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-receipt w-5"></i> Journal Voucher </a>
         <a href="/party_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-balance-scale w-5"></i> Party Ledger </a>
+        <a href="/manage_wallets" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> Manage Wallets </a>
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Reports</div>
         <a href="/reports" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-chart-bar w-5"></i> Reports Hub </a>
         <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-list w-5"></i> Delivery Status </a>
@@ -4435,6 +4439,218 @@ def address_book():
     </div>
     """
     return render_page("Address Book", render_template_string(html, addrs=addresses, stations=stations))
+
+# ==========================================
+# 💳 3.12 B2B PREPAID WALLET SYSTEM (SAAS FEATURE)
+# ==========================================
+@app.route('/wallet', methods=['GET', 'POST'])
+@login_required
+def wallet():
+    if session.get('role') != 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    cid = session.get('customer_id')
+
+    # Auto-Heal: Create Wallet Table
+    with conn.cursor() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, txn_date DATETIME DEFAULT CURRENT_TIMESTAMP, 
+            txn_type VARCHAR(20), amount DOUBLE, description TEXT, status VARCHAR(20) DEFAULT 'APPROVED', reference VARCHAR(100))""")
+
+    if request.method == 'POST':
+        amt = safe_float(request.form.get('amount'))
+        ref = request.form.get('reference', '')
+        if amt > 0:
+            with conn.cursor() as c:
+                c.execute("INSERT INTO wallet_transactions (customer_id, txn_type, amount, description, status, reference) VALUES (%s, 'CREDIT', %s, 'Wallet Recharge Request', 'PENDING', %s)", (cid, amt, ref))
+            conn.commit()
+            flash("✅ Recharge request submitted! Balance will reflect once approved by Admin.", "success")
+        else:
+            flash("❌ Invalid amount.", "error")
+        return redirect('/wallet')
+
+    with conn.cursor() as c:
+        # Calculate Current Wallet Balance
+        c.execute("SELECT COALESCE(SUM(CASE WHEN txn_type='CREDIT' AND status='APPROVED' THEN amount ELSE 0 END),0) - COALESCE(SUM(CASE WHEN txn_type='DEBIT' AND status='APPROVED' THEN amount ELSE 0 END),0) as bal FROM wallet_transactions WHERE customer_id=%s", (cid,))
+        bal_row = c.fetchone()
+        wallet_balance = safe_float(bal_row['bal']) if bal_row else 0.0
+
+        c.execute("SELECT * FROM wallet_transactions WHERE customer_id=%s ORDER BY id DESC LIMIT 100", (cid,))
+        txns = c.fetchall()
+    conn.close()
+
+    html = """
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="card lg:col-span-1" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: none;">
+            <div class="p-6 text-white text-center">
+                <p class="text-slate-400 text-sm font-semibold uppercase tracking-wider mb-2">Available Balance</p>
+                <h2 class="text-4xl font-bold text-white mb-6">₹ {{ "{:,.2f}".format(wallet_balance) }}</h2>
+                <button onclick="document.getElementById('rechargeForm').style.display='block'" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-lg transition shadow-lg"><i class="fas fa-bolt"></i> Recharge Wallet</button>
+            </div>
+            
+            <div id="rechargeForm" class="p-6 bg-white rounded-b-lg" style="display:none;">
+                <h4 class="font-bold text-slate-800 mb-3 text-sm border-b pb-2">Request Recharge</h4>
+                <form method="POST" class="space-y-3">
+                    <div><label class="label-modern">Amount (₹) *</label><input type="number" step="0.01" name="amount" required class="input-modern font-bold text-green-600"></div>
+                    <div><label class="label-modern">Payment Reference / UTR *</label><input type="text" name="reference" required placeholder="UPI / Bank Txn ID" class="input-modern"></div>
+                    <div class="flex gap-2">
+                        <button type="button" onclick="document.getElementById('rechargeForm').style.display='none'" class="btn-danger flex-1">Cancel</button>
+                        <button type="submit" class="btn-success flex-1">Submit</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card lg:col-span-2">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">💳 Wallet Transaction History</h3>
+            <div class="table-responsive">
+                <table class="datatable">
+                    <thead><tr><th>Txn ID</th><th>Date</th><th>Description</th><th>Ref/UTR</th><th>Amount</th><th>Status</th></tr></thead>
+                    <tbody>
+                    {% for t in txns %}
+                    <tr>
+                        <td class="font-bold text-slate-500">WTX-{{ t.id }}</td>
+                        <td class="text-xs">{{ t.txn_date }}</td>
+                        <td>{{ t.description }}</td>
+                        <td class="text-xs font-mono">{{ t.reference or '-' }}</td>
+                        <td class="font-bold {% if t.txn_type == 'CREDIT' %}text-green-600{% else %}text-red-600{% endif %}">
+                            {% if t.txn_type == 'CREDIT' %}+{% else %}-{% endif %} ₹{{ t.amount }}
+                        </td>
+                        <td>
+                            <span class="px-2 py-1 rounded-full text-xs font-bold 
+                            {% if t.status == 'APPROVED' %}bg-green-100 text-green-700
+                            {% elif t.status == 'PENDING' %}bg-amber-100 text-amber-700
+                            {% else %}bg-red-100 text-red-700{% endif %}">
+                            {{ t.status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    """
+    return render_page("My Wallet", render_template_string(html, wallet_balance=wallet_balance, txns=txns))
+
+@app.route('/manage_wallets', methods=['GET', 'POST'])
+@login_required
+def manage_wallets():
+    if session.get('role') not in ['ADMIN', 'ACCOUNTS']: return redirect('/')
+    conn = get_db()
+    
+    # Auto-Heal Check
+    with conn.cursor() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS wallet_transactions (
+            id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, txn_date DATETIME DEFAULT CURRENT_TIMESTAMP, 
+            txn_type VARCHAR(20), amount DOUBLE, description TEXT, status VARCHAR(20) DEFAULT 'APPROVED', reference VARCHAR(100))""")
+
+    if request.method == 'POST':
+        action = request.form.get('action')
+        with conn.cursor() as c:
+            if action == 'approve':
+                tid = request.form.get('txn_id')
+                c.execute("UPDATE wallet_transactions SET status='APPROVED' WHERE id=%s", (tid,))
+                
+                # Payment Register aur Ledger me entry add karein taaki Accounting match ho
+                c.execute("SELECT * FROM wallet_transactions WHERE id=%s", (tid,))
+                txn = c.fetchone()
+                if txn:
+                    d = datetime.datetime.now().strftime("%Y-%m-%d")
+                    c.execute("INSERT INTO payments(customer_id, payment_date, amount, mode, reference) VALUES(%s,%s,%s,'BANK',%s)", (txn['customer_id'], d, txn['amount'], f"Wallet Recharge: {txn['reference']}"))
+                    c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'PAYMENT',%s,0,%s,%s)", (txn['customer_id'], d, f"WTX-{tid}", txn['amount'], "Wallet Recharge Approved"))
+                flash(f"✅ Recharge Request #{tid} Approved!", "success")
+                
+            elif action == 'reject':
+                tid = request.form.get('txn_id')
+                c.execute("UPDATE wallet_transactions SET status='REJECTED' WHERE id=%s", (tid,))
+                flash(f"❌ Recharge Request #{tid} Rejected.", "error")
+                
+            elif action == 'manual_adjust':
+                cid = request.form.get('cust_id')
+                ttype = request.form.get('txn_type')
+                amt = safe_float(request.form.get('amount'))
+                desc = request.form.get('desc', 'Manual Admin Adjustment')
+                if amt > 0:
+                    c.execute("INSERT INTO wallet_transactions (customer_id, txn_type, amount, description, status) VALUES (%s, %s, %s, %s, 'APPROVED')", (cid, ttype, amt, desc))
+                    flash(f"✅ Manual {ttype} of ₹{amt} added successfully.", "success")
+        conn.commit()
+        return redirect('/manage_wallets')
+
+    with conn.cursor() as c:
+        c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
+        custs = c.fetchall()
+        c.execute("""SELECT w.*, c.name as cust_name FROM wallet_transactions w 
+                     JOIN customers c ON w.customer_id = c.id 
+                     ORDER BY w.id DESC LIMIT 200""")
+        txns = c.fetchall()
+    conn.close()
+
+    html = """
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="card" style="border-top:4px solid #10b981;">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">⚙️ Manual Adjustment</h3>
+            <form method="POST" class="space-y-3">
+                <input type="hidden" name="action" value="manual_adjust">
+                <div><label class="label-modern">Customer A/c *</label>
+                    <select name="cust_id" class="input-modern" required>
+                        <option value="">-- Select Customer --</option>
+                        {% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="label-modern">Type *</label>
+                        <select name="txn_type" class="input-modern font-bold">
+                            <option value="CREDIT">Add Funds (+)</option>
+                            <option value="DEBIT">Deduct Funds (-)</option>
+                        </select>
+                    </div>
+                    <div><label class="label-modern">Amount (₹) *</label><input type="number" step="0.01" name="amount" required class="input-modern font-bold text-slate-800"></div>
+                </div>
+                <div><label class="label-modern">Description / Reason *</label><input type="text" name="desc" required class="input-modern"></div>
+                <button type="submit" class="btn-success w-full"><i class="fas fa-check-circle"></i> Apply Adjustment</button>
+            </form>
+        </div>
+        
+        <div class="card lg:col-span-2">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">🏦 Master Wallet Register & Requests</h3>
+            <div class="table-responsive">
+                <table class="datatable">
+                    <thead><tr><th>Txn ID</th><th>Customer</th><th>Amount</th><th>Ref/Desc</th><th>Status</th><th>Actions</th></tr></thead>
+                    <tbody>
+                    {% for t in txns %}
+                    <tr>
+                        <td class="font-bold text-slate-500">WTX-{{ t.id }}</td>
+                        <td class="font-bold text-blue-600">{{ t.cust_name }}</td>
+                        <td class="font-bold {% if t.txn_type == 'CREDIT' %}text-green-600{% else %}text-red-600{% endif %}">
+                            {% if t.txn_type == 'CREDIT' %}+{% else %}-{% endif %} ₹{{ t.amount }}
+                        </td>
+                        <td class="text-xs">{{ t.reference or t.description }}</td>
+                        <td>
+                            <span class="px-2 py-1 rounded-full text-xs font-bold 
+                            {% if t.status == 'APPROVED' %}bg-green-100 text-green-700
+                            {% elif t.status == 'PENDING' %}bg-amber-100 text-amber-700
+                            {% else %}bg-red-100 text-red-700{% endif %}">
+                            {{ t.status }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if t.status == 'PENDING' %}
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('Approve this recharge?');"><input type="hidden" name="action" value="approve"><input type="hidden" name="txn_id" value="{{ t.id }}"><button type="submit" class="btn-success" style="padding:2px 8px; font-size:11px;"><i class="fas fa-check"></i></button></form>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('Reject this recharge?');"><input type="hidden" name="action" value="reject"><input type="hidden" name="txn_id" value="{{ t.id }}"><button type="submit" class="btn-danger" style="padding:2px 8px; font-size:11px;"><i class="fas fa-times"></i></button></form>
+                            {% else %}
+                            <span class="text-xs text-slate-400">Processed</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    """
+    return render_page("Manage Wallets", render_template_string(html, custs=custs, txns=txns))
 
 # ==========================================
 # SERVER LAUNCHER
