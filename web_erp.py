@@ -3938,7 +3938,7 @@ def sync_smart():
 
 @app.route('/api/sync/force_upload', methods=['POST'])
 def force_upload():
-    """Receives master table dumps from desktop and rebuilds cloud."""
+    """Receives master table dumps from desktop and rebuilds cloud dynamically."""
     client_token = request.headers.get('X-Sync-Token')
     server_token = os.environ.get('SYNC_API_KEY', 'agc-super-secret-sync-key-2026')
     if client_token != server_token: return jsonify({"success": False, "error": "Unauthorized"}), 403
@@ -3948,19 +3948,45 @@ def force_upload():
     try:
         with conn.cursor() as c:
             c.execute("SET FOREIGN_KEY_CHECKS=0;")
+            
+            # 🚀 AUTO-HEAL: Koshish karenge ki missing columns add ho jayein
+            try: c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+            except: pass
+            try: c.execute("ALTER TABLE drs_items ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+            except: pass
+            
             for tbl, rows in tables.items():
+                # 🛡️ BULLETPROOF: Pehle check karega ki Cloud me actually kaunse columns hain
+                try:
+                    c.execute(f"SHOW COLUMNS FROM `{tbl}`")
+                    valid_cols = [r['Field'] for r in c.fetchall()]
+                except Exception:
+                    continue # Agar table cloud me nahi hai toh skip karega
+                    
                 c.execute(f"TRUNCATE TABLE `{tbl}`")
                 if rows:
-                    cols = list(rows[0].keys())
+                    raw_cols = list(rows[0].keys())
                     
-                    # 🚀 THE FIX: Automatically rename 'key' to 'key_name' for MySQL compatibility
-                    clean_cols = ['key_name' if col == 'key' and tbl == 'settings' else col for col in cols]
-                    
-                    cols_str = ", ".join([f"`{col}`" for col in clean_cols])
-                    placeholders = ", ".join(["%s"] * len(cols))
+                    # Sirf wahi columns insert karega jo Cloud me available hain (Crash-Proof Logic)
+                    mapped_cols = []
+                    for col in raw_cols:
+                        if col == 'key' and 'key_name' in valid_cols:
+                            mapped_cols.append(('key', 'key_name')) # Key mapping fix
+                        elif col in valid_cols:
+                            mapped_cols.append((col, col))
+                            
+                    if not mapped_cols:
+                        continue
+                        
+                    cols_str = ", ".join([f"`{cloud_col}`" for local_col, cloud_col in mapped_cols])
+                    placeholders = ", ".join(["%s"] * len(mapped_cols))
                     insert_query = f"INSERT INTO `{tbl}` ({cols_str}) VALUES ({placeholders})"
                     
-                    bulk_data = [tuple(r.values()) for r in rows]
+                    bulk_data = []
+                    for r in rows:
+                        row_vals = [r.get(local_col) for local_col, cloud_col in mapped_cols]
+                        bulk_data.append(tuple(row_vals))
+                        
                     c.executemany(insert_query, bulk_data)
                     
             c.execute("SET FOREIGN_KEY_CHECKS=1;")
