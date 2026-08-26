@@ -273,9 +273,9 @@ AGCS_BASE_HTML = """
         <a href="/" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-chart-line w-5"></i> Dashboard </a>
         {% if session.get('role') == 'CUSTOMER' %}
         <a href="/booking" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-plus-circle w-5"></i> New Booking </a>
+        <a href="/customer_bulk" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-excel w-5"></i> Bulk Upload </a>
         <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-box w-5"></i> My Shipments </a>
-        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Ledger </a>
-        {% else %}
+        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Ledger </a>        {% else %}
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Master Entries</div>
         <a href="/customers" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-building w-5"></i> Franchisee Master </a>
         <a href="/cargo_master" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-handshake w-5"></i> Cargo Party </a>
@@ -439,7 +439,7 @@ def login():
                 <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
             </div>
             <h1 class="text-2xl font-bold text-slate-800">AGC Enterprise</h1>
-            <p class="text-slate-500 text-sm">Staff Login Portal</p>
+            <p class="text-slate-500 text-sm">Login Portal</p>
         </div>
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}<div class="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-200">{% for category, message in messages %}{{ message }}{% endfor %}</div>{% endif %}
@@ -2254,6 +2254,126 @@ def my_ledger():
     </div>
     """
     return render_page("My Ledger", render_template_string(html, l_data=l_data, c_bal=c_bal, f_date=f_date, t_date=t_date, customer_name=customer_name))
+
+# ==========================================
+# 🚀 3.8 B2B CUSTOMER BULK BOOKING (CSV)
+# ==========================================
+@app.route('/customer_bulk', methods=['GET', 'POST'])
+@login_required
+def customer_bulk():
+    if session.get('role') != 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    cid = session.get('customer_id')
+    
+    if request.method == 'POST':
+        file = request.files.get('file')
+        if not file or not file.filename.endswith('.csv'):
+            flash("Invalid file! Please upload a .csv file.", "error")
+            return redirect('/customer_bulk')
+        
+        try:
+            stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
+            reader = csv.DictReader(stream)
+            headers = {k.strip().lower(): k for k in reader.fieldnames if k}
+            
+            added = 0
+            total_billing = 0.0
+            
+            with conn.cursor() as c:
+                # Get Customer Detail for Origin Info
+                c.execute("SELECT name, phone, address, state_code FROM customers WHERE id=%s", (cid,))
+                cust = c.fetchone()
+                
+                for row in reader:
+                    # CSV Column Mapping
+                    dest_name = row.get(headers.get("consignee name", "consignee name")) or row.get("Consignee Name", "")
+                    dest_phone = row.get(headers.get("phone", "phone")) or row.get("Phone", "")
+                    dest_address = row.get(headers.get("address", "address")) or row.get("Address", "")
+                    dest_station = row.get(headers.get("destination", "destination")) or row.get("Destination", "")
+                    dest_state_code = row.get(headers.get("state code", "state code")) or row.get("State Code", "")
+                    wt = safe_float(row.get(headers.get("weight", "weight")) or "1")
+                    pcs = safe_int(row.get(headers.get("pieces", "pieces")) or "1")
+                    cod = safe_float(row.get(headers.get("cod amount", "cod amount")) or "0")
+                    
+                    if not dest_name or not dest_station: continue
+                    
+                    # 🧮 Auto-Calculate Rates (Customer Specific or Default)
+                    c.execute("SELECT * FROM rates WHERE active=1 AND customer_id=%s AND origin_state_code=%s AND dest_state_code=%s AND %s BETWEEN min_weight AND max_weight ORDER BY id DESC LIMIT 1", (cid, cust['state_code'], dest_state_code, wt))
+                    rate_row = c.fetchone()
+                    if not rate_row:
+                        c.execute("SELECT * FROM rates WHERE active=1 AND customer_id IS NULL AND origin_state_code=%s AND dest_state_code=%s AND %s BETWEEN min_weight AND max_weight ORDER BY id DESC LIMIT 1", (cust['state_code'], dest_state_code, wt))
+                        rate_row = c.fetchone()
+                    
+                    fr = 0.0; tx = 18.0
+                    if rate_row:
+                        fr = safe_float(rate_row['fixed_charge']) + (wt * safe_float(rate_row['per_kg_rate']))
+                        tx = safe_float(rate_row['gst_rate'])
+                    else:
+                        fr = wt * 25.0 # Fallback default freight
+                        
+                    fuel = safe_float(get_setting("fuel_surcharge", "0"))
+                    taxable = fr * (1 + (fuel/100))
+                    gst = taxable * (tx/100)
+                    tot = taxable + gst
+                    
+                    cgst = sgst = igst = 0
+                    if cust['state_code'].strip().upper() == str(dest_state_code).strip().upper(): cgst = sgst = gst / 2
+                    else: igst = gst
+                        
+                    # Auto-Generate AWB
+                    awb = get_seq("awb", "AWB", 8)
+                    
+                    d = datetime.datetime.now().strftime("%Y-%m-%d")
+                    c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest_station.upper(),))
+                    
+                    c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, service_type, status, current_location, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, is_synced) 
+                                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'SURFACE','BOOKED','Origin',%s,%s,%s,%s,%s,%s, 0)""", 
+                              (awb, cid, d, cust['name'], cust['phone'], cust['address'], cust['state_code'], dest_name, dest_phone, dest_address, dest_state_code, dest_station.upper(), wt, pcs, cod, taxable, tx, cgst, sgst, igst, tot))
+                    
+                    sid = c.lastrowid
+                    c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED','Origin','B2B Bulk CSV Booking') ", (sid,))
+                    added += 1
+                    total_billing += tot
+            
+            # Master Ledger Entry (Ek sath poori list ka bill ban jayega)
+            if total_billing > 0:
+                with conn.cursor() as c:
+                    d = datetime.datetime.now().strftime("%Y-%m-%d")
+                    c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, d, f"BULK-{added}AWB", total_billing, f"Bulk Booking {added} parcels"))
+            
+            conn.commit()
+            flash(f"🎉 Bulk Booking Complete! {added} Parcels Booked. Total Billed: ₹{total_billing:,.2f}", "success")
+        except Exception as e:
+            flash(f"Error: {e}", "error")
+        finally:
+            conn.close()
+        return redirect('/customer_bulk')
+        
+    html = """
+    <div class="card" style="border-top:4px solid #8b5cf6;">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">🚀 B2B Bulk Booking (CSV Upload)</h3>
+        <div style="background:#f5f3ff; padding:15px; border-radius:8px; border:1px dashed #8b5cf6; margin-bottom:20px; font-size:13px; color:#4c1d95;">
+            <b>File Structure Required (Comma Separated CSV):</b><br><br>
+            • <b>Consignee Name</b> (Receiver's Name)<br>
+            • <b>Phone</b> (Receiver's Phone)<br>
+            • <b>Address</b> (Full Address)<br>
+            • <b>Destination</b> (City/Station Name)<br>
+            • <b>State Code</b> (e.g., 08 for RJ, 27 for MH)<br>
+            • <b>Weight</b> (in KG)<br>
+            • <b>Pieces</b> (Total Boxes)<br>
+            • <b>COD Amount</b> (Put 0 if prepaid)<br><br>
+            <i>💡 Note: The system will automatically generate AWB numbers, calculate accurate freight based on your contract, and update your ledger.</i>
+        </div>
+        <form method="POST" enctype="multipart/form-data" class="space-y-4">
+            <div>
+                <label class="label-modern">Upload CSV File *</label>
+                <input type="file" name="file" accept=".csv" required class="input-modern" style="padding:12px;">
+            </div>
+            <button type="submit" style="background:#8b5cf6; color:white; padding:10px 20px; border-radius:6px; font-weight:bold; width:100%;"><i class="fas fa-upload"></i> Process Bulk Upload</button>
+        </form>
+    </div>
+    """
+    return render_page("Bulk Booking", render_template_string(html))
 
 #⚠ PART 3 ENDS HERE. PART 4 (DRS, Master Bag, Accounts, Expenses, Invoices) agle message me aayega.
 
