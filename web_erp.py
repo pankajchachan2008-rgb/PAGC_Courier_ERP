@@ -3051,7 +3051,7 @@ def reports():
 # ============================================================
 
 # ==========================================
-# 🖨️ 5.1 SHIPPING LABEL PDF PRINT (WITH LOGO)
+# 🖨️ 5.1 SHIPPING LABEL PDF PRINT (UPGRADED DESIGN)
 # ==========================================
 @app.route('/print/label/<awb>')
 @login_required
@@ -3065,109 +3065,125 @@ def print_label(awb):
     if not s: return "Shipment Not Found", 404
     
     buf = io.BytesIO()
-    cv = canvas.Canvas(buf, pagesize=(4*inch, 6*inch))
+    # 4x6 inch exact points calculation (Width: 288, Height: 432)
+    w_pts = 4 * inch
+    h_pts = 6 * inch
+    cv = canvas.Canvas(buf, pagesize=(w_pts, h_pts))
     
-    # Border
+    # 1. Outer Border
     cv.setStrokeColor(HexColor("#000000"))
     cv.setLineWidth(2)
-    cv.rect(5, 5, 4*inch-10, 6*inch-10)
+    cv.rect(8, 8, w_pts - 16, h_pts - 16)
     
-    # Header - Company Name with LOGO
-    cv.setFillColor(HexColor("#116B7A"))
-    cv.rect(5, 6*inch-50, 4*inch-10, 45, fill=1, stroke=0)
+    # 2. Header - Dark Slate/Teal
+    cv.setFillColor(HexColor("#0F172A"))
+    cv.rect(8, h_pts - 55, w_pts - 16, 47, fill=1, stroke=0)
     
-    # ✅ LOGO INTEGRATION
+    # ✅ LOGO FIX: 'preserveAspectRatio=True' se logo stretch nahi hoga
     logo_path = 'logo.png'
     if os.path.exists(logo_path):
         try:
-            cv.drawImage(ImageReader(logo_path), 12, 6*inch-46, width=38, height=38, mask='auto')
+            cv.drawImage(ImageReader(logo_path), 12, h_pts - 51, width=40, height=39, preserveAspectRatio=True, mask='auto')
         except Exception as e:
             logging.error(f"Logo draw error: {e}")
     
+    # Header Text
     cv.setFillColor(HexColor("#FFFFFF"))
     cv.setFont("Helvetica-Bold", 14)
-    cv.drawCentredString(2*inch, 6*inch-30, str(get_setting('company_name', 'AGC COURIER')))
-    cv.setFont("Helvetica", 8)
-    cv.drawCentredString(2*inch, 6*inch-42, str(get_setting('company_phone', '')))
+    cv.drawCentredString(w_pts / 2 + 10, h_pts - 32, str(get_setting('company_name', 'AGC COURIER')))
+    cv.setFont("Helvetica", 9)
+    cv.drawCentredString(w_pts / 2 + 10, h_pts - 46, f"Ph: {get_setting('company_phone', '')}")
     
-    # AWB Number (Large)
+    # 3. AWB & Barcode Section
     cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica-Bold", 20)
-    cv.drawCentredString(2*inch, 6*inch-80, str(s['awb_no']))
+    cv.setFont("Helvetica-Bold", 22)
+    cv.drawCentredString(w_pts / 2, h_pts - 85, str(s['awb_no']))
     
-    # Barcode (Code128)
+    # ✅ BARCODE FIX: Taller Barcode for easy scanning
     try:
-        barcode = code128.Code128(str(s['awb_no']), barHeight=30, barWidth=1.2)
-        barcode.drawOn(cv, 40, 6*inch-130)
+        barcode = code128.Code128(str(s['awb_no']), barHeight=40, barWidth=1.2)
+        barcode.drawOn(cv, 25, h_pts - 138)
     except Exception as e:
         logging.error(f"Barcode Error: {e}")
     
-    # QR Code
+    # QR Code Alignment
     try:
         if qrcode:
             qr_img = qrcode.make(f"AWB:{s['awb_no']}|DEST:{s['dest_station']}")
             qr_buf = io.BytesIO()
             qr_img.save(qr_buf, format='PNG')
             qr_buf.seek(0)
-            cv.drawImage(ImageReader(qr_buf), 4*inch-80, 6*inch-140, width=70, height=70)
+            cv.drawImage(ImageReader(qr_buf), w_pts - 85, h_pts - 145, width=75, height=75)
     except Exception as e:
         logging.error(f"QR Error: {e}")
     
-    # Divider Line
-    cv.line(10, 6*inch-150, 4*inch-10, 6*inch-150)
-    
-    # CONSIGNOR Section
-    y = 6*inch-165
-    cv.setFont("Helvetica-Bold", 9)
-    cv.setFillColor(HexColor("#D67A00"))
-    cv.drawString(15, y, "CONSIGNOR (SENDER)")
-    cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica", 9)
-    cv.drawString(15, y-15, f"Name: {s['origin_name'] or ''}")
-    cv.drawString(15, y-28, f"Phone: {s['origin_phone'] or ''}")
-    cv.drawString(15, y-41, f"Address: {str(s['origin_address'] or '')[:50]}")
-    
-    # Divider
-    cv.line(10, y-52, 4*inch-10, y-52)
-    
-    # CONSIGNEE Section (Highlighted)
-    y2 = y-65
-    cv.setFont("Helvetica-Bold", 9)
-    cv.setFillColor(HexColor("#116B7A"))
-    cv.drawString(15, y2, "CONSIGNEE (RECEIVER)")
+    cv.setLineWidth(1)
+    cv.line(8, h_pts - 152, w_pts - 8, h_pts - 152)
+
+    # 4. Destination Box (Hero Section)
+    y_dest = h_pts - 202
+    cv.setFillColor(HexColor("#F1F5F9")) # Light grey/slate
+    cv.rect(15, y_dest, w_pts - 30, 42, fill=1, stroke=1)
     cv.setFillColor(HexColor("#000000"))
     cv.setFont("Helvetica-Bold", 10)
-    cv.drawString(15, y2-15, f"Name: {s['dest_name'] or ''}")
+    cv.drawCentredString(w_pts / 2, y_dest + 28, "DESTINATION STATION")
+    cv.setFont("Helvetica-Bold", 18)
+    cv.drawCentredString(w_pts / 2, y_dest + 8, str(s['dest_station'] or 'N/A').upper())
+
+    cv.line(8, y_dest - 8, w_pts - 8, y_dest - 8)
+
+    # 5. CONSIGNEE (Receiver) - Prominent Details
+    y_recv = y_dest - 26
+    cv.setFont("Helvetica-Bold", 9)
+    cv.drawString(15, y_recv, "DELIVER TO (CONSIGNEE):")
+    cv.setFont("Helvetica-Bold", 12)
+    cv.drawString(15, y_recv - 15, str(s['dest_name'] or '').upper())
     cv.setFont("Helvetica", 9)
-    cv.drawString(15, y2-28, f"Phone: {s['dest_phone'] or ''}")
-    cv.drawString(15, y2-41, f"Address: {str(s['dest_address'] or '')[:50]}")
+    cv.drawString(15, y_recv - 28, f"Ph: {s['dest_phone'] or 'N/A'}")
     
-    # Destination Box (Big)
-    cv.setFillColor(HexColor("#FFFECC"))
-    cv.rect(15, y2-90, 4*inch-30, 40, fill=1, stroke=1)
-    cv.setFillColor(HexColor("#000000"))
-    cv.setFont("Helvetica-Bold", 16)
-    cv.drawCentredString(2*inch, y2-65, f"DEST: {s['dest_station'] or 'N/A'}")
+    # Address Wrapper
+    addr = str(s['dest_address'] or '')
+    cv.drawString(15, y_recv - 40, f"Addr: {addr[:42]}")
+    if len(addr) > 42:
+        cv.drawString(45, y_recv - 50, f"{addr[42:85]}")
+
+    cv.line(8, y_recv - 60, w_pts - 8, y_recv - 60)
+
+    # 6. CONSIGNOR (Sender) - Smaller Details
+    y_send = y_recv - 75
+    cv.setFont("Helvetica-Bold", 8)
+    cv.drawString(15, y_send, "FROM (SENDER):")
+    cv.setFont("Helvetica-Bold", 9)
+    cv.drawString(15, y_send - 12, str(s['origin_name'] or '').upper())
+    cv.setFont("Helvetica", 8)
+    cv.drawString(15, y_send - 22, f"Ph: {s['origin_phone'] or 'N/A'}")
+
+    cv.line(8, y_send - 30, w_pts - 8, y_send - 30)
     
-    # Details Section
-    y3 = y2-105
-    cv.setFont("Helvetica", 9)
-    cv.drawString(15, y3, f"Weight: {s['weight_kg'] or 0} KG")
-    cv.drawString(130, y3, f"Pieces: {s['quantity'] or 1}")
-    cv.drawString(220, y3, f"Service: {s['service_type'] or 'SURFACE'}")
+    # 7. Package Details
+    y_dets = y_send - 45
+    cv.setFont("Helvetica-Bold", 9)
+    cv.drawString(15, y_dets, f"Weight: {s['weight_kg'] or 0} KG")
+    cv.drawString(100, y_dets, f"Pieces: {s['quantity'] or 1}")
     
-    # COD Box
+    # ✅ TEXT CUTOFF FIX: X coordinate 220 se ghata kar 180 kar diya hai
+    cv.drawString(180, y_dets, f"Service: {str(s['service_type'])[:10]}")
+    
+    # 8. COD Box (If applicable)
     if s['cod_amount'] and safe_float(s['cod_amount']) > 0:
-        cv.setFillColor(HexColor("#FEE2E2"))
-        cv.rect(15, y3-35, 4*inch-30, 25, fill=1, stroke=1)
-        cv.setFillColor(HexColor("#DC2626"))
+        cv.setFillColor(HexColor("#000000"))
+        cv.rect(15, y_dets - 30, w_pts - 30, 22, fill=1, stroke=0)
+        cv.setFillColor(HexColor("#FFFFFF"))
         cv.setFont("Helvetica-Bold", 12)
-        cv.drawCentredString(2*inch, y3-20, f"COD AMOUNT: Rs {s['cod_amount']}")
+        cv.drawCentredString(w_pts / 2, y_dets - 24, f"COD TO COLLECT: Rs {s['cod_amount']}")
     
-    # Footer
+    # 9. Footer - Clean Date Format
     cv.setFillColor(HexColor("#64748B"))
     cv.setFont("Helvetica", 7)
-    cv.drawCentredString(2*inch, 20, f"Booking Date: {s['booking_date']}")
+    
+    # ✅ DATE FIX: "00:00:00" hata kar sirf Date dikhayega
+    date_str = str(s['booking_date'])[:10] if s['booking_date'] else "N/A"
+    cv.drawCentredString(w_pts / 2, 16, f"Booked On: {date_str}  |  AGC Enterprise ERP")
     
     cv.showPage(); cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"Label_{s['awb_no']}.pdf", mimetype='application/pdf')
