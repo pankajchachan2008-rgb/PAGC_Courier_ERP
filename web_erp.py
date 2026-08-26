@@ -276,6 +276,8 @@ AGCS_BASE_HTML = """
         <a href="/customer_bulk" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-excel w-5"></i> Bulk Upload </a>
         <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-box w-5"></i> My Shipments </a>
         <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Ledger </a>        {% else %}
+        <a href="/pickup" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-truck-pickup w-5"></i> Request Pickup </a>
+        <a href="/address_book" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-address-book w-5"></i> Address Book </a>
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Master Entries</div>
         <a href="/customers" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-building w-5"></i> Franchisee Master </a>
         <a href="/cargo_master" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-handshake w-5"></i> Cargo Party </a>
@@ -289,6 +291,7 @@ AGCS_BASE_HTML = """
         <a href="/booking" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-invoice w-5"></i> Counter Booking </a>
         <a href="/inward" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-sign-in-alt w-5"></i> Cargo Inward </a>
         <a href="/outward" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-sign-out-alt w-5"></i> Outward Hub </a>
+        <a href="/manage_pickups" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-people-carry w-5"></i> Pickup Requests </a>
         <a href="/master_bag" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-shopping-bag w-5"></i> Master Bag </a>
         <a href="/drs" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-clipboard-list w-5"></i> D.R.S. Entry </a>
         <a href="/invoices" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-contract w-5"></i> Account Bill </a>
@@ -1487,9 +1490,15 @@ def booking():
         c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1"); custs = c.fetchall()
         c.execute("SELECT name FROM stations ORDER BY name"); stations = c.fetchall()
         my_cust = None
+        addr_book = [] # 🚀 NAYA
         if session.get('role') == 'CUSTOMER':
             c.execute("SELECT id, name, phone, state_code, address FROM customers WHERE id=%s", (session.get('customer_id'),))
             my_cust = c.fetchone()
+            # 🚀 NAYA: Fetch Address Book
+            try:
+                c.execute("SELECT * FROM address_book WHERE customer_id=%s", (session.get('customer_id'),))
+                addr_book = c.fetchall()
+            except: pass
         q_recent = """SELECT s.id, s.awb_no, COALESCE(c.name,'CASH') as customer_name, COALESCE(s.dest_station,'') as dest_station,
             s.weight_kg, s.total_amount, s.status, s.booking_date FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id"""
         params_recent = []
@@ -1529,13 +1538,23 @@ def booking():
                     </div>
                 </div>
                 <div class="border border-blue-200 rounded-lg p-4 bg-blue-50">
-                    <h4 class="font-bold text-blue-700 mb-3 text-sm">📥 CONSIGNEE (Receiver)</h4>
+                    <div class="flex justify-between items-center mb-3">
+                        <h4 class="font-bold text-blue-700 text-sm">📥 CONSIGNEE (Receiver)</h4>
+                        {% if session.get('role') == 'CUSTOMER' and addr_book %}
+                        <select id="addr_selector" onchange="fillAddress()" class="text-xs border p-1 rounded outline-none border-blue-300">
+                            <option value="">-- Auto-Fill from Address Book --</option>
+                            {% for a in addr_book %}
+                            <option value="{{ a.name }}|{{ a.phone }}|{{ a.station }}|{{ a.state_code }}|{{ a.address }}">{{ a.name }} ({{ a.station }})</option>
+                            {% endfor %}
+                        </select>
+                        {% endif %}
+                    </div>
                     <div class="space-y-2">
-                        <input name="dname" class="input-modern" placeholder="Name" required>
-                        <input name="dphone" class="input-modern" placeholder="Phone" required>
-                        <input name="dstat" list="stations" class="input-modern uppercase font-bold" placeholder="Destination Station" required><datalist id="stations">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
+                        <input name="dname" id="dname" class="input-modern" placeholder="Name" required>
+                        <input name="dphone" id="dphone" class="input-modern" placeholder="Phone" required>
+                        <input name="dstat" id="dstat" list="stations" class="input-modern uppercase font-bold" placeholder="Destination Station" required><datalist id="stations">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
                         <input name="dstate" id="dst" onchange="fetchRate()" class="input-modern" placeholder="State Code">
-                        <input name="daddr" class="input-modern" placeholder="Address">
+                        <input name="daddr" id="daddr" class="input-modern" placeholder="Address">
                     </div>
                 </div>
             </div>
@@ -1582,6 +1601,19 @@ def booking():
     </div>
     <script>
     document.getElementById('bdt').valueAsDate = new Date();
+    
+    function fillAddress() {
+        let val = document.getElementById('addr_selector').value;
+        if(!val) return;
+        let parts = val.split('|');
+        document.getElementById('dname').value = parts[0] || '';
+        document.getElementById('dphone').value = parts[1] || '';
+        document.getElementById('dstat').value = parts[2] || '';
+        document.getElementById('dst').value = parts[3] || '';
+        document.getElementById('daddr').value = parts[4] || '';
+        fetchRate();
+    }
+    
     function fetchRate() {
         let cid = document.getElementById('cid').value;
         if(cid && document.getElementById('cid').tagName === 'SELECT') {
@@ -1606,7 +1638,7 @@ def booking():
     if(document.getElementById('cid').tagName === 'INPUT') fetchRate();
     </script>
     """
-    return render_page("Counter Booking", render_template_string(html, custs=custs, stations=stations, recent=recent, my_cust=my_cust))
+    return render_page("Counter Booking", render_template_string(html, custs=custs, stations=stations, recent=recent, my_cust=my_cust, addr_book=addr_book))
 
 # ==========================================
 # ✏️ 3.3 EDIT SHIPMENT (FULL UPDATE + STATUS)
@@ -4142,6 +4174,267 @@ def force_upload():
         return jsonify({"success": False, "error": str(e)})
     finally:
         conn.close()
+
+# ==========================================
+# 🚚 3.9 PICKUP REQUEST SYSTEM (B2B & ADMIN)
+# ==========================================
+@app.route('/pickup', methods=['GET', 'POST'])
+@login_required
+def pickup():
+    if session.get('role') != 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    cid = session.get('customer_id')
+    
+    # Auto-Heal: Table create karega agar nahi hai toh
+    with conn.cursor() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS pickup_requests (
+            id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, request_date DATE, 
+            ready_time VARCHAR(50), total_boxes INT, approx_weight DOUBLE, pickup_address TEXT, 
+            status VARCHAR(50) DEFAULT 'PENDING', assigned_rider VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        
+    if request.method == 'POST':
+        d = request.form
+        req_date = d.get('request_date')
+        ready_time = d.get('ready_time')
+        boxes = safe_int(d.get('boxes'))
+        weight = safe_float(d.get('weight'))
+        address = d.get('address')
+        
+        with conn.cursor() as c:
+            c.execute("INSERT INTO pickup_requests (customer_id, request_date, ready_time, total_boxes, approx_weight, pickup_address) VALUES (%s, %s, %s, %s, %s, %s)", 
+                      (cid, req_date, ready_time, boxes, weight, address))
+        conn.commit()
+        flash("✅ Pickup Request submitted successfully! Our team will assign a rider shortly.", "success")
+        return redirect('/pickup')
+        
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM pickup_requests WHERE customer_id=%s ORDER BY id DESC LIMIT 50", (cid,))
+        requests_list = c.fetchall()
+        c.execute("SELECT address FROM customers WHERE id=%s", (cid,))
+        cust_row = c.fetchone()
+        cust_addr = cust_row['address'] if cust_row else ""
+    conn.close()
+    
+    html = """
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="card" style="border-top:4px solid #f59e0b;">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">🚚 Schedule a Pickup</h3>
+            <form method="POST" class="space-y-4">
+                <div><label class="label-modern">Pickup Date *</label><input type="date" name="request_date" required class="input-modern"></div>
+                <div><label class="label-modern">Parcels Ready By (Time) *</label><input type="time" name="ready_time" required class="input-modern"></div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div><label class="label-modern">Total Boxes *</label><input type="number" name="boxes" value="1" min="1" required class="input-modern"></div>
+                    <div><label class="label-modern">Approx Wt (KG) *</label><input type="number" step="0.1" name="weight" value="1.0" required class="input-modern"></div>
+                </div>
+                <div><label class="label-modern">Pickup Address *</label><textarea name="address" rows="3" required class="input-modern">{{ cust_addr }}</textarea></div>
+                <button type="submit" class="btn-warning w-full"><i class="fas fa-truck"></i> Request Pickup Now</button>
+            </form>
+        </div>
+        <div class="card lg:col-span-2">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">📋 My Pickup History</h3>
+            <div class="table-responsive">
+            <table class="datatable">
+                <thead><tr><th>Req ID</th><th>Date & Time</th><th>Boxes / Wt</th><th>Address</th><th>Status</th><th>Rider Info</th></tr></thead>
+                <tbody>
+                {% for r in reqs %}
+                <tr>
+                    <td class="font-bold text-blue-600">PKP-{{ r.id }}</td>
+                    <td>{{ r.request_date }} <br><span class="text-xs text-slate-500">{{ r.ready_time }}</span></td>
+                    <td class="font-bold">{{ r.total_boxes }} Pcs <br><span class="text-xs text-slate-500">{{ r.approx_weight }} KG</span></td>
+                    <td class="text-xs">{{ r.pickup_address }}</td>
+                    <td>
+                        <span class="px-2 py-1 rounded-full text-xs font-bold 
+                        {% if r.status == 'PENDING' %}bg-amber-100 text-amber-700
+                        {% elif r.status == 'ASSIGNED' %}bg-blue-100 text-blue-700
+                        {% elif r.status == 'COMPLETED' %}bg-green-100 text-green-700
+                        {% else %}bg-red-100 text-red-700{% endif %}">
+                        {{ r.status }}
+                        </span>
+                    </td>
+                    <td>{{ r.assigned_rider or 'Pending Assignment' }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            </div>
+        </div>
+    </div>
+    <script>document.querySelector('input[type="date"]').valueAsDate = new Date();</script>
+    """
+    return render_page("Request Pickup", render_template_string(html, reqs=requests_list, cust_addr=cust_addr))
+
+@app.route('/manage_pickups', methods=['GET', 'POST'])
+@login_required
+def manage_pickups():
+    if session.get('role') not in ['ADMIN', 'OPS']: return redirect('/')
+    conn = get_db()
+    
+    # Auto-Heal: Table Check
+    with conn.cursor() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS pickup_requests (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, request_date DATE, ready_time VARCHAR(50), total_boxes INT, approx_weight DOUBLE, pickup_address TEXT, status VARCHAR(50) DEFAULT 'PENDING', assigned_rider VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+    
+    if request.method == 'POST':
+        action = request.form.get('action')
+        req_id = request.form.get('req_id')
+        
+        with conn.cursor() as c:
+            if action == 'assign':
+                rider = request.form.get('rider')
+                c.execute("UPDATE pickup_requests SET assigned_rider=%s, status='ASSIGNED' WHERE id=%s", (rider, req_id))
+                flash(f"✅ Rider '{rider}' assigned to pickup #{req_id}", "success")
+            elif action == 'complete':
+                c.execute("UPDATE pickup_requests SET status='COMPLETED' WHERE id=%s", (req_id,))
+                flash(f"✅ Pickup #{req_id} marked as completed.", "success")
+            elif action == 'cancel':
+                c.execute("UPDATE pickup_requests SET status='CANCELLED' WHERE id=%s", (req_id,))
+                flash(f"❌ Pickup #{req_id} cancelled.", "success")
+        conn.commit()
+        return redirect('/manage_pickups')
+        
+    with conn.cursor() as c:
+        c.execute("""SELECT p.*, c.name as cust_name, c.phone as cust_phone 
+                     FROM pickup_requests p JOIN customers c ON p.customer_id = c.id 
+                     ORDER BY p.id DESC LIMIT 200""")
+        requests_list = c.fetchall()
+        c.execute("SELECT full_name FROM users WHERE role='DELIVERY' AND active=1")
+        riders = c.fetchall()
+    conn.close()
+    
+    html = """
+    <div class="card" style="border-top:4px solid #2563eb;">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">🚛 Master Pickup Management Hub</h3>
+        <div class="table-responsive">
+        <table class="datatable">
+            <thead><tr><th>Req ID</th><th>Customer Info</th><th>Date / Time</th><th>Boxes / Wt</th><th>Address</th><th>Status & Rider</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for r in reqs %}
+            <tr>
+                <td class="font-bold text-blue-600">PKP-{{ r.id }}</td>
+                <td><span class="font-bold text-slate-800">{{ r.cust_name }}</span><br><span class="text-xs text-slate-500">{{ r.cust_phone }}</span></td>
+                <td>{{ r.request_date }}<br><span class="text-xs text-red-500 font-bold">Ready By: {{ r.ready_time }}</span></td>
+                <td class="font-bold">{{ r.total_boxes }} Pcs <br><span class="text-xs text-slate-500">{{ r.approx_weight }} KG</span></td>
+                <td class="text-xs">{{ r.pickup_address }}</td>
+                <td>
+                    <span class="px-2 py-1 rounded-full text-xs font-bold 
+                    {% if r.status == 'PENDING' %}bg-amber-100 text-amber-700
+                    {% elif r.status == 'ASSIGNED' %}bg-blue-100 text-blue-700
+                    {% elif r.status == 'COMPLETED' %}bg-green-100 text-green-700
+                    {% else %}bg-red-100 text-red-700{% endif %}">
+                    {{ r.status }}
+                    </span><br>
+                    <span class="text-xs font-bold mt-1 block">{{ r.assigned_rider }}</span>
+                </td>
+                <td style="white-space:nowrap;">
+                    {% if r.status == 'PENDING' or r.status == 'ASSIGNED' %}
+                    <form method="POST" style="display:inline-block;" class="mb-1">
+                        <input type="hidden" name="req_id" value="{{ r.id }}">
+                        <input type="hidden" name="action" value="assign">
+                        <select name="rider" required style="width:100px; padding:2px; font-size:11px; border:1px solid #ccc;">
+                            <option value="">-- Assign Rider --</option>
+                            {% for rider in riders %}<option value="{{ rider.full_name }}">{{ rider.full_name }}</option>{% endfor %}
+                        </select>
+                        <button type="submit" class="btn-primary" style="padding:2px 6px; font-size:11px;">Go</button>
+                    </form><br>
+                    {% endif %}
+                    
+                    {% if r.status != 'COMPLETED' and r.status != 'CANCELLED' %}
+                    <form method="POST" style="display:inline-block;" onsubmit="return confirm('Mark this pickup as successfully completed?');">
+                        <input type="hidden" name="req_id" value="{{ r.id }}">
+                        <input type="hidden" name="action" value="complete">
+                        <button type="submit" class="btn-success" style="padding:3px 8px; font-size:11px;"><i class="fas fa-check"></i> Done</button>
+                    </form>
+                    <form method="POST" style="display:inline-block;" onsubmit="return confirm('Are you sure you want to cancel this request?');">
+                        <input type="hidden" name="req_id" value="{{ r.id }}">
+                        <input type="hidden" name="action" value="cancel">
+                        <button type="submit" class="btn-danger" style="padding:3px 8px; font-size:11px;"><i class="fas fa-times"></i></button>
+                    </form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    """
+    return render_page("Manage Pickups", render_template_string(html, reqs=requests_list, riders=riders))
+
+# ==========================================
+# 📘 3.10 ADDRESS BOOK (SAVED RECEIVERS)
+# ==========================================
+@app.route('/address_book', methods=['GET', 'POST'])
+@login_required
+def address_book():
+    if session.get('role') != 'CUSTOMER': return redirect('/')
+    conn = get_db()
+    cid = session.get('customer_id')
+    
+    # Auto-Heal: Create Table
+    with conn.cursor() as c:
+        c.execute("""CREATE TABLE IF NOT EXISTS address_book (
+            id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, name VARCHAR(100), 
+            phone VARCHAR(50), address TEXT, station VARCHAR(100), state_code VARCHAR(10), 
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+            
+    if request.method == 'POST':
+        action = request.form.get('action')
+        with conn.cursor() as c:
+            if action == 'add':
+                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (request.form.get('station').upper(),))
+                c.execute("INSERT INTO address_book (customer_id, name, phone, address, station, state_code) VALUES (%s,%s,%s,%s,%s,%s)",
+                          (cid, request.form.get('name'), request.form.get('phone'), request.form.get('address'), request.form.get('station').upper(), request.form.get('state_code')))
+                flash("✅ Address saved to your Address Book!", "success")
+            elif action == 'delete':
+                c.execute("DELETE FROM address_book WHERE id=%s AND customer_id=%s", (request.form.get('del_id'), cid))
+                flash("Address deleted.", "success")
+        conn.commit()
+        return redirect('/address_book')
+        
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM address_book WHERE customer_id=%s ORDER BY name ASC", (cid,))
+        addresses = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name")
+        stations = c.fetchall()
+    conn.close()
+    
+    html = """
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="card" style="border-top:4px solid #10b981;">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">📘 Add New Receiver</h3>
+            <form method="POST" class="space-y-3">
+                <input type="hidden" name="action" value="add">
+                <div><label class="label-modern">Receiver Name *</label><input type="text" name="name" required class="input-modern"></div>
+                <div><label class="label-modern">Phone</label><input type="text" name="phone" class="input-modern"></div>
+                <div><label class="label-modern">Dest Station *</label><input type="text" name="station" list="st_list" class="input-modern uppercase font-bold" required><datalist id="st_list">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist></div>
+                <div><label class="label-modern">State Code</label><input type="text" name="state_code" class="input-modern" maxlength="2"></div>
+                <div><label class="label-modern">Full Address</label><textarea name="address" rows="3" class="input-modern"></textarea></div>
+                <button type="submit" class="btn-success w-full"><i class="fas fa-save"></i> Save Address</button>
+            </form>
+        </div>
+        <div class="card lg:col-span-2">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Saved Addresses ({{ addrs|length }})</h3>
+            <table class="datatable">
+                <thead><tr><th>Name / Phone</th><th>Destination</th><th>Address</th><th>Action</th></tr></thead>
+                <tbody>
+                {% for a in addrs %}
+                <tr>
+                    <td><span class="font-bold text-blue-600">{{ a.name }}</span><br><span class="text-xs text-slate-500">{{ a.phone }}</span></td>
+                    <td class="font-bold">{{ a.station }} <br><span class="text-xs text-slate-500 font-normal">State: {{ a.state_code }}</span></td>
+                    <td class="text-xs">{{ a.address }}</td>
+                    <td>
+                        <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this address?');">
+                            <input type="hidden" name="action" value="delete"><input type="hidden" name="del_id" value="{{ a.id }}">
+                            <button type="submit" class="btn-danger" style="padding:3px 8px; font-size:11px;"><i class="fas fa-trash"></i></button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+    return render_page("Address Book", render_template_string(html, addrs=addresses, stations=stations))
 
 # ==========================================
 # SERVER LAUNCHER
