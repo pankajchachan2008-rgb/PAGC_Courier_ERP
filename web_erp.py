@@ -16,6 +16,7 @@ try: import qrcode
 except ImportError: qrcode = None
 
 from markupsafe import escape
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # ==========================================
 # 🛡️ LOGGING & CONFIG
@@ -68,20 +69,49 @@ def validate_csrf():
     if not supplied or not expected or not hmac.compare_digest(supplied, expected):
         abort(400, description='Invalid or missing CSRF token.')
 
-def get_db():
+from dbutils.pooled_db import PooledDB
+import pymysql
+
+# ==========================================
+# 🚀 DATABASE CONNECTION POOLING (HIGH PERFORMANCE)
+# ==========================================
+db_pool = None
+
+def init_db_pool():
+    global db_pool
     try:
         if config.has_section('CLOUD_DB'):
-            return pymysql.connect(
+            db_pool = PooledDB(
+                creator=pymysql,
+                maxconnections=30,  # Max 30 concurrent connections allowed
+                mincached=2,        # Hamesha 2 connections ready rahenge
+                maxcached=10,
+                blocking=True,      # Agar limit cross hui, toh wait karega (crash nahi hoga)
                 host=config['CLOUD_DB']['host'].strip().strip('"').strip("'"),
                 port=int(config['CLOUD_DB']['port'].strip().strip('"').strip("'")),
                 user=config['CLOUD_DB']['user'].strip().strip('"').strip("'"),
                 password=config['CLOUD_DB']['password'].strip().strip('"').strip("'"),
                 database=config['CLOUD_DB']['database'].strip().strip('"').strip("'"),
-                cursorclass=pymysql.cursors.DictCursor, ssl={'ssl': {}})
-        return pymysql.connect(host='localhost', port=3306, user='root', password='', database='agc_erp', cursorclass=pymysql.cursors.DictCursor)
+                cursorclass=pymysql.cursors.DictCursor,
+                ssl={'ssl': {}},
+                ping=1  # Hamesha ping karke check karega ki connection zinda hai ya nahi
+            )
+        else:
+            db_pool = PooledDB(
+                creator=pymysql, maxconnections=20, blocking=True, ping=1,
+                host='localhost', port=3306, user='root', password='', 
+                database='agc_erp', cursorclass=pymysql.cursors.DictCursor
+            )
     except Exception as e:
-        logging.error(f"DB Error: {e}")
+        logging.error(f"Pool Init Error: {e}")
         raise
+
+# Server start hote hi pool initialize kar do
+init_db_pool()
+
+def get_db():
+    """Ab naya connection banne ki jagah, ye sidha Pool se fast connection dega"""
+    return db_pool.connection()
 
 def auto_heal_db():
     try:
@@ -318,18 +348,36 @@ def login():
         conn = get_db(); c = conn.cursor()
         c.execute("SELECT * FROM users WHERE username=%s AND active=1", (u,))
         r = c.fetchone()
-        if r and r['password_hash'] == hashlib.sha256(p.encode()).hexdigest():
-            session.clear()
-            user_id = r.get('id', 1) if r else 1
-            session.update({
-                'user_id': user_id, 'username': u,
-                'full_name': r.get('full_name', 'Admin') if r else 'Admin',
-                'role': r.get('role', 'ADMIN') if r else 'ADMIN',
-                'branch': str(r.get('branch_name', 'HQ')) if r else 'HQ',
-                'customer_id': r.get('customer_id') if r else None
-            })
-            conn.close()
-            return redirect(url_for('dashboard'))
+        
+        if r:
+            is_valid = False
+            # Check 1: Old SHA256 Logic (Auto-upgrade to new secure hash if matched)
+            if r['password_hash'] == hashlib.sha256(p.encode()).hexdigest():
+                is_valid = True
+                # Automatically secure the password for future logins
+                from werkzeug.security import generate_password_hash
+                new_secure_hash = generate_password_hash(p)
+                c.execute("UPDATE users SET password_hash=%s WHERE id=%s", (new_secure_hash, r['id']))
+                conn.commit()
+            # Check 2: New Secure PBKDF2 Hash Logic
+            else:
+                from werkzeug.security import check_password_hash
+                if check_password_hash(r['password_hash'], p):
+                    is_valid = True
+
+            if is_valid:
+                session.clear()
+                user_id = r.get('id', 1)
+                session.update({
+                    'user_id': user_id, 'username': u,
+                    'full_name': r.get('full_name', 'Admin') if r else 'Admin',
+                    'role': r.get('role', 'ADMIN') if r else 'ADMIN',
+                    'branch': str(r.get('branch_name', 'HQ')) if r else 'HQ',
+                    'customer_id': r.get('customer_id') if r else None
+                })
+                conn.close()
+                return redirect(url_for('dashboard'))
+                
         flash('Invalid Credentials!', 'error')
         conn.close()
     
@@ -1046,8 +1094,13 @@ def users():
         cid = safe_int(d.get('customer_id')) if d.get('customer_id') else None
         with conn.cursor() as c:
             c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (b,))
+            
+            # 🛡️ SECURITY FIX: Generate Secure PBKDF2 Hash
+            from werkzeug.security import generate_password_hash
+            secure_hash = generate_password_hash(d.get('password',''))
+            
             c.execute("INSERT INTO users(username, password_hash, full_name, role, branch_name, customer_id, active) VALUES(%s,%s,%s,%s,%s,%s,1)",
-                      (d.get('username',''), hashlib.sha256(d.get('password','').encode()).hexdigest(), d.get('full_name',''), d.get('role',''), b, cid))
+                      (d.get('username',''), secure_hash, d.get('full_name',''), d.get('role',''), b, cid))
         conn.commit(); flash("✅ User Created Successfully!", "success")
     
     with conn.cursor() as c:
@@ -1119,9 +1172,12 @@ def edit_user(uid):
             cid = safe_int(d.get('customer_id')) if d.get('customer_id') else None
             c.execute("UPDATE users SET username=%s, full_name=%s, role=%s, branch_name=%s, customer_id=%s WHERE id=%s",
                       (d.get('username',''), d.get('full_name',''), d.get('role',''), b, cid, uid))
-            # 🔑 Password Reset (Optional - only if new password provided)
+            
+            # 🔑 🛡️ SECURITY FIX: Password Reset with Secure PBKDF2 Hash
             if d.get('new_pass', '').strip():
-                c.execute("UPDATE users SET password_hash=%s WHERE id=%s", (hashlib.sha256(d.get('new_pass','').encode()).hexdigest(), uid))
+                from werkzeug.security import generate_password_hash
+                secure_hash = generate_password_hash(d.get('new_pass', '').strip())
+                c.execute("UPDATE users SET password_hash=%s WHERE id=%s", (secure_hash, uid))
                 flash("✅ User Updated + Password Reset!", "success")
             else:
                 flash("✅ User Updated Successfully!", "success")
@@ -1168,36 +1224,55 @@ def edit_user(uid):
     return render_page(f"Edit User: {user['username']}", render_template_string(html, user=user, custs=custs, branches=branches))
 
 # ==========================================
-# ⚙️ 2.8 SETTINGS (Company + Password) — FIXED TRAILING SPACES
+# ⚙️ 2.8 SETTINGS (Company + Password) — SECURED
 # ==========================================
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
 def settings():
     conn = get_db()
     if request.method == 'POST':
-        # 🔑 PASSWORD CHANGE
+        # 🔑 PASSWORD CHANGE (UPGRADED TO BANK-LEVEL SECURITY)
         if 'old_pass' in request.form:
-            old_p = hashlib.sha256(request.form.get('old_pass','').encode()).hexdigest()
-            new_p = hashlib.sha256(request.form.get('new_pass','').encode()).hexdigest()
+            old_p = request.form.get('old_pass', '')
+            new_p = request.form.get('new_pass', '')
             with conn.cursor() as c:
-                c.execute("SELECT password_hash FROM users WHERE id=%s", (session['user_id'],)); u = c.fetchone()
-                if u and u['password_hash'] == old_p:
-                    c.execute("UPDATE users SET password_hash=%s WHERE id=%s", (new_p, session['user_id']))
-                    conn.commit(); flash("✅ Password Changed!", "success")
-                else: flash("❌ Old Password Incorrect!", "error")
+                c.execute("SELECT password_hash FROM users WHERE id=%s", (session['user_id'],))
+                u = c.fetchone()
+                
+                is_valid_old = False
+                if u:
+                    from werkzeug.security import check_password_hash, generate_password_hash
+                    import hashlib
+                    
+                    # Check 1: Old SHA256 logic (taaki purane accounts block na ho)
+                    if u['password_hash'] == hashlib.sha256(old_p.encode()).hexdigest():
+                        is_valid_old = True
+                    # Check 2: New PBKDF2 Secure Hash
+                    elif check_password_hash(u['password_hash'], old_p):
+                        is_valid_old = True
+
+                if is_valid_old:
+                    # Naya password hamesha SECURE hash me save hoga
+                    secure_hash = generate_password_hash(new_p)
+                    c.execute("UPDATE users SET password_hash=%s WHERE id=%s", (secure_hash, session['user_id']))
+                    conn.commit()
+                    flash("✅ Password Changed Successfully!", "success")
+                else: 
+                    flash("❌ Old Password Incorrect!", "error")
+                    
         # 🏢 COMPANY SETTINGS (Admin only)
         else:
-            if session.get('role') != 'ADMIN': flash("#⚠ Only Admins can change system settings.", "error")
+            if session.get('role') != 'ADMIN': 
+                flash("#⚠ Only Admins can change system settings.", "error")
             else:
                 with conn.cursor() as c:
-                    # ✅ FIX: Trailing spaces removed from keys
                     for key in ['company_name','company_address','company_gstin','company_phone','company_state_code','company_email','bank_details','terms_note','fuel_surcharge']:
                         c.execute("UPDATE settings SET value=%s WHERE key_name=%s", (request.form.get(key, ''), key))
                     conn.commit(); flash("✅ Settings Updated!", "success")
     
     with conn.cursor() as c:
         c.execute("SELECT key_name, value FROM settings")
-        settings_data = {r['key_name'].strip(): r['value'] for r in c.fetchall()}  # ✅ FIX: Strip keys
+        settings_data = {r['key_name'].strip(): r['value'] for r in c.fetchall()}  
     conn.close()
     
     html = """
@@ -3751,6 +3826,110 @@ def sync_download():
         return jsonify({"success": False, "error": str(e)})
     finally:
         conn.close()
+
+@app.route('/api/sync/smart', methods=['POST'])
+def sync_smart():
+    """Receives local unsynced shipments, merges them securely, and returns cloud updates."""
+    # 🛡️ SECURITY: Verify the desktop app using a secret token, not a database password.
+    client_token = request.headers.get('X-Sync-Token')
+    server_token = os.environ.get('SYNC_API_KEY', 'agc-super-secret-sync-key-2026')
+    if client_token != server_token:
+        return jsonify({"success": False, "error": "Unauthorized Sync API Access"}), 403
+
+    payload = request.get_json()
+    local_shipments = payload.get('shipments', [])
+    
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            cols = ["customer_id","booking_date","origin_name","origin_phone","origin_address","origin_state_code",
+                    "dest_name","dest_phone","dest_address","dest_state_code","dest_station","weight_kg","quantity",
+                    "cod_amount","declared_value","service_type","taxable_amount","tax_rate","cgst","sgst","igst",
+                    "total_amount","status","current_location","info","updated_at"]
+            
+            RANK = {"STATIONERY":0,"BOOKED":1,"OUTWARD":2,"INWARD":3,"ON_DRS":4,"DELIVERED":5,"UNDELIVERED":5,"CANCELLED":6}
+
+            def is_empty(v, col):
+                return v is None or str(v).strip() == ""
+
+            def merge_logic(pri, fb):
+                m = {}
+                pri_newer = True
+                if pri.get('updated_at') and fb.get('updated_at'):
+                    if str(fb['updated_at']) > str(pri['updated_at']):
+                        pri_newer = False
+                
+                primary = pri if pri_newer else fb
+                fallback = fb if pri_newer else pri
+
+                for col in cols:
+                    if col == "status": continue
+                    m[col] = primary.get(col) if not is_empty(primary.get(col), col) else fallback.get(col)
+                
+                ra = RANK.get(str(pri.get("status") or "").upper(), 1)
+                rb = RANK.get(str(fb.get("status") or "").upper(), 1)
+                m["status"] = pri.get("status") if ra >= rb else fb.get("status")
+                return m
+
+            # 1. Merge Incoming Desktop Data to Cloud
+            for lrow in local_shipments:
+                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (lrow['awb_no'],))
+                crow = c.fetchone()
+                if crow:
+                    merged = merge_logic(lrow, crow)
+                    sets = ", ".join([f"`{col}`=%s" for col in cols])
+                    vals = [merged.get(col) for col in cols]
+                    c.execute(f"UPDATE shipments SET {sets} WHERE awb_no=%s", tuple(vals + [lrow['awb_no']]))
+                else:
+                    placeholders = ", ".join(["%s"] * len(cols))
+                    vals = [lrow.get(col) for col in cols]
+                    c.execute(f"INSERT INTO shipments (awb_no, {', '.join(['`'+col+'`' for col in cols])}) VALUES (%s, {placeholders})", tuple([lrow['awb_no']] + vals))
+
+            # 2. Fetch Latest Cloud Data to send back to Desktop
+            c.execute(f"SELECT awb_no, {', '.join(['`'+col+'`' for col in cols])} FROM shipments ORDER BY id DESC LIMIT 500")
+            cloud_latest = c.fetchall()
+            
+            # Serialize dates for JSON
+            for r in cloud_latest:
+                for k, v in r.items():
+                    if isinstance(v, (datetime.date, datetime.datetime)): r[k] = str(v)
+
+        conn.commit()
+        return jsonify({"success": True, "cloud_shipments": cloud_latest})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+    finally:
+        conn.close()
+
+@app.route('/api/sync/force_upload', methods=['POST'])
+def force_upload():
+    """Receives master table dumps from desktop and rebuilds cloud."""
+    client_token = request.headers.get('X-Sync-Token')
+    server_token = os.environ.get('SYNC_API_KEY', 'agc-super-secret-sync-key-2026')
+    if client_token != server_token: return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    tables = request.get_json().get('tables', {})
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            c.execute("SET FOREIGN_KEY_CHECKS=0;")
+            for tbl, rows in tables.items():
+                c.execute(f"TRUNCATE TABLE `{tbl}`")
+                if rows:
+                    cols = list(rows[0].keys())
+                    cols_str = ", ".join([f"`{col}`" for col in cols])
+                    placeholders = ", ".join(["%s"] * len(cols))
+                    insert_query = f"INSERT INTO `{tbl}` ({cols_str}) VALUES ({placeholders})"
+                    bulk_data = [tuple(r.values()) for r in rows]
+                    c.executemany(insert_query, bulk_data)
+            c.execute("SET FOREIGN_KEY_CHECKS=1;")
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+    finally:
+        conn.close()
+
 
 # ==========================================
 # SERVER LAUNCHER
