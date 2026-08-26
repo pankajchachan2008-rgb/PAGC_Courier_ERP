@@ -342,6 +342,50 @@ def render_page(title, content):
     return render_template_string(AGCS_BASE_HTML, title=title, content=protected_content)
 
 # ==========================================
+# 🛠️ DIRECT DATABASE FIX ROUTE (RUN ONCE)
+# ==========================================
+@app.route('/fix_db')
+def fix_db():
+    conn = get_db()
+    messages = []
+    try:
+        with conn.cursor() as c:
+            # 1. Fix Shipments Table
+            try:
+                c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+                messages.append("✅ shipments table: 'updated_at' successfully added!")
+            except Exception as e:
+                messages.append(f"⚠️ shipments issue: {str(e)}")
+                
+            # 2. Fix Outward Register Table (pcs)
+            try:
+                c.execute("ALTER TABLE outward_register ADD COLUMN pcs INT DEFAULT 1")
+                messages.append("✅ outward_register table: 'pcs' successfully added!")
+            except Exception as e:
+                messages.append(f"⚠️ outward_register issue (pcs): {str(e)}")
+
+            # 3. Fix Outward Register Table (bag_no)
+            try:
+                c.execute("ALTER TABLE outward_register ADD COLUMN bag_no VARCHAR(100)")
+                messages.append("✅ outward_register table: 'bag_no' successfully added!")
+            except Exception as e:
+                messages.append(f"⚠️ outward_register issue (bag_no): {str(e)}")
+
+        conn.commit()
+    except Exception as e:
+        messages.append(f"❌ Connection Error: {str(e)}")
+    finally:
+        conn.close()
+        
+    html = "<body style='font-family: Arial; padding: 40px; line-height: 1.6;'>"
+    html += "<h2>Cloud Database Diagnostic & Fix Tool</h2><ul>"
+    for m in messages:
+        html += f"<li>{m}</li>"
+    html += "</ul><h3>🔥 Done! Ab aap apne Desktop app se Sync ya 'Master Force Upload' try karein!</h3></body>"
+    
+    return html
+
+# ==========================================
 # 🔐 LOGIN / LOGOUT
 # ==========================================
 @app.route('/login', methods=['GET', 'POST'])
