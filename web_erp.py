@@ -2169,79 +2169,91 @@ def outward():
 # ==========================================
 # 💰 3.7 LEDGER (FIXED: Admin + Customer Access)
 # ==========================================
-@app.route('/my_ledger')
+# ==========================================
+# 💰 3.7 MY LEDGER (CUSTOMER PANEL) - FIXED
+# ==========================================
+@app.route('/my_ledger', methods=['GET'])
 @login_required
 def my_ledger():
+    # 1. Agar Admin/Accounts login hai, toh seedha Party Ledger pe bhejo
+    if session.get('role') != 'CUSTOMER':
+        return redirect('/party_ledger')
+        
     conn = get_db()
-    cid = None; l_data = []; c_bal = 0.0; customer_name = ""
+    cid = session.get('customer_id')
     
-    if session.get('role') == 'CUSTOMER':
-        cid = session.get('customer_id')
-    elif 'party_ledger' in request.path:
-        cid = request.args.get('cust_id')
+    # 2. ERROR HANDLING: Agar Admin ne User ko Customer Profile se link nahi kiya hai
+    if not cid:
+        return render_page("My Ledger", """
+        <div class='card p-12 text-center mt-6'>
+            <i class='fas fa-exclamation-triangle text-5xl text-red-500 mb-4'></i>
+            <h3 class='text-xl font-bold text-red-600'>Account Not Linked</h3>
+            <p class='text-slate-600 mt-2 font-medium'>Aapka user account kisi B2B Customer Profile se juda hua nahi hai.</p>
+            <p class='text-slate-500 text-sm mt-1'>Kripya Admin se kahin ki "User Setup" me jakar aapki profile ko 'Link Customer' se update karein.</p>
+        </div>
+        """)
+
+    # 3. DATE FILTERS (Default: 1st of the month to Today)
+    f_date = request.args.get('from_date', datetime.datetime.now().replace(day=1).strftime('%Y-%m-%d'))
+    t_date = request.args.get('to_date', datetime.datetime.now().strftime('%Y-%m-%d'))
     
-    if cid:
-        with conn.cursor() as c:
-            c.execute("SELECT name FROM customers WHERE id=%s", (cid,))
-            cst = c.fetchone()
-            if cst: customer_name = cst['name']
-            c.execute("SELECT * FROM ledger WHERE customer_id=%s ORDER BY entry_date DESC, id DESC", (cid,))
-            l_data = c.fetchall()
-            c.execute("SELECT COALESCE(SUM(debit-credit),0) b FROM ledger WHERE customer_id=%s", (cid,))
-            r = c.fetchone()
-            c_bal = safe_float(r['b']) if r else 0.0
+    l_data = []; c_bal = 0.0; customer_name = ""
     
     with conn.cursor() as c:
-        c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
-        custs = c.fetchall()
+        # Get Customer Name
+        c.execute("SELECT name FROM customers WHERE id=%s", (cid,))
+        cst = c.fetchone()
+        if cst: customer_name = cst['name']
+        
+        # Fetch Date-Filtered Ledger Data
+        c.execute("""SELECT entry_date, voucher_type, reference, debit, credit, narration 
+            FROM ledger WHERE customer_id=%s AND entry_date BETWEEN %s AND %s 
+            ORDER BY entry_date ASC, id ASC""", (cid, f_date, t_date))
+        l_data = c.fetchall()
+        
+        # Get Net Outstanding Total (Overall)
+        c.execute("SELECT COALESCE(SUM(debit-credit),0) b FROM ledger WHERE customer_id=%s", (cid,))
+        r = c.fetchone()
+        c_bal = safe_float(r['b']) if r else 0.0
     conn.close()
     
     html = """
-    {% if session.get('role') != 'CUSTOMER' %}
     <div class="card" style="background:#f8fafc;">
-        <form method="GET" action="/party_ledger" class="flex gap-3 items-end">
-            <div class="flex-1"><label class="label-modern">Select Customer</label>
-                <select name="cust_id" class="input-modern" required onchange="this.form.submit()">
-                    <option value="">-- Choose Customer --</option>
-                    {% for c in custs %}<option value="{{ c.id }}" {% if c.id|string == cid %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
-                </select>
-            </div>
-            {% if cid %}<button type="button" class="btn-primary" onclick="window.print()"><i class="fas fa-print"></i> Print</button>{% endif %}
+        <form method="GET" class="flex flex-wrap gap-3 items-end p-5">
+            <div><label class="label-modern">📅 From Date</label><input type="date" name="from_date" value="{{ f_date }}" class="input-modern" required></div>
+            <div><label class="label-modern">📅 To Date</label><input type="date" name="to_date" value="{{ t_date }}" class="input-modern" required></div>
+            <button type="submit" class="btn-primary"><i class="fas fa-search"></i> Load Statement</button>
+            <button type="button" class="btn-warning" onclick="window.print()"><i class="fas fa-print"></i> Print</button>
         </form>
     </div>
-    {% endif %}
-    {% if cid %}
-    <div class="card mt-4">
-        <div class="flex justify-between items-center mb-4">
+    
+    <div class="card mt-6">
+        <div class="flex justify-between items-center mb-4 p-5 border-b border-slate-200">
             <h3 class="text-lg font-bold text-slate-800">📒 Account Statement: <span class="text-blue-600">{{ customer_name }}</span></h3>
-            <div class="px-4 py-2 rounded-lg font-bold text-lg {% if c_bal > 0 %}bg-red-50 text-red-700{% else %}bg-green-50 text-green-700{% endif %}">
-                Outstanding: ₹ {{ "{:,.2f}".format(c_bal) }}
+            <div class="px-4 py-2 rounded-lg font-bold text-lg {% if c_bal > 0 %}bg-red-50 text-red-700 border border-red-200{% else %}bg-green-50 text-green-700 border border-green-200{% endif %}">
+                Net Outstanding: ₹ {{ "{:,.2f}".format(c_bal) }}
             </div>
         </div>
-        <table class="datatable">
-            <thead><tr><th>Date</th><th>Voucher</th><th>Reference</th><th>Debit (Bill ₹)</th><th>Credit (Paid ₹)</th><th>Narration</th></tr></thead>
-            <tbody>
-            {% for l in l_data %}
-            <tr>
-                <td>{{ l.entry_date }}</td>
-                <td><span class="px-2 py-1 rounded-full text-xs font-bold {% if l.voucher_type == 'INVOICE' %}bg-purple-100 text-purple-700{% else %}bg-green-100 text-green-700{% endif %}">{{ l.voucher_type }}</span></td>
-                <td class="font-bold">{{ l.reference }}</td>
-                <td class="text-red-600 font-bold">{% if l.debit > 0 %}₹ {{ l.debit }}{% else %}-{% endif %}</td>
-                <td class="text-green-600 font-bold">{% if l.credit > 0 %}₹ {{ l.credit }}{% else %}-{% endif %}</td>
-                <td>{{ l.narration }}</td>
-            </tr>
-            {% endfor %}
-            </tbody>
-        </table>
+        <div class="table-responsive px-5 pb-5">
+            <table class="datatable">
+                <thead><tr><th>Date</th><th>Voucher Type</th><th>Reference</th><th>Narration</th><th>Debit (Bill ₹)</th><th>Credit (Paid ₹)</th></tr></thead>
+                <tbody>
+                {% for l in l_data %}
+                <tr>
+                    <td>{{ l.entry_date }}</td>
+                    <td><span class="px-2 py-1 rounded-full text-xs font-bold {% if l.voucher_type == 'INVOICE' %}bg-purple-100 text-purple-700{% else %}bg-green-100 text-green-700{% endif %}">{{ l.voucher_type }}</span></td>
+                    <td class="font-bold">{{ l.reference }}</td>
+                    <td>{{ l.narration }}</td>
+                    <td class="text-red-600 font-bold">{% if l.debit > 0 %}₹ {{ l.debit }}{% else %}-{% endif %}</td>
+                    <td class="text-green-600 font-bold">{% if l.credit > 0 %}₹ {{ l.credit }}{% else %}-{% endif %}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
-    {% else %}
-    <div class="card mt-4 text-center py-12">
-        <i class="fas fa-user-circle text-5xl text-slate-300 mb-4"></i>
-        <h4 class="text-lg font-semibold text-slate-600">Select a customer to view their Ledger Statement.</h4>
-    </div>
-    {% endif %}
     """
-    return render_page("Account Ledger", render_template_string(html, custs=custs, cid=cid, l_data=l_data, c_bal=c_bal, customer_name=customer_name))
+    return render_page("My Ledger", render_template_string(html, l_data=l_data, c_bal=c_bal, f_date=f_date, t_date=t_date, customer_name=customer_name))
 
 #⚠ PART 3 ENDS HERE. PART 4 (DRS, Master Bag, Accounts, Expenses, Invoices) agle message me aayega.
 
