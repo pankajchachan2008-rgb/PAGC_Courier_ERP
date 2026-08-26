@@ -62,8 +62,12 @@ app.jinja_env.globals['csrf_token'] = csrf_token
 def validate_csrf():
     if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
         return
-    if request.endpoint in ('login', 'track', 'sync_download'):
+        
+    # 🚀 API FIX: Desktop app ki naye API routes ko CSRF check se azaad karein
+    if request.endpoint in ('login', 'track', 'sync_download', 'sync_smart', 'force_upload'):
         return
+        
+    # Standard web pages par protection active rahegi
     supplied = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
     expected = session.get('_csrf_token')
     if not supplied or not expected or not hmac.compare_digest(supplied, expected):
