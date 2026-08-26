@@ -15,6 +15,8 @@ from reportlab.lib.utils import ImageReader
 try: import qrcode
 except ImportError: qrcode = None
 
+from markupsafe import escape
+
 # ==========================================
 # 🛡️ LOGGING & CONFIG
 # ==========================================
@@ -102,25 +104,44 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS inward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), in_station VARCHAR(100), weight VARCHAR(50), info TEXT, finalized INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS manifests (id INT AUTO_INCREMENT PRIMARY KEY, manifest_no VARCHAR(100), manifest_type VARCHAR(50), from_location VARCHAR(100), to_location VARCHAR(100), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS manifest_items (id INT AUTO_INCREMENT PRIMARY KEY, manifest_id INT, shipment_id INT, received INT DEFAULT 0)")
-            c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_no VARCHAR(100), drs_date DATE, rider_name VARCHAR(100), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+           c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_no VARCHAR(100), drs_date DATE, rider_name VARCHAR(100), rider_phone VARCHAR(50), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+            
+            # Auto-patch existing cloud database
+            try: c.execute("ALTER TABLE drs ADD COLUMN rider_phone VARCHAR(50) AFTER rider_name")
+            except: pass
+
             c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100), remarks TEXT, pod_photo TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bags (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100) UNIQUE, destination VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bag_items (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))")
-            # ✅ FIX: Missing delivery_register table added for DRS
+# ✅ FIX: Missing delivery_register table added for DRS
             c.execute("CREATE TABLE IF NOT EXISTS delivery_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, delivery_boy VARCHAR(100), delivery_area VARCHAR(100), awb_no VARCHAR(100), receiver_name VARCHAR(100), info TEXT, finalized INT DEFAULT 0, drs_no VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
+
+# 🚀 SYNC FIX: Add missing 'updated_at' to cloud shipments table for Smart Sync
+            try: c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
+            except: pass
+
+            # 🚀 OUTWARD SYNC FIX: Ensure Cloud has the same outward columns as Desktop to prevent Force Upload crash
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN pcs INT DEFAULT 1")
+            except: pass
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN bag_no VARCHAR(100)")
+            except: pass
             
             try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
+            except: pass
+
+            # 🚀 SYNC FIX: Add missing 'updated_at' to cloud shipments table for Smart Sync
+            try: c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
             except: pass
             
             # ✅ FIX: Trailing spaces removed from keys
             defs = {
                 "company_name": "PANKAJ AGENCY COURIER",
-                "company_address": "Head Office: Nohar, Rajasthan",
+                "company_address": "Nohar, Rajasthan",
                 "company_gstin": "08ADQPC7585D1Z9",
                 "company_phone": "+91 7357073316",
                 "company_state_code": "08",
                 "company_email": "PANKAJNOHAR@YAHOO.CO.IN",
-                "bank_details": "HDFC Bank | A/C: 123456789 | IFSC: HDFC0001",
+                "bank_details": "SBI Bank | A/C: 31069139910 | IFSC: SBIN011303",
                 "terms_note": "Liability limited to declared value.",
                 "fuel_surcharge": "0"
             }
@@ -440,15 +461,29 @@ def track_doc():
                     c.execute("SELECT s.awb_no, di.receiver_name, s.dest_address, di.status FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (drs['id'],))
                     items = c.fetchall()
                     rows_html = ""
-                    for i in items: rows_html += f"<tr><td>{i['awb_no']}</td><td>{i['receiver_name']}</td><td>{i['dest_address']}</td><td>{i['status']}</td></tr>"
-                    return f"<html><body style='font-family:Inter;padding:20px;'><h2>DRS: {drs['drs_no']} | Rider: {drs['rider_name']}</h2><table border='1' cellpadding='8' style='border-collapse:collapse;width:100%;'><tr style='background:#2563eb;color:white;'><th>AWB</th><th>Receiver</th><th>Address</th><th>Status</th></tr>{rows_html}</table></body></html>"
+                    
+                    for i in items: 
+                        # 🛡️ SECURITY FIX: Escape raw DB inputs to prevent HTML/JS execution
+                        safe_awb = escape(i['awb_no'] or '')
+                        safe_rec = escape(i['receiver_name'] or '')
+                        safe_addr = escape(i['dest_address'] or '')
+                        safe_status = escape(i['status'] or '')
+                        rows_html += f"<tr><td>{safe_awb}</td><td>{safe_rec}</td><td>{safe_addr}</td><td>{safe_status}</td></tr>"
+                    
+                    # 🛡️ SECURITY FIX: Escape the DRS and Rider names as well
+                    safe_drs_no = escape(drs['drs_no'] or '')
+                    safe_rider = escape(drs['rider_name'] or '')
+                    
+                    return f"<html><body style='font-family:Inter;padding:20px;'><h2>DRS: {safe_drs_no} | Rider: {safe_rider}</h2><table border='1' cellpadding='8' style='border-collapse:collapse;width:100%;'><tr style='background:#2563eb;color:white;'><th>AWB</th><th>Receiver</th><th>Address</th><th>Status</th></tr>{rows_html}</table></body></html>"
                 return err.format("DRS not found.")
             elif doc_type == 'invoice':
                 c.execute("SELECT id FROM invoices WHERE invoice_no=%s", (doc_no,))
                 inv = c.fetchone()
                 if inv: return redirect(f"/print/invoice/{inv['id']}")
                 return err.format("Invoice not found.")
-    except Exception as e: return err.format(str(e))
+    except Exception as e: 
+        # Escape the error string to prevent injection via exception messages
+        return err.format(escape(str(e)))
     finally: conn.close()
     return err.format("Invalid type.")
 
@@ -1747,7 +1782,8 @@ def outward():
                                 c.execute("UPDATE shipments SET status='OUTWARD', current_location=%s, dest_station=%s, weight_kg=%s WHERE awb_no=%s", (st, dest, wt, awb))
                                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'OUTWARD', %s, 'Web Outward Entry')", (s['id'], st))
                             else:
-                                c.execute("INSERT INTO shipments(awb_no, booking_date, dest_station, weight_kg, service_type, status, current_location, info) VALUES(%s, %s, %s, %s, 'SURFACE', 'OUTWARD', %s, %s)", (awb, entry_date, dest, wt, st, info))
+                                # 🛠️ FIX: Force dest_name to be a blank string instead of NULL so 'None' stops showing up
+                                c.execute("INSERT INTO shipments(awb_no, booking_date, dest_name, dest_station, weight_kg, service_type, status, current_location, info) VALUES(%s, %s, '', %s, %s, 'SURFACE', 'OUTWARD', %s, %s)", (awb, entry_date, dest, wt, st, info))
                             flash(f"✅ AWB {awb} Saved to Outward!", "success")
             # EDIT PENDING
             elif action == 'edit_pending':
@@ -3679,6 +3715,10 @@ def sync_download():
     Desktop App ko poora latest data (all tables & all columns)
     JSON format me securely bhejne ke liye.
     """
+    # 🛡️ SECURITY FIX: Strictly block unauthorized roles (like CUSTOMER or DELIVERY) from downloading the database
+    if session.get('role') not in ['ADMIN', 'OPS', 'ACCOUNTS']:
+        return jsonify({"success": False, "error": "Unauthorized Access. Data sync is restricted to authorized personnel."}), 403
+
     conn = get_db()
     response_data = {}
     tables_to_sync = [
@@ -3697,6 +3737,7 @@ def sync_download():
                     for row in rows:
                         clean_row = {}
                         for key, value in row.items():
+                            # Security: Never transmit password hashes, even to the desktop app
                             if tbl == 'users' and key == 'password_hash':
                                 continue
                             if isinstance(value, (datetime.date, datetime.datetime)):
