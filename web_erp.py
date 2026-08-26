@@ -519,7 +519,6 @@ def track():
     awb = (request.args.get('awb') or request.form.get('awb') or '').strip().upper()
     events = []; shipment = None; error_msg = None
     if awb:
-        conn = None
         try:
             conn = get_db()
             with conn.cursor() as c:
@@ -530,15 +529,26 @@ def track():
                     events = list(c.fetchall())
                     c.execute("SELECT network, network_awb FROM outward_register WHERE awb_no=%s AND network != 'SELF' ORDER BY id DESC LIMIT 1", (awb,))
                     od = c.fetchone()
-                    if od and od['network_awb']: 
-                        events = fetch_network_tracking(od['network'], od['network_awb']) + events
-        except Exception as e: 
-            error_msg = str(e)
+                    if od and od['network_awb']: events = fetch_network_tracking(od['network'], od['network_awb']) + events
+
+                    # 🚀 THE FIX: Clean up "None" values for a professional Display
+                    # 1. Fix Origin (If empty, fetch from Outward Register)
+                    if not shipment.get('origin_name') or str(shipment['origin_name']).lower() == 'none':
+                        c.execute("SELECT origin_station FROM outward_register WHERE awb_no=%s ORDER BY id ASC LIMIT 1", (awb,))
+                        orig_row = c.fetchone()
+                        shipment['origin_name'] = orig_row['origin_station'] if orig_row else 'Hub / Branch'
+                    
+                    # 2. Fix Destination (Use Dest Station if Dest Name is empty)
+                    if not shipment.get('dest_name') or str(shipment['dest_name']).lower() == 'none':
+                        shipment['dest_name'] = shipment.get('dest_station') or 'Not Specified'
+                        
+                    # 3. Clean Date Format (Remove 00:00:00)
+                    if shipment.get('booking_date'):
+                        shipment['booking_date'] = str(shipment['booking_date']).split(' ')[0]
+
+        except Exception as e: error_msg = str(e)
         finally:
-            # 🚀 BUG FIX: Safe close for pooled connections
-            if conn:
-                try: conn.close()
-                except: pass
+            if 'conn' in locals() and conn.open: conn.close()
             
     html = """ <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Track | AGC</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gradient-to-br from-slate-900 to-indigo-900 min-h-screen p-8 text-white"><div class="max-w-3xl mx-auto"><div class="text-center mb-8"><h1 class="text-4xl font-bold mb-2">📦 Track Shipment</h1><p class="text-slate-400">Real-time Logistics Tracking</p></div><form method="GET" action="/track" class="flex gap-3 mb-8 bg-white/10 backdrop-blur p-2 rounded-xl"><input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB..." class="flex-1 bg-transparent px-4 py-3 outline-none text-white uppercase" required><button type="submit" class="bg-blue-600 px-6 py-3 rounded-lg font-semibold hover:bg-blue-700">Track</button></form>{% if error_msg %}<div class="bg-red-500/20 border border-red-500 p-4 rounded-xl">{{ error_msg }}</div>{% elif awb and not shipment %}<div class="bg-yellow-500/20 border border-yellow-500 p-4 rounded-xl text-center">No record found.</div>{% elif shipment %}<div class="bg-white/10 backdrop-blur rounded-xl p-6 mb-6"><div class="flex justify-between mb-4"><h2 class="text-3xl font-bold text-blue-300">{{ shipment.awb_no }}</h2><span class="px-4 py-1 rounded-full font-bold text-sm {% if shipment.status=='DELIVERED' %}bg-green-500{% elif shipment.status=='OUTWARD' %}bg-purple-500{% else %}bg-blue-500{% endif %}">{{ shipment.status }}</span></div><div class="grid grid-cols-2 gap-4 text-sm"><div><span class="text-slate-400">From:</span> <b>{{ shipment.origin_name }}</b></div><div><span class="text-slate-400">To:</span> <b>{{ shipment.dest_name }}</b></div><div><span class="text-slate-400">Weight:</span> <b>{{ shipment.weight_kg }} KG</b></div><div><span class="text-slate-400">Date:</span> <b>{{ shipment.booking_date }}</b></div></div></div><div class="bg-white/10 backdrop-blur rounded-xl p-6"><h3 class="font-bold mb-4">📍 Tracking History</h3><div class="space-y-3">{% for e in events %}<div class="flex gap-4 bg-white/5 p-3 rounded-lg"><div class="text-2xl">{% if e.scan_type=='BOOKED' %}📦{% elif e.scan_type=='OUTWARD' %}🚚{% elif e.scan_type=='INWARD' %}📥{% elif e.scan_type=='DELIVERED' %}✅{% else %}📍{% endif %}</div><div class="flex-1"><div class="flex justify-between"><b>{{ e.scan_type }}</b><span class="text-xs text-slate-400">{{ e.f_date }}</span></div><p class="text-sm text-slate-300">{{ e.location }}</p>{% if e.remarks %}<p class="text-xs text-slate-400 mt-1">{{ e.remarks }}</p>{% endif %}</div></div>{% endfor %}{% if not events %}<p class="text-center text-slate-400 py-4">No history yet.</p>{% endif %}</div></div>{% endif %}</div></body></html> """
     return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
