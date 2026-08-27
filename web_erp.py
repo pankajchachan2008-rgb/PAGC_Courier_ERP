@@ -224,13 +224,14 @@ def serve_logo():
     return "Logo not found", 404
 
 # ==========================================
-# 🎨 ENTERPRISE THEME (MODERN SAAS UI)
+# 🎨 ENTERPRISE THEME (100% MOBILE RESPONSIVE UI)
 # ==========================================
 AGCS_BASE_HTML = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8"> <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8"> 
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>{{ title }} | AGC ERP</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -238,38 +239,56 @@ AGCS_BASE_HTML = """
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <style>
-        body{font-family:'Inter',system-ui,sans-serif;background:#f1f5f9}
+        body{font-family:'Inter',system-ui,sans-serif;background:#f1f5f9; overflow-x: hidden;}
         .sidebar-link{transition:.2s}.sidebar-link:hover,.sidebar-link.active{background:#1e293b;color:#38bdf8;border-left:3px solid #38bdf8}
         .card{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #e2e8f0}
-        .btn-primary{background:#2563eb;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;display:inline-block;text-decoration:none;font-size:14px}
+        .btn-primary{background:#2563eb;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;display:inline-block;text-decoration:none;font-size:14px; white-space:nowrap;}
         .btn-primary:hover{background:#1d4ed8}
-        .btn-danger{background:#ef4444;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px}
-        .btn-success{background:#16a34a;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px}
-        .btn-warning{background:#f59e0b;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px}
+        .btn-danger{background:#ef4444;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px; white-space:nowrap;}
+        .btn-success{background:#16a34a;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px; white-space:nowrap;}
+        .btn-warning{background:#f59e0b;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px; white-space:nowrap;}
         .input-modern{width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff}
         .input-modern:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
         .label-modern{font-size:12px;font-weight:600;color:#475569;margin-bottom:4px;display:block}
-        .datatable{width:100%;border-collapse:collapse;font-size:13px;background:#fff}
+        
+        /* Mobile Table Fix */
+        .table-responsive-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; }
+        .datatable{width:100%;border-collapse:collapse;font-size:13px;background:#fff; white-space:nowrap;}
         .datatable th{background:#f8fafc;color:#475569;font-weight:600;text-align:left;padding:10px 12px;border-bottom:2px solid #e2e8f0}
         .datatable td{padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#334155}
         .datatable tr:hover{background:#f8fafc}
-        .tab-btn{padding:10px 20px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px 6px 0 0;cursor:pointer;font-weight:500;color:#475569;font-size:13px}
+        
+        .tab-btn{padding:10px 20px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px 6px 0 0;cursor:pointer;font-weight:500;color:#475569;font-size:13px; white-space:nowrap;}
         .tab-btn.active{background:#2563eb;color:#fff;border-color:#2563eb}
         .tab-content{display:none}.tab-content.active{display:block}
         .modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.6);overflow-y:auto}
-        .modal-content{background:#fff;margin:5% auto;padding:24px;border:1px solid #e2e8f0;width:600px;max-width:90%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+        .modal-content{background:#fff;margin:10% auto;padding:24px;border:1px solid #e2e8f0;width:600px;max-width:95%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
     </style>
 </head>
 <body class="bg-slate-100 text-slate-800">
-<aside class="fixed top-0 left-0 z-40 w-64 h-screen bg-slate-900 text-slate-300 overflow-y-auto">
-    <div class="p-5 border-b border-slate-800 flex items-center gap-3">
-        <!-- ✅ LOGO INTEGRATION -->
-        <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden p-1 shadow-sm">
-            <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
+
+<!-- 📱 Mobile Overlay -->
+<div id="mobile-overlay" class="fixed inset-0 bg-slate-900/50 z-40 hidden transition-opacity md:hidden" onclick="toggleSidebar()"></div>
+
+<!-- Sidebar -->
+<aside id="sidebar" class="fixed top-0 left-0 z-50 w-64 h-screen bg-slate-900 text-slate-300 overflow-y-auto transform -translate-x-full transition-transform duration-300 ease-in-out md:translate-x-0">
+    <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden p-1 shadow-sm">
+                <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
+            </div>
+            <div> 
+                <h1 class="text-white font-bold text-lg leading-tight">AGC ERP</h1> 
+                <p class="text-xs text-slate-500">Enterprise Courier</p> 
+            </div>
         </div>
-        <div> <h1 class="text-white font-bold text-lg leading-tight">AGC ERP</h1> <p class="text-xs text-slate-500">Enterprise Courier</p> </div>
+        <!-- Mobile Close Sidebar Button -->
+        <button onclick="toggleSidebar()" class="md:hidden text-slate-400 hover:text-white">
+            <i class="fas fa-times text-xl"></i>
+        </button>
     </div>
-    <nav class="p-4 space-y-1 text-sm">
+    
+    <nav class="p-4 space-y-1 text-sm pb-20">
         <a href="/" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-chart-line w-5"></i> Dashboard </a>
         {% if session.get('role') == 'CUSTOMER' %}
         <a href="/booking" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-plus-circle w-5"></i> New Booking </a>
@@ -278,8 +297,8 @@ AGCS_BASE_HTML = """
         <a href="/address_book" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-address-book w-5"></i> Address Book </a>
         <a href="/developer_api" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-code w-5"></i> API & Integration </a>
         <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-box w-5"></i> My Shipments </a>
-        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Ledger </a>
-        <a href="/wallet" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-rupee-sign w-5"></i> My Wallet </a>
+        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-invoice-dollar w-5"></i> My Ledger </a>
+        <a href="/wallet" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Wallet </a>
         {% else %}
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Master Entries</div>
         <a href="/customers" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-building w-5"></i> Franchisee Master </a>
@@ -290,6 +309,7 @@ AGCS_BASE_HTML = """
         <a href="/stationery" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-barcode w-5"></i> Shipper/Barcode </a>
         <a href="/delivery_boy" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-motorcycle w-5"></i> Delivery Boys </a>
         <a href="/users" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-users-cog w-5"></i> User Setup </a>
+        
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Transactions</div>
         <a href="/booking" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-invoice w-5"></i> Counter Booking </a>
         <a href="/inward" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-sign-in-alt w-5"></i> Cargo Inward </a>
@@ -302,49 +322,111 @@ AGCS_BASE_HTML = """
         <a href="/expenses" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-receipt w-5"></i> Journal Voucher </a>
         <a href="/party_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-balance-scale w-5"></i> Party Ledger </a>
         <a href="/manage_wallets" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> Manage Wallets </a>
+        
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Reports</div>
         <a href="/reports" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-chart-bar w-5"></i> Reports Hub </a>
         <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-list w-5"></i> Delivery Status </a>
+        
         <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Utilities</div>
         <a href="/import_csv" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-csv w-5"></i> CSV Import </a>
         <a href="/settings" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-cog w-5"></i> Settings </a>
         {% endif %}
     </nav>
 </aside>
-<div class="ml-64 min-h-screen flex flex-col">
-    <header class="bg-white shadow-sm h-16 flex items-center justify-between px-6 sticky top-0 z-30 border-b border-slate-200">
-        <h2 class="text-lg font-semibold text-slate-800">{{ title }}</h2>
-        <div class="flex items-center gap-6">
-            <form action="/track_doc" method="POST" target="_blank" class="flex items-center bg-slate-100 rounded-lg px-3 py-2">
+
+<!-- Main Wrapper (Adjusts margin based on screen size) -->
+<div class="md:ml-64 min-h-screen flex flex-col w-full md:w-auto transition-all duration-300">
+    
+    <!-- Top Header -->
+    <header class="bg-white shadow-sm h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30 border-b border-slate-200">
+        <div class="flex items-center gap-3">
+            <!-- 🍔 Mobile Hamburger Menu -->
+            <button onclick="toggleSidebar()" class="md:hidden text-slate-500 hover:text-slate-800 focus:outline-none">
+                <i class="fas fa-bars text-xl"></i>
+            </button>
+            <h2 class="text-lg font-semibold text-slate-800 truncate max-w-[150px] md:max-w-none">{{ title }}</h2>
+        </div>
+        
+        <div class="flex items-center gap-3 md:gap-6">
+            <!-- Search hidden on very small mobile, visible on larger screens -->
+            <form action="/track_doc" method="POST" target="_blank" class="hidden sm:flex items-center bg-slate-100 rounded-lg px-3 py-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <i class="fas fa-search text-slate-400 mr-2"></i>
-                <input type="text" name="awb" placeholder="Track AWB/DRS/Invoice..." class="bg-transparent outline-none text-sm w-56">
+                <input type="text" name="awb" placeholder="Track AWB..." class="bg-transparent outline-none text-sm w-32 md:w-56">
                 <input type="hidden" name="doc_type" value="c_note">
             </form>
-            <div class="flex items-center gap-3 pl-6 border-l border-slate-200">
-                <div class="text-right"> <p class="text-sm font-semibold text-slate-800">{{ session.get('full_name','Admin') }}</p> <p class="text-xs text-slate-500">{{ session.get('role') }} | {{ session.get('branch','HQ') }}</p> </div>
-                <a href="/logout" class="w-9 h-9 bg-red-50 text-red-500 rounded-full flex items-center justify-center hover:bg-red-100"> <i class="fas fa-sign-out-alt"></i> </a>
+            
+            <div class="flex items-center gap-3 pl-2 md:pl-6 border-l border-slate-200">
+                <div class="text-right hidden md:block"> 
+                    <p class="text-sm font-semibold text-slate-800">{{ session.get('full_name','Admin') }}</p> 
+                    <p class="text-xs text-slate-500">{{ session.get('role') }} | {{ session.get('branch','HQ') }}</p> 
+                </div>
+                <!-- Shortened Logout button for mobile -->
+                <a href="/logout" class="w-8 h-8 md:w-9 md:h-9 bg-red-50 text-red-500 rounded-full flex items-center justify-center hover:bg-red-100 shadow-sm"> 
+                    <i class="fas fa-sign-out-alt"></i> 
+                </a>
             </div>
         </div>
     </header>
-    <main class="p-6 flex-1">
+    
+    <!-- Main Content Area -->
+    <main class="p-4 md:p-6 flex-1 w-full max-w-full overflow-x-hidden">
         {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %} <div class="mb-4 space-y-2">{% for category, message in messages %} <div class="p-4 rounded-lg border {{ 'bg-green-50 border-green-200 text-green-800' if category == 'success' else 'bg-red-50 border-red-200 text-red-800' }}">{{ message }}</div>{% endfor %}</div>{% endif %}
+        {% if messages %} 
+        <div class="mb-4 space-y-2">
+            {% for category, message in messages %} 
+            <div class="p-3 md:p-4 text-sm md:text-base rounded-lg border {{ 'bg-green-50 border-green-200 text-green-800' if category == 'success' else 'bg-red-50 border-red-200 text-red-800' }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% endwith %}
+        
+        <!-- The actual page content injected here -->
         {{ content | safe }}
     </main>
-    <footer class="bg-white border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-500"> &copy; 2026 AGC Pankaj Agency Enterprise ERP </footer>
+    
+    <footer class="bg-white border-t border-slate-200 py-4 px-4 text-center text-[10px] md:text-xs text-slate-500"> 
+        &copy; 2026 AGC Pankaj Agency Enterprise ERP 
+    </footer>
 </div>
+
 <script>
-$(document).ready(function(){if($('.datatable').length){$('.datatable').DataTable({ "pageLength":50, "order":[]});}});
+    // 🍔 Sidebar Toggle Logic for Mobile
+    function toggleSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        const overlay = document.getElementById('mobile-overlay');
+        
+        // Slide in/out
+        sidebar.classList.toggle('-translate-x-full');
+        // Show/hide black overlay
+        overlay.classList.toggle('hidden');
+    }
+
+    // 📱 Mobile Friendly Tables
+    $(document).ready(function(){
+        // Wrap tables in responsive div so they scroll left-right instead of breaking screen
+        $('.datatable').wrap('<div class="table-responsive-wrapper"></div>');
+        
+        if($('.datatable').length){
+            $('.datatable').DataTable({ 
+                "pageLength": 50, 
+                "order": [],
+                "scrollX": true, // Enables DataTables native horizontal scrolling
+                "language": {
+                    "search": "🔍",
+                    "searchPlaceholder": "Search..."
+                }
+            });
+        }
+    });
 </script>
 </body>
 </html>
 """
+
 def render_page(title, content):
-    # Individual module templates are rendered as strings. Add the token here so
-    # every generated POST form is protected without duplicating it in every form.
     token_input = '<input type="hidden" name="_csrf_token" value="' + csrf_token() + '">'
+    import re
     protected_content = re.sub(r'<form(\s[^>]*)?>', lambda m: '<form' + (m.group(1) or '') + '>' + token_input, content)
     return render_template_string(AGCS_BASE_HTML, title=title, content=protected_content)
 
