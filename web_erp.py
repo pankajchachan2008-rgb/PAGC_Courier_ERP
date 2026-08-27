@@ -556,12 +556,222 @@ def track():
         except Exception as e: 
             error_msg = str(e)
         finally:
-            # 🚀 BUG FIX: PooledDB connections do not use .open. Safely close them!
             if 'conn' in locals():
                 try: conn.close()
                 except: pass
             
-    html = """ <!DOCTYPE html><html><head><meta charset="UTF-8"><title>Track | AGC</title><script src="https://cdn.tailwindcss.com"></script></head><body class="bg-gradient-to-br from-slate-900 to-indigo-900 min-h-screen p-8 text-white"><div class="max-w-3xl mx-auto"><div class="text-center mb-8"><h1 class="text-4xl font-bold mb-2">📦 Track Shipment</h1><p class="text-slate-400">Real-time Logistics Tracking</p></div><form method="GET" action="/track" class="flex gap-3 mb-8 bg-white/10 backdrop-blur p-2 rounded-xl"><input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB..." class="flex-1 bg-transparent px-4 py-3 outline-none text-white uppercase" required><button type="submit" class="bg-blue-600 px-6 py-3 rounded-lg font-semibold hover:bg-blue-700">Track</button></form>{% if error_msg %}<div class="bg-red-500/20 border border-red-500 p-4 rounded-xl">{{ error_msg }}</div>{% elif awb and not shipment %}<div class="bg-yellow-500/20 border border-yellow-500 p-4 rounded-xl text-center">No record found.</div>{% elif shipment %}<div class="bg-white/10 backdrop-blur rounded-xl p-6 mb-6"><div class="flex justify-between mb-4"><h2 class="text-3xl font-bold text-blue-300">{{ shipment.awb_no }}</h2><span class="px-4 py-1 rounded-full font-bold text-sm {% if shipment.status=='DELIVERED' %}bg-green-500{% elif shipment.status=='OUTWARD' %}bg-purple-500{% else %}bg-blue-500{% endif %}">{{ shipment.status }}</span></div><div class="grid grid-cols-2 gap-4 text-sm"><div><span class="text-slate-400">From:</span> <b>{{ shipment.origin_name }}</b></div><div><span class="text-slate-400">To:</span> <b>{{ shipment.dest_name }}</b></div><div><span class="text-slate-400">Weight:</span> <b>{{ shipment.weight_kg }} KG</b></div><div><span class="text-slate-400">Date:</span> <b>{{ shipment.booking_date }}</b></div></div></div><div class="bg-white/10 backdrop-blur rounded-xl p-6"><h3 class="font-bold mb-4">📍 Tracking History</h3><div class="space-y-3">{% for e in events %}<div class="flex gap-4 bg-white/5 p-3 rounded-lg"><div class="text-2xl">{% if e.scan_type=='BOOKED' %}📦{% elif e.scan_type=='OUTWARD' %}🚚{% elif e.scan_type=='INWARD' %}📥{% elif e.scan_type=='DELIVERED' %}✅{% else %}📍{% endif %}</div><div class="flex-1"><div class="flex justify-between"><b>{{ e.scan_type }}</b><span class="text-xs text-slate-400">{{ e.f_date }}</span></div><p class="text-sm text-slate-300">{{ e.location }}</p>{% if e.remarks %}<p class="text-xs text-slate-400 mt-1">{{ e.remarks }}</p>{% endif %}</div></div>{% endfor %}{% if not events %}<p class="text-center text-slate-400 py-4">No history yet.</p>{% endif %}</div></div>{% endif %}</div></body></html> """
+    html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Track Shipment | AGC ERP</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+        <style>
+            body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
+            .glass-card { background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); }
+            .timeline-dot { box-shadow: 0 0 0 4px #ffffff; }
+        </style>
+    </head>
+    <body class="text-slate-800 antialiased min-h-screen flex flex-col">
+        
+        <!-- Top Navbar -->
+        <nav class="bg-slate-900 text-white shadow-md">
+            <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-16">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden p-1">
+                            <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='AGC'" class="w-full h-full object-contain">
+                        </div>
+                        <span class="font-bold text-xl tracking-tight">AGC Logistics</span>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10 md:py-14">
+            
+            <!-- Search Section -->
+            <div class="text-center mb-12">
+                <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 mb-3 tracking-tight">Track Your Shipment</h1>
+                <p class="text-slate-500 mb-8 font-medium">Enter your AWB or Reference Number to get real-time status.</p>
+                
+                <form method="GET" action="/track" class="max-w-2xl mx-auto flex shadow-xl rounded-xl overflow-hidden bg-white border border-slate-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all">
+                    <div class="flex items-center pl-5 text-slate-400"><i class="fas fa-search text-lg"></i></div>
+                    <input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB Number..." class="flex-1 px-4 py-4 md:py-5 outline-none text-slate-700 font-bold uppercase text-lg" required>
+                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-8 md:px-10 py-4 md:py-5 font-bold transition-colors text-lg">TRACK</button>
+                </form>
+            </div>
+
+            {% if error_msg %}
+            <div class="max-w-2xl mx-auto bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg shadow-sm mb-8">
+                <div class="flex items-center">
+                    <i class="fas fa-exclamation-circle text-red-500 text-xl mr-3"></i>
+                    <p class="text-red-700 font-medium">{{ error_msg }}</p>
+                </div>
+            </div>
+            {% elif awb and not shipment %}
+            <div class="max-w-2xl mx-auto bg-amber-50 border-l-4 border-amber-500 p-8 rounded-r-lg shadow-sm mb-8 text-center">
+                <i class="fas fa-box-open text-amber-400 text-5xl mb-4"></i>
+                <h3 class="text-amber-800 font-bold text-xl">No Shipment Found!</h3>
+                <p class="text-amber-700 mt-2 font-medium">Please check your AWB number and try again. It might take some time to update.</p>
+            </div>
+            {% elif shipment %}
+            
+            <!-- Dynamic Progress Bar Logic -->
+            {% set status = shipment.status %}
+            {% set progress = 10 %}
+            {% set bar_color = 'bg-blue-500' %}
+            
+            {% if status == 'OUTWARD' or status == 'INWARD' %}{% set progress = 50 %}{% endif %}
+            {% if status == 'ON_DRS' %}{% set progress = 80 %}{% endif %}
+            {% if status == 'DELIVERED' %}{% set progress = 100 %}{% set bar_color = 'bg-green-500' %}{% endif %}
+            {% if status == 'CANCELLED' %}{% set progress = 100 %}{% set bar_color = 'bg-red-500' %}{% endif %}
+            {% if status == 'UNDELIVERED' %}{% set progress = 80 %}{% set bar_color = 'bg-orange-500' %}{% endif %}
+
+            <div class="glass-card rounded-2xl p-6 md:p-8 mb-8">
+                <!-- Header Info -->
+                <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-6 mb-8">
+                    <div>
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">AWB Number</p>
+                        <h2 class="text-3xl font-black text-slate-800 tracking-tight">
+                            {{ shipment.awb_no }}
+                        </h2>
+                    </div>
+                    <div class="mt-4 md:mt-0 text-left md:text-right">
+                        <p class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Current Status</p>
+                        <span class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wider border
+                            {% if status == 'DELIVERED' %}bg-green-50 text-green-700 border-green-200
+                            {% elif status == 'CANCELLED' %}bg-red-50 text-red-700 border-red-200
+                            {% elif status == 'ON_DRS' %}bg-blue-50 text-blue-700 border-blue-200
+                            {% elif status == 'UNDELIVERED' %}bg-orange-50 text-orange-700 border-orange-200
+                            {% else %}bg-indigo-50 text-indigo-700 border-indigo-200{% endif %} shadow-sm">
+                            {% if status == 'DELIVERED' %}<i class="fas fa-check-circle"></i>
+                            {% elif status == 'CANCELLED' %}<i class="fas fa-times-circle"></i>
+                            {% elif status == 'ON_DRS' %}<i class="fas fa-motorcycle"></i>
+                            {% else %}<i class="fas fa-truck-fast"></i>{% endif %}
+                            {{ status|replace('_', ' ') }}
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Visual Progress Bar -->
+                <div class="mb-10 px-2">
+                    <div class="w-full bg-slate-100 rounded-full h-3 mb-4 relative overflow-hidden shadow-inner">
+                        <div class="{{ bar_color }} h-3 rounded-full transition-all duration-1000 ease-out" style="width: {{ progress }}%"></div>
+                    </div>
+                    <div class="flex justify-between text-[11px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        <span class="{% if progress >= 10 %}text-slate-800{% endif %}">Booked</span>
+                        <span class="{% if progress >= 50 %}text-slate-800{% endif %} text-center">In Transit</span>
+                        <span class="{% if progress >= 80 %}text-slate-800{% endif %} text-center">Out for Delivery</span>
+                        <span class="{% if progress == 100 %}text-slate-800{% endif %} text-right">Delivered</span>
+                    </div>
+                </div>
+
+                <!-- Quick Details Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
+                    <div>
+                        <div class="flex items-center gap-2 text-slate-500 mb-2">
+                            <i class="fas fa-plane-departure text-slate-400"></i>
+                            <span class="text-xs font-bold uppercase tracking-wider">Origin</span>
+                        </div>
+                        <p class="font-bold text-slate-800 truncate" title="{{ shipment.origin_name }}">{{ shipment.origin_name }}</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 text-slate-500 mb-2">
+                            <i class="fas fa-location-dot text-slate-400"></i>
+                            <span class="text-xs font-bold uppercase tracking-wider">Destination</span>
+                        </div>
+                        <p class="font-bold text-slate-800 truncate" title="{{ shipment.dest_name }}">{{ shipment.dest_name }}</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 text-slate-500 mb-2">
+                            <i class="fas fa-calendar-alt text-slate-400"></i>
+                            <span class="text-xs font-bold uppercase tracking-wider">Booked On</span>
+                        </div>
+                        <p class="font-bold text-slate-800">{{ shipment.booking_date }}</p>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2 text-slate-500 mb-2">
+                            <i class="fas fa-weight-scale text-slate-400"></i>
+                            <span class="text-xs font-bold uppercase tracking-wider">Weight / Pcs</span>
+                        </div>
+                        <p class="font-bold text-slate-800">{{ shipment.weight_kg }} KG <span class="text-slate-500 font-semibold ml-1">({{ shipment.quantity }} Pcs)</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Vertical Timeline Section -->
+            <div class="glass-card rounded-2xl p-6 md:p-8">
+                <h3 class="text-xl font-extrabold text-slate-800 mb-8 flex items-center gap-3 border-b border-slate-100 pb-4">
+                    <i class="fas fa-history text-blue-600"></i> Detailed Tracking History
+                </h3>
+                
+                {% if not events %}
+                <div class="text-center py-8">
+                    <i class="fas fa-hourglass-empty text-5xl text-slate-200 mb-4"></i>
+                    <p class="text-slate-500 font-medium text-lg">Tracking history is being updated.</p>
+                </div>
+                {% else %}
+                <div class="relative border-l-2 border-slate-200 ml-4 md:ml-6 pb-4">
+                    {% for e in events %}
+                    
+                    <!-- Dynamic Icon & Color Logic -->
+                    {% set icon_color = 'bg-slate-400' %}
+                    {% set icon_class = 'fa-circle' %}
+                    
+                    {% if e.scan_type == 'BOOKED' %}{% set icon_color = 'bg-blue-500' %}{% set icon_class = 'fa-box' %}{% endif %}
+                    {% if e.scan_type == 'OUTWARD' %}{% set icon_color = 'bg-indigo-500' %}{% set icon_class = 'fa-truck-fast' %}{% endif %}
+                    {% if e.scan_type == 'INWARD' %}{% set icon_color = 'bg-teal-500' %}{% set icon_class = 'fa-building' %}{% endif %}
+                    {% if e.scan_type == 'NETWORK DISPATCH' %}{% set icon_color = 'bg-purple-500' %}{% set icon_class = 'fa-network-wired' %}{% endif %}
+                    {% if e.scan_type == 'ON_DRS' %}{% set icon_color = 'bg-amber-500' %}{% set icon_class = 'fa-motorcycle' %}{% endif %}
+                    {% if e.scan_type == 'DELIVERED' %}{% set icon_color = 'bg-green-500' %}{% set icon_class = 'fa-check' %}{% endif %}
+                    {% if e.scan_type == 'UNDELIVERED' %}{% set icon_color = 'bg-orange-500' %}{% set icon_class = 'fa-exclamation' %}{% endif %}
+                    {% if e.scan_type == 'CANCELLED' %}{% set icon_color = 'bg-red-500' %}{% set icon_class = 'fa-times' %}{% endif %}
+
+                    <div class="mb-8 ml-8 md:ml-10 relative">
+                        <!-- Timeline Dot -->
+                        <span class="timeline-dot absolute -left-12 md:-left-14 flex items-center justify-center w-8 h-8 rounded-full {{ icon_color }} text-white text-xs shadow-md">
+                            <i class="fas {{ icon_class }}"></i>
+                        </span>
+                        
+                        <!-- Content Card -->
+                        <div class="bg-white border border-slate-100 rounded-xl p-4 md:p-5 shadow-sm hover:shadow-md transition-shadow">
+                            <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-3">
+                                <h4 class="text-base font-bold text-slate-800 uppercase tracking-wide">{{ e.scan_type|replace('_', ' ') }}</h4>
+                                <span class="text-xs font-bold text-slate-500 flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-full">
+                                    <i class="far fa-clock"></i> {{ e.f_date }}
+                                </span>
+                            </div>
+                            <p class="text-slate-700 font-semibold flex items-center gap-2 mb-2">
+                                <i class="fas fa-map-marker-alt text-slate-400"></i> {{ e.location }}
+                            </p>
+                            {% if e.remarks %}
+                            <p class="text-sm text-slate-600 mt-2 bg-slate-50 p-3 rounded-lg border border-slate-100 font-medium">
+                                <i class="fas fa-info-circle text-blue-400 mr-2"></i> {{ e.remarks }}
+                            </p>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+        </main>
+        
+        <!-- Footer -->
+        <footer class="bg-slate-900 text-slate-400 py-6 text-center text-sm mt-auto border-t border-slate-800">
+            <p class="font-medium">&copy; 2026 AGC Enterprise Logistics. All rights reserved.</p>
+        </footer>
+    </body>
+    </html>
+    """
     return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
 
 @app.route('/track_doc', methods=['POST'])
