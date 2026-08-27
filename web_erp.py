@@ -3496,18 +3496,6 @@ def reports():
     """
     return render_page("Reports Hub", render_template_string(html))
 
-#⚠ PART 4 ENDS HERE. PART 5 (Print Routes, CSV Import, Dynamic Reports, Sync API, Flask Run) agle message me aayega.
-
-# ============================================================
-# 📦 PART 5: PRINT ENGINE, REPORTS, SYNC API, SERVER LAUNCH
-# ============================================================
-
-# ==========================================
-# 🖨️ 5.1 SHIPPING LABEL PDF PRINT (PREMIUM 4x6 DESIGN)
-# ==========================================
-# ==========================================
-# 🖨️ PRINT LABEL PDF (FIXED TEXT OVERLAPS)
-# ==========================================
 # ==========================================
 # 🖨️ PRINT LABEL PDF (BULLETPROOF & CRASH-FREE)
 # ==========================================
@@ -3529,8 +3517,14 @@ def print_label(awb):
             c.execute("SELECT origin_station, out_station FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
             outward = c.fetchone() or {}
             
+            # 🚀 THE BUG FIX: Smart Column Detector for Settings Table
             c.execute("SELECT * FROM settings")
-            settings = {r['key']: r['value'] for r in c.fetchall()}
+            settings = {}
+            for r in c.fetchall():
+                k = r.get('key') if 'key' in r else r.get('name')
+                if k:
+                    settings[k] = r.get('value')
+                    
         conn.close()
     except Exception as e:
         return f"Database Error: {str(e)}", 500
@@ -3658,7 +3652,7 @@ def print_label(awb):
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 6.8)
         yy = st - 20
         
-        # 🚀 FIX: SAFE STRING CONCATENATION FOR SHIPPER
+        # Safe Shipper Formatting
         shipper_name = cust.get('name') or s.get('origin_name') or ""
         shipper_addr = cust.get('address') or ""
         if str(shipper_addr).lower() == 'none': shipper_addr = ''
@@ -3682,7 +3676,7 @@ def print_label(awb):
         return send_file(buf, as_attachment=False, download_name=f"Label_{awb}.pdf", mimetype='application/pdf')
         
     except Exception as e:
-        return f"PDF Error: {str(e)}", 500
+        return f"PDF Generator Error: {str(e)}", 500
 
 # ==========================================
 # 🧾 5.2 BOOKING RECEIPT PDF PRINT (A5 LANDSCAPE DESIGN)
