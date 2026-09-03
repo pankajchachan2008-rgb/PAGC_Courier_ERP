@@ -224,7 +224,7 @@ def serve_logo():
     return "Logo not found", 404
 
 # ==========================================
-# 🎨 ENTERPRISE THEME (100% MOBILE RESPONSIVE UI)
+# 🎨 PREMIUM GLASSMORPHISM ENTERPRISE THEME
 # ==========================================
 AGCS_BASE_HTML = """
 <!DOCTYPE html>
@@ -232,198 +232,270 @@ AGCS_BASE_HTML = """
 <head>
     <meta charset="UTF-8"> 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>{{ title }} | AGC ERP</title>
+    <title>{{ title }} | AGC ERP Premium</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <style>
-        body{font-family:'Inter',system-ui,sans-serif;background:#f1f5f9; overflow-x: hidden;}
-        .sidebar-link{transition:.2s}.sidebar-link:hover,.sidebar-link.active{background:#1e293b;color:#38bdf8;border-left:3px solid #38bdf8}
-        .card{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.05);border:1px solid #e2e8f0}
-        .btn-primary{background:#2563eb;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;display:inline-block;text-decoration:none;font-size:14px; white-space:nowrap;}
-        .btn-primary:hover{background:#1d4ed8}
-        .btn-danger{background:#ef4444;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px; white-space:nowrap;}
-        .btn-success{background:#16a34a;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px; white-space:nowrap;}
-        .btn-warning{background:#f59e0b;color:#fff;padding:8px 16px;border-radius:6px;font-weight:500;border:none;cursor:pointer;font-size:14px; white-space:nowrap;}
-        .input-modern{width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;box-sizing:border-box;background:#fff}
-        .input-modern:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
-        .label-modern{font-size:12px;font-weight:600;color:#475569;margin-bottom:4px;display:block}
+        /* 🌌 Premium Mesh Gradient Background */
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background-color: #f4f7f9;
+            background-image: 
+                radial-gradient(at 0% 0%, hsla(217,100%,88%,0.5) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, hsla(252,100%,88%,0.4) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, hsla(190,100%,88%,0.4) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, hsla(230,100%,92%,0.6) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: #1e293b;
+            overflow-x: hidden;
+        }
+
+        /* 🪟 Frosted Glass Cards */
+        .card {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 10px 40px -10px rgba(31, 38, 135, 0.08);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            box-shadow: 0 15px 45px -10px rgba(31, 38, 135, 0.12);
+            transform: translateY(-2px);
+        }
+
+        /* ✨ Glowing Premium Buttons */
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: #fff; padding: 8px 16px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer;
+            display: inline-block; text-decoration: none; font-size: 14px; white-space: nowrap;
+            box-shadow: 0 4px 15px -3px rgba(37, 99, 235, 0.4); transition: all 0.2s;
+        }
+        .btn-primary:hover { box-shadow: 0 6px 20px -3px rgba(37, 99, 235, 0.6); transform: translateY(-1px); }
         
-        /* Mobile Table Fix */
-        .table-responsive-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 8px; }
-        .datatable{width:100%;border-collapse:collapse;font-size:13px;background:#fff; white-space:nowrap;}
-        .datatable th{background:#f8fafc;color:#475569;font-weight:600;text-align:left;padding:10px 12px;border-bottom:2px solid #e2e8f0}
-        .datatable td{padding:10px 12px;border-bottom:1px solid #f1f5f9;color:#334155}
-        .datatable tr:hover{background:#f8fafc}
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; padding: 8px 16px; border-radius: 8px;
+            font-weight: 600; border: none; cursor: pointer; font-size: 14px; white-space: nowrap;
+            box-shadow: 0 4px 15px -3px rgba(239, 68, 68, 0.4); transition: all 0.2s;
+        }
+        .btn-danger:hover { box-shadow: 0 6px 20px -3px rgba(239, 68, 68, 0.6); transform: translateY(-1px); }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; padding: 8px 16px; border-radius: 8px;
+            font-weight: 600; border: none; cursor: pointer; font-size: 14px; white-space: nowrap;
+            box-shadow: 0 4px 15px -3px rgba(16, 185, 129, 0.4); transition: all 0.2s;
+        }
+        .btn-success:hover { box-shadow: 0 6px 20px -3px rgba(16, 185, 129, 0.6); transform: translateY(-1px); }
+
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; padding: 8px 16px; border-radius: 8px;
+            font-weight: 600; border: none; cursor: pointer; font-size: 14px; white-space: nowrap;
+            box-shadow: 0 4px 15px -3px rgba(245, 158, 11, 0.4); transition: all 0.2s;
+        }
+        .btn-warning:hover { box-shadow: 0 6px 20px -3px rgba(245, 158, 11, 0.6); transform: translateY(-1px); }
+
+        /* 🌫️ Translucent Inputs */
+        .input-modern {
+            width: 100%; padding: 10px 14px; border: 1px solid rgba(255, 255, 255, 0.8);
+            border-radius: 10px; font-size: 14px; background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(8px); transition: all 0.2s; color: #1e293b; font-weight: 500;
+            box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.02);
+        }
+        .input-modern:focus {
+            outline: none; background: rgba(255, 255, 255, 0.9);
+            border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
+        }
+        .label-modern { font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
         
-        .tab-btn{padding:10px 20px;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px 6px 0 0;cursor:pointer;font-weight:500;color:#475569;font-size:13px; white-space:nowrap;}
-        .tab-btn.active{background:#2563eb;color:#fff;border-color:#2563eb}
-        .tab-content{display:none}.tab-content.active{display:block}
-        .modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;background:rgba(0,0,0,.6);overflow-y:auto}
-        .modal-content{background:#fff;margin:10% auto;padding:24px;border:1px solid #e2e8f0;width:600px;max-width:95%;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+        /* 📱 Mobile Table Fix with Glass Design */
+        .table-responsive-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; }
+        .datatable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; background: transparent; white-space: nowrap; }
+        .datatable th { background: rgba(248, 250, 252, 0.6); backdrop-filter: blur(5px); color: #475569; font-weight: 700; text-align: left; padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .datatable td { padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,0.03); color: #334155; }
+        .datatable tr:hover td { background: rgba(255, 255, 255, 0.8); }
+
+        .tab-btn { padding: 12px 24px; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.6); border-radius: 12px 12px 0 0; cursor: pointer; font-weight: 600; color: #475569; font-size: 13px; white-space: nowrap; transition: 0.3s; }
+        .tab-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; box-shadow: 0 -4px 15px rgba(37,99,235,0.2); }
+        .tab-content { display: none; } .tab-content.active { display: block; }
+        
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); overflow-y: auto; }
+        .modal-content { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.8); margin: 10% auto; padding: 30px; width: 600px; max-width: 95%; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
+
+        /* Custom Scrollbar for Glass UI */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.5); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.8); }
+
+        /* Sidebar Glass Effect */
+        .sidebar-glass {
+            background: rgba(15, 23, 42, 0.85); /* Dark Slate 900 with opacity */
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-right: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
+        }
+        .sidebar-link { transition: all 0.3s; position: relative; overflow: hidden; }
+        .sidebar-link:hover, .sidebar-link.active {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            box-shadow: inset 3px 0 0 0 #38bdf8;
+        }
     </style>
 </head>
-<body class="bg-slate-100 text-slate-800">
+<body class="text-slate-800 antialiased">
 
 <!-- 📱 Mobile Overlay -->
-<div id="mobile-overlay" class="fixed inset-0 bg-slate-900/50 z-40 hidden transition-opacity md:hidden" onclick="toggleSidebar()"></div>
+<div id="mobile-overlay" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 hidden transition-opacity md:hidden" onclick="toggleSidebar()"></div>
 
-<!-- Sidebar -->
-<aside id="sidebar" class="fixed top-0 left-0 z-50 w-64 h-screen bg-slate-900 text-slate-300 overflow-y-auto transform -translate-x-full transition-transform duration-300 ease-in-out md:translate-x-0">
-    <div class="p-5 border-b border-slate-800 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-            <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden p-1 shadow-sm">
+<!-- 🎛️ Sidebar (Dark Glassmorphism) -->
+<aside id="sidebar" class="sidebar-glass fixed top-0 left-0 z-50 w-64 h-screen text-slate-300 overflow-y-auto transform -translate-x-full transition-transform duration-300 ease-in-out md:translate-x-0">
+    <div class="p-6 border-b border-white/10 flex items-center justify-between sticky top-0 bg-slate-900/50 backdrop-blur-md z-10">
+        <div class="flex items-center gap-4">
+            <div class="w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl flex items-center justify-center text-blue-400 font-bold text-xl overflow-hidden p-1 shadow-lg">
                 <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
             </div>
             <div> 
-                <h1 class="text-white font-bold text-lg leading-tight">AGC ERP</h1> 
-                <p class="text-xs text-slate-500">Enterprise Courier</p> 
+                <h1 class="text-white font-extrabold text-lg tracking-tight">AGC ERP</h1> 
+                <p class="text-[11px] text-blue-300 uppercase tracking-widest font-semibold">Premium</p> 
             </div>
         </div>
-        <!-- Mobile Close Sidebar Button -->
-        <button onclick="toggleSidebar()" class="md:hidden text-slate-400 hover:text-white">
-            <i class="fas fa-times text-xl"></i>
+        <button onclick="toggleSidebar()" class="md:hidden text-slate-400 hover:text-white bg-white/10 p-2 rounded-lg">
+            <i class="fas fa-times text-lg"></i>
         </button>
     </div>
     
-    <nav class="p-4 space-y-1 text-sm pb-20">
-        <a href="/" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-chart-line w-5"></i> Dashboard </a>
+    <nav class="p-4 space-y-1.5 text-sm pb-20 font-medium">
+        <a href="/" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-chart-pie w-5 text-lg"></i> Dashboard </a>
         {% if session.get('role') == 'CUSTOMER' %}
-        <a href="/booking" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-plus-circle w-5"></i> New Booking </a>
-        <a href="/customer_bulk" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-excel w-5"></i> Bulk Upload </a>
-        <a href="/pickup" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-truck-pickup w-5"></i> Request Pickup </a>
-        <a href="/address_book" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-address-book w-5"></i> Address Book </a>
-        <a href="/developer_api" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-code w-5"></i> API & Integration </a>
-        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-box w-5"></i> My Shipments </a>
-        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-invoice-dollar w-5"></i> My Ledger </a>
-        <a href="/wallet" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> My Wallet </a>
+        <a href="/booking" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-plus-circle w-5 text-lg"></i> New Booking </a>
+        <a href="/customer_bulk" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-file-excel w-5 text-lg"></i> Bulk Upload </a>
+        <a href="/pickup" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-truck-pickup w-5 text-lg"></i> Request Pickup </a>
+        <a href="/address_book" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-address-book w-5 text-lg"></i> Address Book </a>
+        <a href="/developer_api" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-code w-5 text-lg"></i> API & Integration </a>
+        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-box-open w-5 text-lg"></i> My Shipments </a>
+        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-file-invoice-dollar w-5 text-lg"></i> My Ledger </a>
+        <a href="/wallet" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-wallet w-5 text-lg"></i> My Wallet </a>
         {% else %}
-        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Master Entries</div>
-        <a href="/customers" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-building w-5"></i> Franchisee Master </a>
-        <a href="/cargo_master" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-handshake w-5"></i> Cargo Party </a>
-        <a href="/credit_party" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-credit-card w-5"></i> Credit Party </a>
-        <a href="/location_master" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-map-marker-alt w-5"></i> Locations </a>
-        <a href="/rates" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-tags w-5"></i> Rate Master </a>
-        <a href="/stationery" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-barcode w-5"></i> Shipper/Barcode </a>
-        <a href="/delivery_boy" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-motorcycle w-5"></i> Delivery Boys </a>
-        <a href="/users" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-users-cog w-5"></i> User Setup </a>
+        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-3 px-4">Master Entries</div>
+        <a href="/customers" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-building w-5 text-lg"></i> Franchisee Master </a>
+        <a href="/cargo_master" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-handshake w-5 text-lg"></i> Cargo Party </a>
+        <a href="/credit_party" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-credit-card w-5 text-lg"></i> Credit Party </a>
+        <a href="/location_master" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-map-marker-alt w-5 text-lg"></i> Locations </a>
+        <a href="/rates" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-tags w-5 text-lg"></i> Rate Master </a>
+        <a href="/stationery" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-barcode w-5 text-lg"></i> Shipper/Barcode </a>
+        <a href="/delivery_boy" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-motorcycle w-5 text-lg"></i> Delivery Boys </a>
+        <a href="/users" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-users-cog w-5 text-lg"></i> User Setup </a>
         
-        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Transactions</div>
-        <a href="/booking" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-invoice w-5"></i> Counter Booking </a>
-        <a href="/inward" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-sign-in-alt w-5"></i> Cargo Inward </a>
-        <a href="/outward" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-sign-out-alt w-5"></i> Outward Hub </a>
-        <a href="/manage_pickups" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-people-carry w-5"></i> Pickup Requests </a>
-        <a href="/master_bag" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-shopping-bag w-5"></i> Master Bag </a>
-        <a href="/drs" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-clipboard-list w-5"></i> D.R.S. Entry </a>
-        <a href="/invoices" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-contract w-5"></i> Account Bill </a>
-        <a href="/accounts" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-book w-5"></i> Cash/Bank Book </a>
-        <a href="/expenses" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-receipt w-5"></i> Journal Voucher </a>
-        <a href="/party_ledger" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-balance-scale w-5"></i> Party Ledger </a>
-        <a href="/manage_wallets" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5"></i> Manage Wallets </a>
+        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-3 px-4">Transactions</div>
+        <a href="/booking" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-keyboard w-5 text-lg"></i> Counter Booking </a>
+        <a href="/inward" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-box-open w-5 text-lg"></i> Cargo Inward </a>
+        <a href="/outward" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-truck-fast w-5 text-lg"></i> Outward Hub </a>
+        <a href="/manage_pickups" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-people-carry w-5 text-lg"></i> Pickup Requests </a>
+        <a href="/master_bag" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-shopping-bag w-5 text-lg"></i> Master Bag </a>
+        <a href="/drs" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-clipboard-list w-5 text-lg"></i> D.R.S. Entry </a>
+        <a href="/invoices" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-file-invoice w-5 text-lg"></i> Account Bill </a>
+        <a href="/accounts" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-book w-5 text-lg"></i> Cash/Bank Book </a>
+        <a href="/expenses" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-receipt w-5 text-lg"></i> Journal Voucher </a>
+        <a href="/party_ledger" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-balance-scale w-5 text-lg"></i> Party Ledger </a>
+        <a href="/manage_wallets" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-wallet w-5 text-lg"></i> Manage Wallets </a>
         
-        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Reports</div>
-        <a href="/reports" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-chart-bar w-5"></i> Reports Hub </a>
-        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-list w-5"></i> Delivery Status </a>
-        
-        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mt-4 mb-2 px-3">Utilities</div>
-        <a href="/import_csv" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-file-csv w-5"></i> CSV Import </a>
-        <a href="/settings" class="sidebar-link flex items-center gap-3 px-3 py-2.5 rounded-lg"> <i class="fas fa-cog w-5"></i> Settings </a>
+        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-3 px-4">Reports & Tools</div>
+        <a href="/reports" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-chart-line w-5 text-lg"></i> Reports Hub </a>
+        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-list w-5 text-lg"></i> Delivery Status </a>
+        <a href="/import_csv" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-cloud-upload-alt w-5 text-lg"></i> CSV Import </a>
+        <a href="/settings" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-cog w-5 text-lg"></i> Settings </a>
         {% endif %}
     </nav>
 </aside>
 
-<!-- Main Wrapper (Adjusts margin based on screen size) -->
+<!-- 🌐 Main Content Wrapper -->
 <div class="md:ml-64 min-h-screen flex flex-col w-full md:w-auto transition-all duration-300">
     
-    <!-- Top Header -->
-    <header class="bg-white shadow-sm h-16 flex items-center justify-between px-4 md:px-6 sticky top-0 z-30 border-b border-slate-200">
-        <div class="flex items-center gap-3">
-            <!-- 🍔 Mobile Hamburger Menu -->
-            <button onclick="toggleSidebar()" class="md:hidden text-slate-500 hover:text-slate-800 focus:outline-none">
+    <!-- 🔝 Header (Light Glassmorphism) -->
+    <header class="h-20 flex items-center justify-between px-6 sticky top-0 z-30" style="background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.4); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);">
+        <div class="flex items-center gap-4">
+            <button onclick="toggleSidebar()" class="md:hidden text-slate-600 hover:text-blue-600 focus:outline-none bg-white/50 p-2 rounded-lg border border-white/60">
                 <i class="fas fa-bars text-xl"></i>
             </button>
-            <h2 class="text-lg font-semibold text-slate-800 truncate max-w-[150px] md:max-w-none">{{ title }}</h2>
+            <h2 class="text-xl font-extrabold text-slate-800 tracking-tight">{{ title }}</h2>
         </div>
         
-        <div class="flex items-center gap-3 md:gap-6">
-            <!-- Search hidden on very small mobile, visible on larger screens -->
-            <form action="/track_doc" method="POST" target="_blank" class="hidden sm:flex items-center bg-slate-100 rounded-lg px-3 py-2">
+        <div class="flex items-center gap-6">
+            <form action="/track_doc" method="POST" target="_blank" class="hidden sm:flex items-center bg-white/60 border border-white/80 rounded-xl px-4 py-2.5 shadow-inner backdrop-blur-md">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <i class="fas fa-search text-slate-400 mr-2"></i>
-                <input type="text" name="awb" placeholder="Track AWB..." class="bg-transparent outline-none text-sm w-32 md:w-56">
+                <i class="fas fa-search text-slate-400 mr-3"></i>
+                <input type="text" name="awb" placeholder="Track AWB..." class="bg-transparent outline-none text-sm w-32 md:w-64 font-semibold text-slate-700 placeholder-slate-400">
                 <input type="hidden" name="doc_type" value="c_note">
             </form>
             
-            <div class="flex items-center gap-3 pl-2 md:pl-6 border-l border-slate-200">
+            <div class="flex items-center gap-4 pl-6 border-l border-slate-300/50">
                 <div class="text-right hidden md:block"> 
-                    <p class="text-sm font-semibold text-slate-800">{{ session.get('full_name','Admin') }}</p> 
-                    <p class="text-xs text-slate-500">{{ session.get('role') }} | {{ session.get('branch','HQ') }}</p> 
+                    <p class="text-sm font-bold text-slate-800">{{ session.get('full_name','Admin') }}</p> 
+                    <p class="text-[11px] uppercase tracking-wider font-semibold text-blue-600">{{ session.get('role') }} | {{ session.get('branch','HQ') }}</p> 
                 </div>
-                <!-- Shortened Logout button for mobile -->
-                <a href="/logout" class="w-8 h-8 md:w-9 md:h-9 bg-red-50 text-red-500 rounded-full flex items-center justify-center hover:bg-red-100 shadow-sm"> 
-                    <i class="fas fa-sign-out-alt"></i> 
+                <a href="/logout" class="w-10 h-10 bg-white/80 border border-white text-red-500 rounded-xl flex items-center justify-center hover:bg-red-50 hover:text-red-600 shadow-sm transition-all" title="Logout"> 
+                    <i class="fas fa-power-off text-lg"></i> 
                 </a>
             </div>
         </div>
     </header>
     
-    <!-- Main Content Area -->
-    <main class="p-4 md:p-6 flex-1 w-full max-w-full overflow-x-hidden">
+    <!-- 📄 Page Content -->
+    <main class="p-6 md:p-8 flex-1 w-full max-w-full overflow-x-hidden">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %} 
-        <div class="mb-4 space-y-2">
+        <div class="mb-6 space-y-3">
             {% for category, message in messages %} 
-            <div class="p-3 md:p-4 text-sm md:text-base rounded-lg border {{ 'bg-green-50 border-green-200 text-green-800' if category == 'success' else 'bg-red-50 border-red-200 text-red-800' }}">{{ message }}</div>
+            <div class="p-4 rounded-xl border backdrop-blur-md shadow-sm flex items-center gap-3 font-semibold {{ 'bg-green-50/80 border-green-200 text-green-800' if category == 'success' else 'bg-red-50/80 border-red-200 text-red-800' }}">
+                <i class="fas {{ 'fa-check-circle text-green-500' if category == 'success' else 'fa-exclamation-circle text-red-500' }} text-xl"></i>
+                {{ message }}
+            </div>
             {% endfor %}
         </div>
         {% endif %}
         {% endwith %}
         
-        <!-- The actual page content injected here -->
         {{ content | safe }}
     </main>
     
-    <footer class="bg-white border-t border-slate-200 py-4 px-4 text-center text-[10px] md:text-xs text-slate-500"> 
-        &copy; 2026 AGC Pankaj Agency Enterprise ERP 
+    <footer class="py-6 px-6 text-center text-xs font-semibold text-slate-500 border-t border-slate-200/50 backdrop-blur-md"> 
+        &copy; 2026 AGC Pankaj Agency Enterprise ERP | Designed with ❤️
     </footer>
 </div>
 
 <script>
-    // 🍔 Sidebar Toggle Logic for Mobile
     function toggleSidebar() {
         const sidebar = document.getElementById('sidebar');
         const overlay = document.getElementById('mobile-overlay');
-        
-        // Slide in/out
         sidebar.classList.toggle('-translate-x-full');
-        // Show/hide black overlay
         overlay.classList.toggle('hidden');
     }
 
-    // 📱 Mobile Friendly Tables
     $(document).ready(function(){
-        // Wrap tables in responsive div so they scroll left-right instead of breaking screen
         $('.datatable').wrap('<div class="table-responsive-wrapper"></div>');
-        
         if($('.datatable').length){
             $('.datatable').DataTable({ 
                 "pageLength": 50, 
                 "order": [],
-                "scrollX": true, // Enables DataTables native horizontal scrolling
+                "scrollX": true,
                 "language": {
-                    "search": "🔍",
-                    "searchPlaceholder": "Search..."
+                    "search": "",
+                    "searchPlaceholder": "🔍 Search records..."
                 }
             });
+            // Glassmorphism fix for DataTables Search input
+            $('.dataTables_filter input').addClass('input-modern').css({'margin-left':'10px', 'width':'250px', 'display':'inline-block'});
         }
     });
 </script>
 </body>
 </html>
 """
-
 def render_page(title, content):
     token_input = '<input type="hidden" name="_csrf_token" value="' + csrf_token() + '">'
     import re
