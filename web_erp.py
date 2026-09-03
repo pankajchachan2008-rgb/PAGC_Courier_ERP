@@ -224,7 +224,7 @@ def serve_logo():
     return "Logo not found", 404
 
 # ==========================================
-# 🎨 PREMIUM GLASSMORPHISM ENTERPRISE THEME
+# 💎 LUXURY EXECUTIVE THEME (GLASSMORPHISM)
 # ==========================================
 AGCS_BASE_HTML = """
 <!DOCTYPE html>
@@ -232,227 +232,203 @@ AGCS_BASE_HTML = """
 <head>
     <meta charset="UTF-8"> 
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>{{ title }} | AGC ERP Premium</title>
+    <title>{{ title }} | AGC Luxury ERP</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/jquery.dataTables.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
     <style>
-        /* 🌌 Premium Mesh Gradient Background */
+        /* 💎 Executive Background */
         body {
-            font-family: 'Inter', system-ui, sans-serif;
-            background-color: #f4f7f9;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #f0f2f5;
             background-image: 
-                radial-gradient(at 0% 0%, hsla(217,100%,88%,0.5) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, hsla(252,100%,88%,0.4) 0px, transparent 50%),
-                radial-gradient(at 100% 100%, hsla(190,100%,88%,0.4) 0px, transparent 50%),
-                radial-gradient(at 0% 100%, hsla(230,100%,92%,0.6) 0px, transparent 50%);
+                radial-gradient(at 100% 0%, rgba(255,255,255,0.8) 0px, transparent 50%),
+                radial-gradient(at 0% 100%, rgba(226,232,240,0.6) 0px, transparent 50%);
             background-attachment: fixed;
             color: #1e293b;
-            overflow-x: hidden;
         }
 
-        /* 🪟 Frosted Glass Cards */
+        /* 🪟 High-End Pearl Glass Cards */
         .card {
-            background: rgba(255, 255, 255, 0.65);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border-radius: 16px;
-            border: 1px solid rgba(255, 255, 255, 0.8);
-            box-shadow: 0 10px 40px -10px rgba(31, 38, 135, 0.08);
-            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 1);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
         .card:hover {
-            box-shadow: 0 15px 45px -10px rgba(31, 38, 135, 0.12);
+            box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.08);
             transform: translateY(-2px);
         }
 
-        /* ✨ Glowing Premium Buttons */
-        .btn-primary {
-            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
-            color: #fff; padding: 8px 16px; border-radius: 8px; font-weight: 600; border: none; cursor: pointer;
-            display: inline-block; text-decoration: none; font-size: 14px; white-space: nowrap;
-            box-shadow: 0 4px 15px -3px rgba(37, 99, 235, 0.4); transition: all 0.2s;
-        }
-        .btn-primary:hover { box-shadow: 0 6px 20px -3px rgba(37, 99, 235, 0.6); transform: translateY(-1px); }
+        /* ✨ Luxury Buttons (Sapphire, Ruby, Emerald, Gold) */
+        .btn-primary { background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%); color: #fff; padding: 10px 20px; border-radius: 10px; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; display: inline-block; font-size: 13px; box-shadow: 0 4px 12px rgba(59,130,246,0.3); transition: 0.3s; }
+        .btn-primary:hover { box-shadow: 0 6px 16px rgba(59,130,246,0.5); transform: translateY(-1px); }
         
-        .btn-danger {
-            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: #fff; padding: 8px 16px; border-radius: 8px;
-            font-weight: 600; border: none; cursor: pointer; font-size: 14px; white-space: nowrap;
-            box-shadow: 0 4px 15px -3px rgba(239, 68, 68, 0.4); transition: all 0.2s;
-        }
-        .btn-danger:hover { box-shadow: 0 6px 20px -3px rgba(239, 68, 68, 0.6); transform: translateY(-1px); }
+        .btn-danger { background: linear-gradient(135deg, #b91c1c 0%, #ef4444 100%); color: #fff; padding: 10px 20px; border-radius: 10px; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; font-size: 13px; box-shadow: 0 4px 12px rgba(239,68,68,0.3); transition: 0.3s; }
+        .btn-danger:hover { box-shadow: 0 6px 16px rgba(239,68,68,0.5); transform: translateY(-1px); }
 
-        .btn-success {
-            background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: #fff; padding: 8px 16px; border-radius: 8px;
-            font-weight: 600; border: none; cursor: pointer; font-size: 14px; white-space: nowrap;
-            box-shadow: 0 4px 15px -3px rgba(16, 185, 129, 0.4); transition: all 0.2s;
-        }
-        .btn-success:hover { box-shadow: 0 6px 20px -3px rgba(16, 185, 129, 0.6); transform: translateY(-1px); }
+        .btn-success { background: linear-gradient(135deg, #047857 0%, #10b981 100%); color: #fff; padding: 10px 20px; border-radius: 10px; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; font-size: 13px; box-shadow: 0 4px 12px rgba(16,185,129,0.3); transition: 0.3s; }
+        .btn-success:hover { box-shadow: 0 6px 16px rgba(16,185,129,0.5); transform: translateY(-1px); }
 
-        .btn-warning {
-            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: #fff; padding: 8px 16px; border-radius: 8px;
-            font-weight: 600; border: none; cursor: pointer; font-size: 14px; white-space: nowrap;
-            box-shadow: 0 4px 15px -3px rgba(245, 158, 11, 0.4); transition: all 0.2s;
-        }
-        .btn-warning:hover { box-shadow: 0 6px 20px -3px rgba(245, 158, 11, 0.6); transform: translateY(-1px); }
+        .btn-warning { background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%); color: #fff; padding: 10px 20px; border-radius: 10px; font-weight: 600; border: 1px solid rgba(255,255,255,0.2); cursor: pointer; font-size: 13px; box-shadow: 0 4px 12px rgba(245,158,11,0.3); transition: 0.3s; }
+        .btn-warning:hover { box-shadow: 0 6px 16px rgba(245,158,11,0.5); transform: translateY(-1px); }
 
-        /* 🌫️ Translucent Inputs */
+        /* 🌫️ Neumorphic Inputs */
         .input-modern {
-            width: 100%; padding: 10px 14px; border: 1px solid rgba(255, 255, 255, 0.8);
-            border-radius: 10px; font-size: 14px; background: rgba(255, 255, 255, 0.5);
-            backdrop-filter: blur(8px); transition: all 0.2s; color: #1e293b; font-weight: 500;
-            box-shadow: inset 0 2px 4px 0 rgba(0,0,0,0.02);
+            width: 100%; padding: 12px 16px; border: 1px solid rgba(203, 213, 225, 0.6);
+            border-radius: 12px; font-size: 14px; background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(4px); transition: all 0.3s ease; color: #0f172a; font-weight: 600;
         }
         .input-modern:focus {
-            outline: none; background: rgba(255, 255, 255, 0.9);
-            border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,0.15);
+            background: #ffffff; border-color: #3b82f6; box-shadow: 0 0 0 4px rgba(59,130,246,0.1); outline: none;
         }
-        .label-modern { font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.5px; }
+        .label-modern { font-size: 11px; font-weight: 700; color: #64748b; margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: 0.8px; }
         
-        /* 📱 Mobile Table Fix with Glass Design */
-        .table-responsive-wrapper { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; }
-        .datatable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; background: transparent; white-space: nowrap; }
-        .datatable th { background: rgba(248, 250, 252, 0.6); backdrop-filter: blur(5px); color: #475569; font-weight: 700; text-align: left; padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,0.05); }
-        .datatable td { padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,0.03); color: #334155; }
-        .datatable tr:hover td { background: rgba(255, 255, 255, 0.8); }
+        /* 📱 Clean DataTables */
+        .table-responsive-wrapper { width: 100%; overflow-x: auto; border-radius: 12px; }
+        .datatable { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; white-space: nowrap; }
+        .datatable th { background: rgba(241, 245, 249, 0.8); color: #475569; font-weight: 800; text-align: left; padding: 14px 18px; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; }
+        .datatable td { padding: 14px 18px; border-bottom: 1px solid #f1f5f9; color: #1e293b; font-weight: 500; }
+        .datatable tr:hover td { background: rgba(255, 255, 255, 0.9); }
 
-        .tab-btn { padding: 12px 24px; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(5px); border: 1px solid rgba(255,255,255,0.6); border-radius: 12px 12px 0 0; cursor: pointer; font-weight: 600; color: #475569; font-size: 13px; white-space: nowrap; transition: 0.3s; }
-        .tab-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; box-shadow: 0 -4px 15px rgba(37,99,235,0.2); }
+        /* Obsidian Sidebar */
+        .sidebar-obsidian {
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(255,255,255,0.05);
+            box-shadow: 5px 0 30px rgba(0,0,0,0.15);
+        }
+        .sidebar-link { transition: all 0.3s; position: relative; color: #94a3b8; font-weight: 500; }
+        .sidebar-link:hover, .sidebar-link.active {
+            background: linear-gradient(90deg, rgba(56,189,248,0.1) 0%, transparent 100%);
+            color: #ffffff;
+            border-left: 3px solid #38bdf8;
+        }
+        
+        .tab-btn { padding: 12px 24px; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-weight: 700; color: #64748b; transition: 0.3s; }
+        .tab-btn.active { color: #2563eb; border-bottom: 2px solid #2563eb; }
         .tab-content { display: none; } .tab-content.active { display: block; }
         
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); overflow-y: auto; }
-        .modal-content { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.8); margin: 10% auto; padding: 30px; width: 600px; max-width: 95%; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
-
-        /* Custom Scrollbar for Glass UI */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.2); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.5); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(100, 116, 139, 0.8); }
-
-        /* Sidebar Glass Effect */
-        .sidebar-glass {
-            background: rgba(15, 23, 42, 0.85); /* Dark Slate 900 with opacity */
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
-        }
-        .sidebar-link { transition: all 0.3s; position: relative; overflow: hidden; }
-        .sidebar-link:hover, .sidebar-link.active {
-            background: rgba(56, 189, 248, 0.15);
-            color: #38bdf8;
-            box-shadow: inset 3px 0 0 0 #38bdf8;
-        }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); }
+        .modal-content { background: #ffffff; margin: 8% auto; padding: 32px; width: 600px; max-width: 95%; border-radius: 24px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.3); border: 1px solid #e2e8f0; }
     </style>
 </head>
 <body class="text-slate-800 antialiased">
 
-<!-- 📱 Mobile Overlay -->
+<!-- Mobile Overlay -->
 <div id="mobile-overlay" class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-40 hidden transition-opacity md:hidden" onclick="toggleSidebar()"></div>
 
-<!-- 🎛️ Sidebar (Dark Glassmorphism) -->
-<aside id="sidebar" class="sidebar-glass fixed top-0 left-0 z-50 w-64 h-screen text-slate-300 overflow-y-auto transform -translate-x-full transition-transform duration-300 ease-in-out md:translate-x-0">
-    <div class="p-6 border-b border-white/10 flex items-center justify-between sticky top-0 bg-slate-900/50 backdrop-blur-md z-10">
-        <div class="flex items-center gap-4">
-            <div class="w-12 h-12 bg-white/10 backdrop-blur-md border border-white/20 rounded-xl flex items-center justify-center text-blue-400 font-bold text-xl overflow-hidden p-1 shadow-lg">
-                <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
+<!-- 🎛️ Sidebar (Obsidian Glass) -->
+<aside id="sidebar" class="sidebar-obsidian fixed top-0 left-0 z-50 w-64 h-screen overflow-y-auto transform -translate-x-full transition-transform duration-300 ease-in-out md:translate-x-0">
+    <div class="p-6 flex items-center justify-between sticky top-0 bg-slate-900/90 backdrop-blur-xl z-10 border-b border-white/5">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-gradient-to-tr from-blue-600 to-cyan-400 rounded-xl flex items-center justify-center p-0.5 shadow-lg shadow-blue-500/30">
+                <div class="w-full h-full bg-slate-900 rounded-[10px] flex items-center justify-center overflow-hidden p-1">
+                    <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerHTML='<span class=\\'text-white font-bold text-sm\\'>AGC</span>'" class="w-full h-full object-contain">
+                </div>
             </div>
             <div> 
-                <h1 class="text-white font-extrabold text-lg tracking-tight">AGC ERP</h1> 
-                <p class="text-[11px] text-blue-300 uppercase tracking-widest font-semibold">Premium</p> 
+                <h1 class="text-white font-extrabold text-[17px] tracking-tight leading-none">AGC ERP</h1> 
+                <p class="text-[10px] text-blue-400 uppercase tracking-widest font-bold mt-0.5">Enterprise</p> 
             </div>
         </div>
-        <button onclick="toggleSidebar()" class="md:hidden text-slate-400 hover:text-white bg-white/10 p-2 rounded-lg">
+        <button onclick="toggleSidebar()" class="md:hidden text-slate-400 hover:text-white">
             <i class="fas fa-times text-lg"></i>
         </button>
     </div>
     
-    <nav class="p-4 space-y-1.5 text-sm pb-20 font-medium">
-        <a href="/" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-chart-pie w-5 text-lg"></i> Dashboard </a>
+    <nav class="p-4 space-y-1 text-sm pb-20">
+        <a href="/" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-layer-group w-5 text-[15px]"></i> Dashboard </a>
         {% if session.get('role') == 'CUSTOMER' %}
-        <a href="/booking" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-plus-circle w-5 text-lg"></i> New Booking </a>
-        <a href="/customer_bulk" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-file-excel w-5 text-lg"></i> Bulk Upload </a>
-        <a href="/pickup" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-truck-pickup w-5 text-lg"></i> Request Pickup </a>
-        <a href="/address_book" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-address-book w-5 text-lg"></i> Address Book </a>
-        <a href="/developer_api" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-code w-5 text-lg"></i> API & Integration </a>
-        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-box-open w-5 text-lg"></i> My Shipments </a>
-        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-file-invoice-dollar w-5 text-lg"></i> My Ledger </a>
-        <a href="/wallet" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-wallet w-5 text-lg"></i> My Wallet </a>
+        <a href="/booking" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-plus-circle w-5 text-[15px]"></i> New Booking </a>
+        <a href="/customer_bulk" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-file-excel w-5 text-[15px]"></i> Bulk Upload </a>
+        <a href="/pickup" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-truck-pickup w-5 text-[15px]"></i> Request Pickup </a>
+        <a href="/address_book" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-address-book w-5 text-[15px]"></i> Address Book </a>
+        <a href="/developer_api" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-code w-5 text-[15px]"></i> API Integration </a>
+        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-box-open w-5 text-[15px]"></i> My Shipments </a>
+        <a href="/my_ledger" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-file-invoice-dollar w-5 text-[15px]"></i> My Ledger </a>
+        <a href="/wallet" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-lg"> <i class="fas fa-wallet w-5 text-[15px]"></i> Wallet </a>
         {% else %}
-        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-3 px-4">Master Entries</div>
-        <a href="/customers" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-building w-5 text-lg"></i> Franchisee Master </a>
-        <a href="/cargo_master" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-handshake w-5 text-lg"></i> Cargo Party </a>
-        <a href="/credit_party" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-credit-card w-5 text-lg"></i> Credit Party </a>
-        <a href="/location_master" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-map-marker-alt w-5 text-lg"></i> Locations </a>
-        <a href="/rates" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-tags w-5 text-lg"></i> Rate Master </a>
-        <a href="/stationery" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-barcode w-5 text-lg"></i> Shipper/Barcode </a>
-        <a href="/delivery_boy" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-motorcycle w-5 text-lg"></i> Delivery Boys </a>
-        <a href="/users" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-users-cog w-5 text-lg"></i> User Setup </a>
+        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-2 px-4">Master</div>
+        <a href="/customers" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-building w-5 text-[15px]"></i> Franchisee </a>
+        <a href="/cargo_master" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-handshake w-5 text-[15px]"></i> Cargo Party </a>
+        <a href="/credit_party" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-credit-card w-5 text-[15px]"></i> Credit Party </a>
+        <a href="/location_master" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-map-marker-alt w-5 text-[15px]"></i> Locations </a>
+        <a href="/rates" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-tags w-5 text-[15px]"></i> Rate Master </a>
+        <a href="/stationery" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-barcode w-5 text-[15px]"></i> Barcode/Stationery </a>
+        <a href="/delivery_boy" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-motorcycle w-5 text-[15px]"></i> Delivery Boys </a>
+        <a href="/users" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-users-cog w-5 text-[15px]"></i> User Setup </a>
         
-        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-3 px-4">Transactions</div>
-        <a href="/booking" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-keyboard w-5 text-lg"></i> Counter Booking </a>
-        <a href="/inward" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-box-open w-5 text-lg"></i> Cargo Inward </a>
-        <a href="/outward" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-truck-fast w-5 text-lg"></i> Outward Hub </a>
-        <a href="/manage_pickups" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-people-carry w-5 text-lg"></i> Pickup Requests </a>
-        <a href="/master_bag" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-shopping-bag w-5 text-lg"></i> Master Bag </a>
-        <a href="/drs" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-clipboard-list w-5 text-lg"></i> D.R.S. Entry </a>
-        <a href="/invoices" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-file-invoice w-5 text-lg"></i> Account Bill </a>
-        <a href="/accounts" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-book w-5 text-lg"></i> Cash/Bank Book </a>
-        <a href="/expenses" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-receipt w-5 text-lg"></i> Journal Voucher </a>
-        <a href="/party_ledger" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-balance-scale w-5 text-lg"></i> Party Ledger </a>
-        <a href="/manage_wallets" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-wallet w-5 text-lg"></i> Manage Wallets </a>
+        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-2 px-4">Operations</div>
+        <a href="/booking" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-keyboard w-5 text-[15px]"></i> Booking </a>
+        <a href="/inward" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-arrow-down w-5 text-[15px]"></i> Inward </a>
+        <a href="/outward" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-arrow-up w-5 text-[15px]"></i> Outward </a>
+        <a href="/manage_pickups" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-people-carry w-5 text-[15px]"></i> Pickups </a>
+        <a href="/master_bag" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-shopping-bag w-5 text-[15px]"></i> Master Bag </a>
+        <a href="/drs" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-clipboard-list w-5 text-[15px]"></i> D.R.S. </a>
         
-        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-3 px-4">Reports & Tools</div>
-        <a href="/reports" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-chart-line w-5 text-lg"></i> Reports Hub </a>
-        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-list w-5 text-lg"></i> Delivery Status </a>
-        <a href="/import_csv" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-cloud-upload-alt w-5 text-lg"></i> CSV Import </a>
-        <a href="/settings" class="sidebar-link flex items-center gap-3 px-4 py-3 rounded-xl"> <i class="fas fa-cog w-5 text-lg"></i> Settings </a>
+        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-2 px-4">Finance</div>
+        <a href="/invoices" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-file-invoice w-5 text-[15px]"></i> Billing </a>
+        <a href="/accounts" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-book w-5 text-[15px]"></i> Cash/Bank </a>
+        <a href="/expenses" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-receipt w-5 text-[15px]"></i> Voucher </a>
+        <a href="/party_ledger" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-balance-scale w-5 text-[15px]"></i> Ledger </a>
+        <a href="/manage_wallets" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-wallet w-5 text-[15px]"></i> Wallets </a>
+        
+        <div class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-6 mb-2 px-4">Tools</div>
+        <a href="/reports" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-chart-line w-5 text-[15px]"></i> Reports </a>
+        <a href="/shipments" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-list w-5 text-[15px]"></i> Status </a>
+        <a href="/import_csv" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-cloud-upload-alt w-5 text-[15px]"></i> Import </a>
+        <a href="/settings" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-cog w-5 text-[15px]"></i> Settings </a>
         {% endif %}
     </nav>
 </aside>
 
-<!-- 🌐 Main Content Wrapper -->
+<!-- 🌐 Main Area -->
 <div class="md:ml-64 min-h-screen flex flex-col w-full md:w-auto transition-all duration-300">
     
-    <!-- 🔝 Header (Light Glassmorphism) -->
-    <header class="h-20 flex items-center justify-between px-6 sticky top-0 z-30" style="background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.4); box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);">
+    <!-- 🔝 Header (Clean Pearl Glass) -->
+    <header class="h-[76px] flex items-center justify-between px-8 sticky top-0 z-30 bg-white/60 backdrop-blur-xl border-b border-white shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
         <div class="flex items-center gap-4">
-            <button onclick="toggleSidebar()" class="md:hidden text-slate-600 hover:text-blue-600 focus:outline-none bg-white/50 p-2 rounded-lg border border-white/60">
+            <button onclick="toggleSidebar()" class="md:hidden text-slate-600 hover:text-blue-600 focus:outline-none">
                 <i class="fas fa-bars text-xl"></i>
             </button>
-            <h2 class="text-xl font-extrabold text-slate-800 tracking-tight">{{ title }}</h2>
+            <h2 class="text-2xl font-bold text-slate-800 tracking-tight">{{ title }}</h2>
         </div>
         
         <div class="flex items-center gap-6">
-            <form action="/track_doc" method="POST" target="_blank" class="hidden sm:flex items-center bg-white/60 border border-white/80 rounded-xl px-4 py-2.5 shadow-inner backdrop-blur-md">
+            <form action="/track_doc" method="POST" target="_blank" class="hidden sm:flex items-center bg-white border border-slate-200 rounded-full px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-100 transition-all">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <i class="fas fa-search text-slate-400 mr-3"></i>
-                <input type="text" name="awb" placeholder="Track AWB..." class="bg-transparent outline-none text-sm w-32 md:w-64 font-semibold text-slate-700 placeholder-slate-400">
+                <i class="fas fa-search text-slate-400 mr-2 text-sm"></i>
+                <input type="text" name="awb" placeholder="Search AWB..." class="bg-transparent outline-none text-sm w-48 font-semibold text-slate-700 placeholder-slate-400">
                 <input type="hidden" name="doc_type" value="c_note">
             </form>
             
-            <div class="flex items-center gap-4 pl-6 border-l border-slate-300/50">
+            <div class="flex items-center gap-4 pl-6 border-l border-slate-200">
                 <div class="text-right hidden md:block"> 
-                    <p class="text-sm font-bold text-slate-800">{{ session.get('full_name','Admin') }}</p> 
-                    <p class="text-[11px] uppercase tracking-wider font-semibold text-blue-600">{{ session.get('role') }} | {{ session.get('branch','HQ') }}</p> 
+                    <p class="text-sm font-extrabold text-slate-800 leading-tight">{{ session.get('full_name','Admin') }}</p> 
+                    <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">{{ session.get('role') }} • {{ session.get('branch','HQ') }}</p> 
                 </div>
-                <a href="/logout" class="w-10 h-10 bg-white/80 border border-white text-red-500 rounded-xl flex items-center justify-center hover:bg-red-50 hover:text-red-600 shadow-sm transition-all" title="Logout"> 
-                    <i class="fas fa-power-off text-lg"></i> 
+                <a href="/logout" class="w-10 h-10 bg-slate-100 text-slate-500 rounded-full flex items-center justify-center hover:bg-red-50 hover:text-red-500 transition-colors" title="Logout"> 
+                    <i class="fas fa-sign-out-alt text-sm"></i> 
                 </a>
             </div>
         </div>
     </header>
     
-    <!-- 📄 Page Content -->
+    <!-- 📄 Content -->
     <main class="p-6 md:p-8 flex-1 w-full max-w-full overflow-x-hidden">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %} 
         <div class="mb-6 space-y-3">
             {% for category, message in messages %} 
-            <div class="p-4 rounded-xl border backdrop-blur-md shadow-sm flex items-center gap-3 font-semibold {{ 'bg-green-50/80 border-green-200 text-green-800' if category == 'success' else 'bg-red-50/80 border-red-200 text-red-800' }}">
-                <i class="fas {{ 'fa-check-circle text-green-500' if category == 'success' else 'fa-exclamation-circle text-red-500' }} text-xl"></i>
+            <div class="p-4 rounded-2xl border flex items-center gap-3 font-semibold shadow-sm {{ 'bg-emerald-50 border-emerald-100 text-emerald-800' if category == 'success' else 'bg-rose-50 border-rose-100 text-rose-800' }}">
+                <i class="fas {{ 'fa-check-circle text-emerald-500' if category == 'success' else 'fa-exclamation-circle text-rose-500' }} text-lg"></i>
                 {{ message }}
             </div>
             {% endfor %}
@@ -463,9 +439,6 @@ AGCS_BASE_HTML = """
         {{ content | safe }}
     </main>
     
-    <footer class="py-6 px-6 text-center text-xs font-semibold text-slate-500 border-t border-slate-200/50 backdrop-blur-md"> 
-        &copy; 2026 AGC Pankaj Agency Enterprise ERP | Designed with ❤️
-    </footer>
 </div>
 
 <script>
@@ -477,7 +450,7 @@ AGCS_BASE_HTML = """
     }
 
     $(document).ready(function(){
-        $('.datatable').wrap('<div class="table-responsive-wrapper"></div>');
+        $('.datatable').wrap('<div class="table-responsive-wrapper shadow-sm border border-slate-200 bg-white"></div>');
         if($('.datatable').length){
             $('.datatable').DataTable({ 
                 "pageLength": 50, 
@@ -485,11 +458,10 @@ AGCS_BASE_HTML = """
                 "scrollX": true,
                 "language": {
                     "search": "",
-                    "searchPlaceholder": "🔍 Search records..."
+                    "searchPlaceholder": "Search records..."
                 }
             });
-            // Glassmorphism fix for DataTables Search input
-            $('.dataTables_filter input').addClass('input-modern').css({'margin-left':'10px', 'width':'250px', 'display':'inline-block'});
+            $('.dataTables_filter input').addClass('input-modern').css({'margin-left':'10px', 'width':'220px', 'display':'inline-block', 'padding':'8px 12px'});
         }
     });
 </script>
@@ -591,24 +563,81 @@ def login():
         conn.close()
     
     login_html = """<!DOCTYPE html>
-<html>
-<head><title>Login | AGC ERP</title><script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-900 flex items-center justify-center min-h-screen">
-    <div class="bg-white p-8 rounded-2xl shadow-2xl w-96">
-        <div class="text-center mb-6">
-            <div class="w-20 h-20 bg-white rounded-2xl flex items-center justify-center text-blue-600 text-2xl font-bold mx-auto mb-3 overflow-hidden p-2 shadow-md">
-                <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='A'" class="w-full h-full object-contain">
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Login | AGC Premium</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Outfit', sans-serif; overflow: hidden; background: #0f172a; }
+        /* Mesmerizing Animated Background */
+        .bg-shapes { position: absolute; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; top: 0; left: 0; }
+        .shape { position: absolute; filter: blur(80px); border-radius: 50%; animation: float 20s infinite ease-in-out; }
+        .shape-1 { width: 500px; height: 500px; background: rgba(56, 189, 248, 0.4); top: -10%; left: -10%; animation-delay: 0s; }
+        .shape-2 { width: 400px; height: 400px; background: rgba(139, 92, 246, 0.3); bottom: -10%; right: -5%; animation-delay: -5s; }
+        .shape-3 { width: 600px; height: 600px; background: rgba(16, 185, 129, 0.2); bottom: -20%; left: 20%; animation-delay: -10s; }
+        @keyframes float { 
+            0%, 100% { transform: translate(0, 0) scale(1); } 
+            33% { transform: translate(30px, -50px) scale(1.1); } 
+            66% { transform: translate(-20px, 20px) scale(0.9); } 
+        }
+        /* Ultra-Premium Glass Card */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+        }
+        /* Luxury Inputs */
+        .glass-input {
+            background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.08); color: #fff; transition: all 0.3s;
+        }
+        .glass-input:focus { background: rgba(0, 0, 0, 0.4); border-color: #38bdf8; box-shadow: 0 0 0 4px rgba(56,189,248,0.15); outline: none; }
+        /* Glow Button */
+        .glow-btn {
+            background: linear-gradient(135deg, #2563eb, #38bdf8); box-shadow: 0 4px 15px rgba(56,189,248,0.4); transition: all 0.3s; border: 1px solid rgba(255,255,255,0.2);
+        }
+        .glow-btn:hover { box-shadow: 0 8px 25px rgba(56,189,248,0.6); transform: translateY(-2px); }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen">
+    
+    <div class="bg-shapes">
+        <div class="shape shape-1"></div><div class="shape shape-2"></div><div class="shape shape-3"></div>
+    </div>
+
+    <div class="glass-card p-10 rounded-3xl w-[400px] z-10 relative">
+        <div class="text-center mb-8">
+            <div class="w-20 h-20 bg-white/5 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/10 mx-auto mb-4 shadow-[0_0_20px_rgba(56,189,248,0.2)]">
+                <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerHTML='<span class=\\'text-3xl text-white font-bold\\'>AGC</span>'" class="w-14 h-14 object-contain">
             </div>
-            <h1 class="text-2xl font-bold text-slate-800">AGC Enterprise</h1>
-            <p class="text-slate-500 text-sm">Login Portal</p>
+            <h1 class="text-3xl font-bold text-white tracking-tight">AGC Premium</h1>
+            <p class="text-blue-300 text-sm mt-1 uppercase tracking-widest font-medium">Enterprise Portal</p>
         </div>
+        
         {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}<div class="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-200">{% for category, message in messages %}{{ message }}{% endfor %}</div>{% endif %}
+        {% if messages %}
+        <div class="mb-6 p-3 bg-red-500/20 border border-red-500/50 text-red-200 text-sm rounded-xl text-center backdrop-blur-sm">
+            {% for category, message in messages %}{{ message }}{% endfor %}
+        </div>
+        {% endif %}
         {% endwith %}
-        <form method="POST" class="space-y-4">
-            <div><label class="block text-sm font-medium text-slate-700 mb-1">Username</label><input type="text" name="username" required class="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></div>
-            <div><label class="block text-sm font-medium text-slate-700 mb-1">Password</label><input type="password" name="password" required class="w-full px-4 py-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"></div>
-            <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700">Sign In</button>
+        
+        <form method="POST" class="space-y-5">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">Username</label>
+                <input type="text" name="username" required class="glass-input w-full px-4 py-3 rounded-xl" placeholder="Enter your ID">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">Password</label>
+                <input type="password" name="password" required class="glass-input w-full px-4 py-3 rounded-xl" placeholder="••••••••">
+            </div>
+            <button type="submit" class="glow-btn w-full text-white py-3.5 rounded-xl font-bold text-sm tracking-wide uppercase mt-4">
+                Authenticate & Enter
+            </button>
         </form>
     </div>
 </body>
