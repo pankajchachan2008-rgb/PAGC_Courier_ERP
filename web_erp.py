@@ -1526,7 +1526,7 @@ def stationery():
 
 
 # ==========================================
-# 🖨️ 2.5.A THERMAL BARCODE STICKER PRINT (Premium Auto-Scaling)
+# 🖨️ 2.5.A THERMAL BARCODE STICKER PRINT (Premium Auto-Scaling FIX)
 # ==========================================
 @app.route('/print/stationery_barcodes/<int:bid>')
 @login_required
@@ -1543,6 +1543,7 @@ def print_stationery_barcodes(bid):
     from reportlab.graphics.barcode import code128
     from reportlab.graphics import renderPDF
     from reportlab.graphics.shapes import Drawing
+    from reportlab.lib.utils import ImageReader
 
     buf = io.BytesIO()
     cv = canvas.Canvas(buf, pagesize=(50*mm, 25*mm))
@@ -1566,10 +1567,10 @@ def print_stationery_barcodes(bid):
         
         # 3. 🚀 Auto-Scaling Barcode (Kabhi border ke bahar nahi jayega)
         try:
-            bc = code128.Code128(awb, barHeight=8.5*mm, barWidth=0.35*mm)
+            # 🛠️ FIX: Decreased barWidth slightly to ensure long AWBs don't force aggressive downscaling
+            bc = code128.Code128(awb, barHeight=8.5*mm, barWidth=0.25*mm) 
             bc_w = bc.getBounds()[2] - bc.getBounds()[0]
             
-            # Agar barcode label se choda hai, toh usko scale down karo
             scale = 1.0
             max_bc_w = 46 * mm
             if bc_w > max_bc_w:
@@ -1578,15 +1579,14 @@ def print_stationery_barcodes(bid):
             d = Drawing(max_bc_w, 10*mm, transform=[scale, 0, 0, 1, 0, 0])
             d.add(bc)
             
-            # Center alignment logic
             final_w = bc_w * scale
             x_pos = (50*mm - final_w) / 2
             renderPDF.draw(d, cv, x_pos, 8*mm)
         except Exception as e:
             print("Barcode Error:", e)
         
-        # 4. AWB Text at Bottom
-        cv.setFont("Helvetica-Bold", 10)
+        # 4. AWB Text at Bottom (🛠️ FIX: Lowered font size slightly for long AWBs)
+        cv.setFont("Helvetica-Bold", 9)
         cv.drawCentredString(25*mm, 3.5*mm, awb)
         
         cv.showPage()
@@ -1596,7 +1596,7 @@ def print_stationery_barcodes(bid):
 
 
 # ==========================================
-# 🖨️ 2.5.B PREMIUM A4 C-NOTES PRINT (Ultra Professional Layout)
+# 🖨️ 2.5.B PREMIUM A4 C-NOTES PRINT (Ultra Professional Layout FIX)
 # ==========================================
 @app.route('/print/stationery_cnotes/<int:bid>')
 @login_required
@@ -1640,12 +1640,11 @@ def print_stationery_cnotes(bid):
         cv.setLineWidth(1)
         cv.roundRect(x, y, width, box_h, 6)
         
-        # --- 1. Red Warning Banner (FIXED TEXT CUT-OFF) ---
+        # --- 1. Red Warning Banner ---
         cv.setFillColor(HexColor("#FEF2F2"))
         cv.roundRect(x, y + 248, width, 17, 6, fill=1, stroke=1)
         cv.setFillColor(HexColor("#B91C1C"))
         cv.setFont("Helvetica-Bold", 6.5)
-        # Text chota aur center me fit kiya gaya hai taaki overlap na ho
         warning_text = "NO CASH, ORIGINAL DOCUMENTS, OR JEWELLERY ALLOWED. COMPANY IS NOT LIABLE FOR LOSS OF PROHIBITED ITEMS."
         cv.drawCentredString(x + width/2, y + 253, warning_text)
         
@@ -1682,12 +1681,14 @@ def print_stationery_cnotes(bid):
         cv.drawCentredString(x+340, y+230, "NON-NEGOTIABLE C-NOTE")
 
         # Right Barcode & AWB
-        rx = x + 420
+        # 🛠️ FIX: Moved Barcode X coordinate left slightly to give long AWBs more room
+        rx = x + 405 
         cv.setFillColor(HexColor("#0F172A"))
-        cv.setFont("Helvetica-Bold", 12)
+        cv.setFont("Helvetica-Bold", 11) # 🛠️ FIX: Font size 12 -> 11
         cv.drawString(rx + 5, y+232, f"AWB: {awb}")
         try:
-            bc = code128.Code128(awb, barHeight=7*mm, barWidth=0.28*mm)
+            # 🛠️ FIX: Slightly thinner bars for long numbers
+            bc = code128.Code128(awb, barHeight=7*mm, barWidth=0.25*mm) 
             bc.drawOn(cv, rx + 2, y+210)
         except: pass
 
@@ -1706,8 +1707,6 @@ def print_stationery_cnotes(bid):
 
         # --- 3. Main Data Grids (Shaded Headers) ---
         my = y + 115
-        
-        # 3 Boxes: Consignor, Consignee, Meta
         cv.setStrokeColor(HexColor("#CBD5E1"))
         cv.setLineWidth(0.5)
         
@@ -1715,7 +1714,7 @@ def print_stationery_cnotes(bid):
         cv.setFillColor(HexColor("#F8FAFC"))
         cv.rect(x, my, 190, 85, fill=1, stroke=1)
         cv.setFillColor(HexColor("#E2E8F0"))
-        cv.rect(x, my+70, 190, 15, fill=1, stroke=1) # Header shade
+        cv.rect(x, my+70, 190, 15, fill=1, stroke=1) 
         cv.setFillColor(HexColor("#0F172A"))
         cv.setFont("Helvetica-Bold", 8)
         cv.drawString(x+5, my+74, "Sender (Consignor) Details:")
@@ -1758,7 +1757,6 @@ def print_stationery_cnotes(bid):
         cv.setFillColor(HexColor("#FFFFFF"))
         cv.rect(x, gy, width, 65, fill=1, stroke=1)
         
-        # Grid Headers Shade
         cv.setFillColor(HexColor("#F1F5F9"))
         cv.rect(x, gy+45, width, 20, fill=1, stroke=1)
         cv.rect(x, gy+15, width, 15, fill=1, stroke=1)
@@ -1770,7 +1768,6 @@ def print_stationery_cnotes(bid):
         cv.setFillColor(HexColor("#334155"))
         cv.setFont("Helvetica-Bold", 7.5)
         
-        # Row 1 Headers
         cv.drawCentredString(x + col_w*0.5, gy+52, "Weight (KG)")
         cv.drawCentredString(x + col_w*1.5, gy+52, "Pieces")
         cv.drawCentredString(x + col_w*2.5, gy+52, "Declared Value")
@@ -1778,7 +1775,6 @@ def print_stationery_cnotes(bid):
         cv.drawCentredString(x + col_w*4.5, gy+52, "Dox / Parcel")
         cv.drawCentredString(x + col_w*5.5, gy+52, "Cash / Credit")
         
-        # Row 2 Headers
         cv.drawCentredString(x + col_w*0.5, gy+19, "Courier Charges")
         cv.drawCentredString(x + col_w*1.5, gy+19, "SGST")
         cv.drawCentredString(x + col_w*2.5, gy+19, "CGST")
@@ -1786,10 +1782,9 @@ def print_stationery_cnotes(bid):
         cv.drawCentredString(x + col_w*4.5, gy+19, "Other Chg.")
         cv.drawCentredString(x + col_w*5.5, gy+19, "Total Amount")
 
-        # Rupee Symbols & Blanks
         cv.setFont("Helvetica", 8)
         for c_idx in range(6):
-            if c_idx < 5: cv.drawString(x + (c_idx * col_w) + 4, gy+33, "") # Placeholder for row 1 data
+            if c_idx < 5: cv.drawString(x + (c_idx * col_w) + 4, gy+33, "") 
             cv.drawString(x + (c_idx * col_w) + 4, gy+4, "Rs.")
 
         # --- 5. Footer & Signatures ---
@@ -1798,7 +1793,6 @@ def print_stationery_cnotes(bid):
         cv.setFont("Helvetica", 5.5)
         cv.drawCentredString(x + width/2, y + 35, terms)
         
-        # Signatures
         cv.setFillColor(HexColor("#0F172A"))
         cv.setFont("Helvetica-Bold", 9)
         cv.drawString(x + 10, y + 10, "Sender's Signature")
