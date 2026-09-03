@@ -147,6 +147,16 @@ def auto_heal_db():
             c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100), remarks TEXT, pod_photo TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bags (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100) UNIQUE, destination VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             c.execute("CREATE TABLE IF NOT EXISTS master_bag_items (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))")
+            c.execute("""CREATE TABLE IF NOT EXISTS customer_awb_series (
+                id INT AUTO_INCREMENT PRIMARY KEY, 
+                customer_id INT, 
+                prefix VARCHAR(20), 
+                start_no BIGINT, 
+                end_no BIGINT, 
+                current_no BIGINT, 
+                is_active INT DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )""")
             
             # ✅ FIX: Missing delivery_register table added for DRS
             c.execute("CREATE TABLE IF NOT EXISTS delivery_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, delivery_boy VARCHAR(100), delivery_area VARCHAR(100), awb_no VARCHAR(100), receiver_name VARCHAR(100), info TEXT, finalized INT DEFAULT 0, drs_no VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
@@ -208,6 +218,33 @@ def get_seq(name, prefix, length):
         c.close()
         conn.close()
     return f"{prefix}{val:0{length}d}"
+
+def get_customer_awb(customer_id):
+    conn = get_db()
+    awb_number = None
+    try:
+        with conn.cursor() as c:
+            # 1. Customer ki active series dhoondo jisme AWB bache hain (FOR UPDATE locks it to prevent duplicate issues)
+            c.execute("""SELECT id, prefix, current_no, end_no 
+                         FROM customer_awb_series 
+                         WHERE customer_id=%s AND is_active=1 AND current_no <= end_no 
+                         ORDER BY id ASC LIMIT 1 FOR UPDATE""", (customer_id,))
+            series = c.fetchone()
+            
+            if series:
+                # 2. AWB generate karo
+                prefix = series['prefix'] or ""
+                awb_number = f"{prefix}{series['current_no']}"
+                
+                # 3. Series ka current number +1 aage badha do
+                c.execute("UPDATE customer_awb_series SET current_no = current_no + 1 WHERE id=%s", (series['id'],))
+                conn.commit()
+    except Exception as e:
+        logging.error(f"AWB Gen Error: {e}")
+    finally:
+        conn.close()
+        
+    return awb_number
 
 def login_required(f):
     @wraps(f)
@@ -362,6 +399,7 @@ AGCS_BASE_HTML = """
         <a href="/location_master" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-map-marker-alt w-5 text-[15px]"></i> Locations </a>
         <a href="/rates" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-tags w-5 text-[15px]"></i> Rate Master </a>
         <a href="/stationery" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-barcode w-5 text-[15px]"></i> Barcode/Stationery </a>
+        <a href="/awb_allotment" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg text-amber-400"> <i class="fas fa-ticket-alt w-5 text-[15px]"></i> B2B AWB Allotment </a>
         <a href="/delivery_boy" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-motorcycle w-5 text-[15px]"></i> Delivery Boys </a>
         <a href="/users" class="sidebar-link flex items-center gap-3 px-4 py-2.5 rounded-lg"> <i class="fas fa-users-cog w-5 text-[15px]"></i> User Setup </a>
         
@@ -1441,6 +1479,81 @@ def stationery():
     """
     return render_page("Shipper/Barcode Issue", render_template_string(html, custs=custs, hist=hist))
 
+@app.route('/awb_allotment', methods=['GET', 'POST'])
+@login_required
+def awb_allotment():
+    if session.get('role') != 'ADMIN': return redirect('/')
+    conn = get_db()
+    
+    if request.method == 'POST':
+        cid = request.form.get('cust_id')
+        prefix = request.form.get('prefix', '').upper()
+        start = int(request.form.get('start_no'))
+        end = int(request.form.get('end_no'))
+        
+        if end >= start:
+            with conn.cursor() as c:
+                c.execute("""INSERT INTO customer_awb_series(customer_id, prefix, start_no, end_no, current_no) 
+                             VALUES(%s, %s, %s, %s, %s)""", (cid, prefix, start, end, start))
+            conn.commit()
+            flash(f"✅ AWB Series ({prefix}{start} to {prefix}{end}) alloted successfully!", "success")
+        else:
+            flash("❌ End Number must be greater than Start Number", "error")
+        return redirect('/awb_allotment')
+        
+    with conn.cursor() as c:
+        c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
+        custs = c.fetchall()
+        c.execute("""SELECT a.*, c.name as cust_name FROM customer_awb_series a 
+                     JOIN customers c ON a.customer_id = c.id ORDER BY a.id DESC LIMIT 100""")
+        series_list = c.fetchall()
+    conn.close()
+
+    html = """
+    <div class="card" style="border-top:4px solid #10b981;">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">🎫 Allocate AWB Series to Customer</h3>
+        <form method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div><label class="label-modern">Customer *</label>
+                <select name="cust_id" class="input-modern" required>
+                    <option value="">-- Select --</option>
+                    {% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                </select>
+            </div>
+            <div><label class="label-modern">Prefix (e.g. AGC)</label><input type="text" name="prefix" class="input-modern uppercase"></div>
+            <div><label class="label-modern">Start Number *</label><input type="number" name="start_no" required class="input-modern font-bold text-blue-600"></div>
+            <div><label class="label-modern">End Number *</label><input type="number" name="end_no" required class="input-modern font-bold text-red-600"></div>
+            <button type="submit" class="btn-success w-full"><i class="fas fa-check"></i> Allocate Block</button>
+        </form>
+    </div>
+    
+    <div class="card mt-4">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Alloted AWB Blocks</h3>
+        <table class="datatable">
+            <thead><tr><th>Customer</th><th>Prefix</th><th>Start No</th><th>End No</th><th>Current / Next</th><th>Remaining</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for s in series %}
+            <tr>
+                <td class="font-bold text-blue-600">{{ s.cust_name }}</td>
+                <td class="font-bold">{{ s.prefix }}</td>
+                <td>{{ s.start_no }}</td>
+                <td>{{ s.end_no }}</td>
+                <td class="font-bold text-red-600">{{ s.current_no }}</td>
+                <td class="font-bold text-amber-600">{{ s.end_no - s.current_no + 1 }}</td>
+                <td>
+                    {% if s.current_no > s.end_no %}
+                        <span class="px-2 py-1 bg-red-100 text-red-700 rounded-full text-xs font-bold">Exhausted</span>
+                    {% else %}
+                        <span class="px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">Active</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    """
+    return render_page("AWB Allotment", render_template_string(html, custs=custs, series=series_list))
+
 # ==========================================
 # 🛵 2.6 DELIVERY BOY MASTER (ADD + EDIT + DELETE)
 # ==========================================
@@ -1864,7 +1977,17 @@ def booking():
             try:
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d.get('dstat','').upper(),))
                 cid = session.get('customer_id') if session.get('role') == 'CUSTOMER' else (safe_int(d.get('cust_id')) if d.get('cust_id') else None)
-                awb = d.get('awb','').upper()
+                
+                # 👇 NAYA CODE YAHAN AAYEGA 👇
+                if session.get('role') == 'CUSTOMER':
+                    # Customer ke liye Auto AWB
+                    awb = get_customer_awb(cid)
+                    if not awb:
+                        flash("❌ Booking Failed: Your AWB Series is exhausted! Please contact Admin to allot new AWBs.", "error")
+                        return redirect('/booking')
+                else:
+                    # Admin / Branch ke liye Manual AWB
+                    awb = d.get('awb','').upper()
                 c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, 
                     dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, 
                     service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location, is_synced)
@@ -2749,8 +2872,12 @@ def customer_bulk():
                     if cust['state_code'].strip().upper() == str(dest_state_code).strip().upper(): cgst = sgst = gst / 2
                     else: igst = gst
                         
-                    # Auto-Generate AWB
-                    awb = get_seq("awb", "AWB", 8)
+                    # 👇 NAYA CODE YAHAN AAYEGA 👇
+                    # Auto-Generate AWB from Customer's personal pool
+                    awb = get_customer_awb(cid)
+                    if not awb:
+                        flash(f"❌ Bulk Booking Paused: Your AWB Series exhausted after {added} parcels! Please contact Admin.", "error")
+                        break # Loop tod do taaki further entry na ho
                     
                     d = datetime.datetime.now().strftime("%Y-%m-%d")
                     c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dest_station.upper(),))
