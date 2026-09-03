@@ -1412,7 +1412,7 @@ def edit_rate(rid):
     return render_page(f"Edit Rate #{rid}", render_template_string(html, rate=rate, custs=custs))
 
 # ==========================================
-# 📦 2.5 STATIONERY / SHIPPER ISSUE (ISSUE + RELEASE)
+# 📦 2.5 BARCODE & STATIONERY (BULK ALLOTMENT & PRINT)
 # ==========================================
 @app.route('/stationery', methods=['GET', 'POST'])
 @login_required
@@ -1420,55 +1420,103 @@ def stationery():
     if session.get('role') == 'CUSTOMER': return redirect('/')
     conn = get_db()
     
-    # 🔄 RELEASE (Undo Issue)
+    # 🚀 AUTO-HEAL: Create Stationery Batches Table
+    try:
+        with conn.cursor() as c:
+            c.execute("""CREATE TABLE IF NOT EXISTS stationery_batches (
+                id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, 
+                prefix VARCHAR(20), start_no BIGINT, end_no BIGINT, qty INT, 
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        conn.commit()
+    except Exception as e: pass
+
+    # 🗑️ DELETE BATCH
     if request.args.get('delete'):
-        awb_del = request.args.get('delete')
+        bid = request.args.get('delete')
         with conn.cursor() as c:
-            c.execute("UPDATE shipments SET status='BOOKED', info='' WHERE awb_no=%s AND status='STATIONERY'", (awb_del,))
-        conn.commit(); flash(f"✅ AWB {awb_del} Released!", "success"); return redirect('/stationery')
+            c.execute("SELECT prefix, start_no, end_no FROM stationery_batches WHERE id=%s", (bid,))
+            b = c.fetchone()
+            if b:
+                # Remove from shipments
+                for i in range(b['start_no'], b['end_no'] + 1):
+                    awb = f"{b['prefix']}{i}"
+                    c.execute("DELETE FROM shipments WHERE awb_no=%s AND status='STATIONERY'", (awb,))
+                c.execute("DELETE FROM stationery_batches WHERE id=%s", (bid,))
+                flash(f"✅ Batch Deleted and Unused AWBs Released!", "success")
+        conn.commit()
+        return redirect('/stationery')
     
-    # ➕ ISSUE
+    # ➕ ISSUE BULK STATIONERY
     if request.method == 'POST':
-        awb = request.form.get('awb','').strip().upper()
-        issue_to = request.form.get('issue_to','')
-        pcs = safe_int(request.form.get('pcs', 1))
-        with conn.cursor() as c:
-            c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,)); s = c.fetchone()
-            if s:
-                c.execute("UPDATE shipments SET status='STATIONERY', info=%s WHERE id=%s", (f"Issued {pcs} pcs to {issue_to}", s['id']))
-                c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'STATIONERY',%s,%s)", (s['id'], session.get('branch','HQ'), f"Issued {pcs} pcs to {issue_to}"))
-                conn.commit(); flash(f"✅ Stationery Issued for {awb}!", "success")
-            else: flash("❌ AWB not found in system!", "error")
+        cid = request.form.get('cust_id')
+        prefix = request.form.get('prefix', '').strip().upper()
+        start = safe_int(request.form.get('start_no'))
+        end = safe_int(request.form.get('end_no'))
+        
+        if end >= start:
+            qty = end - start + 1
+            with conn.cursor() as c:
+                c.execute("INSERT INTO stationery_batches(customer_id, prefix, start_no, end_no, qty) VALUES(%s,%s,%s,%s,%s)", (cid, prefix, start, end, qty))
+                
+                # Fast Bulk Insert into Shipments
+                shipments_data = []
+                for i in range(start, end + 1):
+                    awb = f"{prefix}{i}"
+                    shipments_data.append((awb, cid, 'STATIONERY', 'Pre-Printed Stationery'))
+                
+                c.executemany("INSERT IGNORE INTO shipments(awb_no, customer_id, status, info) VALUES(%s,%s,%s,%s)", shipments_data)
+            conn.commit()
+            flash(f"✅ {qty} AWBs ({prefix}{start} to {end}) successfully alloted!", "success")
+        else:
+            flash("❌ End Number must be greater than Start Number", "error")
+        return redirect('/stationery')
     
     with conn.cursor() as c:
-        c.execute("SELECT awb_no, booking_date, origin_name, status, info FROM shipments WHERE status='STATIONERY' ORDER BY id DESC LIMIT 500"); hist = c.fetchall()
-        c.execute("SELECT id, name FROM customers WHERE is_active=1"); custs = c.fetchall()
+        c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
+        custs = c.fetchall()
+        c.execute("""SELECT sb.*, c.name as cust_name FROM stationery_batches sb 
+                     LEFT JOIN customers c ON sb.customer_id = c.id ORDER BY sb.id DESC LIMIT 100""")
+        batches = c.fetchall()
     conn.close()
     
     html = """
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div class="card" style="border-top:4px solid #2563eb;">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">📦 Issue Stationery</h3>
+            <h3 class="text-lg font-bold text-slate-800 mb-4">📦 Issue Stationery Series</h3>
             <form method="POST" class="space-y-3">
-                <div><label class="label-modern">AWB No *</label><input type="text" name="awb" class="input-modern uppercase font-bold text-red-600" required></div>
-                <div><label class="label-modern">Issue To *</label><select name="issue_to" class="input-modern" required>{% for c in custs %}<option>{{ c.name }}</option>{% endfor %}</select></div>
-                <div><label class="label-modern">Pieces</label><input type="number" name="pcs" value="1" min="1" class="input-modern"></div>
-                <button type="submit" class="btn-primary w-full"><i class="fas fa-check"></i> Assign AWB</button>
+                <div><label class="label-modern">Issue To (Franchise/Party) *</label>
+                    <select name="cust_id" class="input-modern" required>
+                        <option value="">-- Select Party --</option>
+                        {% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div><label class="label-modern">Prefix (e.g. AGC)</label><input type="text" name="prefix" class="input-modern uppercase font-bold text-blue-600"></div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div><label class="label-modern">From AWB No *</label><input type="number" name="start_no" required class="input-modern"></div>
+                    <div><label class="label-modern">To AWB No *</label><input type="number" name="end_no" required class="input-modern"></div>
+                </div>
+                <button type="submit" class="btn-primary w-full mt-2"><i class="fas fa-check"></i> Assign AWB Series</button>
             </form>
         </div>
         <div class="card lg:col-span-2">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Stationery Register ({{ hist|length }})</h3>
-            <div class="table-responsive" style="max-height:450px; overflow-y:auto;">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Stationery Issue Register</h3>
+            <div class="table-responsive">
             <table class="datatable">
-                <thead><tr><th>AWB</th><th>Date</th><th>Issued To</th><th>Remarks</th><th style="width:100px;">Actions</th></tr></thead>
+                <thead><tr><th>Date</th><th>Party Name</th><th>Prefix</th><th>Start No</th><th>End No</th><th>Qty</th><th>Actions</th></tr></thead>
                 <tbody>
-                {% for h in hist %}
+                {% for b in batches %}
                 <tr>
-                    <td class="font-bold text-blue-600">{{ h.awb_no }}</td>
-                    <td>{{ h.booking_date }}</td>
-                    <td class="font-bold">{{ h.origin_name }}</td>
-                    <td>{{ h.info }}</td>
-                    <td><a href="/stationery?delete={{ h.awb_no }}" class="btn-warning" style="padding:3px 8px; font-size:11px;" onclick="return confirm('Release this AWB?');"><i class="fas fa-undo"></i></a></td>
+                    <td>{{ b.created_at.strftime('%Y-%m-%d') }}</td>
+                    <td class="font-bold text-blue-600">{{ b.cust_name or 'Cash/Counter' }}</td>
+                    <td class="font-bold">{{ b.prefix }}</td>
+                    <td>{{ b.start_no }}</td>
+                    <td>{{ b.end_no }}</td>
+                    <td><span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">{{ b.qty }}</span></td>
+                    <td style="white-space:nowrap;">
+                        <a href="/print/stationery_barcodes/{{ b.id }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;" title="Print Sticker"><i class="fas fa-barcode"></i> Sticker</a>
+                        <a href="/print/stationery_cnotes/{{ b.id }}" target="_blank" class="btn-success" style="padding:4px 8px; font-size:11px;" title="Print A4 Receipt"><i class="fas fa-print"></i> C-Note</a>
+                        <a href="/stationery?delete={{ b.id }}" class="btn-danger" style="padding:4px 8px; font-size:11px;" onclick="return confirm('Delete this batch?');"><i class="fas fa-trash"></i></a>
+                    </td>
                 </tr>
                 {% endfor %}
                 </tbody>
@@ -1477,7 +1525,206 @@ def stationery():
         </div>
     </div>
     """
-    return render_page("Shipper/Barcode Issue", render_template_string(html, custs=custs, hist=hist))
+    return render_page("Barcode & Stationery", render_template_string(html, custs=custs, batches=batches))
+
+
+# ==========================================
+# 🖨️ 2.5.A THERMAL BARCODE STICKER PRINT (50mm x 25mm)
+# ==========================================
+@app.route('/print/stationery_barcodes/<int:bid>')
+@login_required
+def print_stationery_barcodes(bid):
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT * FROM stationery_batches WHERE id=%s", (bid,))
+    b = c.fetchone()
+    c.close(); conn.close()
+    if not b: return "Batch Not Found", 404
+
+    from reportlab.lib.units import mm
+    buf = io.BytesIO()
+    # Standard 2x1 Inch Thermal Label Size
+    cv = canvas.Canvas(buf, pagesize=(50*mm, 25*mm))
+    branch = get_setting('company_name', 'AGC').split()[0].upper()
+
+    for i in range(b['start_no'], b['end_no'] + 1):
+        awb = f"{b['prefix']}{i}"
+        
+        cv.setFillColorRGB(0,0,0)
+        cv.setFont("Helvetica-Bold", 7)
+        cv.drawCentredString(25*mm, 21*mm, f"{branch} COURIER")
+        
+        try:
+            bc = code128.Code128(awb, barHeight=8*mm, barWidth=0.25*mm)
+            # Center the barcode
+            bc.drawOn(cv, 5*mm, 10*mm)
+        except: pass
+        
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawCentredString(25*mm, 4*mm, awb)
+        cv.showPage()
+        
+    cv.save(); buf.seek(0)
+    return send_file(buf, download_name=f"Barcodes_{b['prefix']}{b['start_no']}_to_{b['end_no']}.pdf", mimetype='application/pdf')
+
+
+# ==========================================
+# 🖨️ 2.5.B A4 RECEIPT C-NOTES PRINT (3 Per Page)
+# ==========================================
+@app.route('/print/stationery_cnotes/<int:bid>')
+@login_required
+def print_stationery_cnotes(bid):
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT * FROM stationery_batches WHERE id=%s", (bid,))
+    b = c.fetchone()
+    c.close(); conn.close()
+    if not b: return "Batch Not Found", 404
+
+    buf = io.BytesIO()
+    w, h = A4 # 595 x 842 points
+    cv = canvas.Canvas(buf, pagesize=A4)
+    
+    comp_name = get_setting('company_name', 'Akash Ganga Courier Limited')
+    gstin = get_setting('company_gstin', '08ADQPC7585D1Z9')
+    
+    for idx, i in enumerate(range(b['start_no'], b['end_no'] + 1)):
+        awb = f"{b['prefix']}{i}"
+        pos = idx % 3
+        # Calculate Y Base for each of the 3 receipts
+        # A4 height = 842. 3 receipts of height 270 with margins.
+        box_h = 265
+        y = h - (pos + 1) * (box_h + 10) 
+        x = 20
+        width = w - 40
+        
+        # Outer Border
+        cv.setLineWidth(1)
+        cv.rect(x, y, width, box_h)
+        
+        # Top Red Warning Banner
+        cv.setFillColor(HexColor("#FEE2E2"))
+        cv.rect(x, y + 250, width, 15, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#B91C1C"))
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawCentredString(x + width/2, y + 254, "NO CASH / ORIGINAL DOCUMENTS / JEWELLERY ALLOWED. COMPANY NOT LIABLE IN CASE OF LOSS.")
+        
+        # --- Draw Grid Lines ---
+        cv.setStrokeColor(HexColor("#000000"))
+        cv.setFillColor(HexColor("#000000"))
+        
+        # Horizontal lines
+        cv.line(x, y + 190, x + width, y + 190) # Below Logo Area
+        cv.line(x, y + 100, x + width, y + 100) # Below Consignor/Consignee
+        cv.line(x, y + 30, x + width, y + 30)   # Above Signature
+        
+        # Vertical lines
+        cv.line(x + 190, y + 100, x + 190, y + 250) # Between Logo and Middle
+        cv.line(x + 360, y + 100, x + 360, y + 250) # Between Middle and Charges Grid
+        
+        # --- Section 1: Logo & Company (Left) ---
+        logo_loaded = False
+        import os
+        from reportlab.lib.utils import ImageReader
+        if os.path.exists('logo.png'):
+            try:
+                cv.drawImage(ImageReader('logo.png'), x+5, y+215, width=45, height=25, mask='auto')
+                logo_loaded = True
+            except: pass
+        if not logo_loaded:
+            cv.setFont("Helvetica-Bold", 20)
+            cv.drawString(x+5, y+220, "AGC")
+            
+        cv.setFont("Helvetica-Bold", 11)
+        cv.drawString(x+50 if logo_loaded else x+5, y+205, comp_name[:20])
+        cv.setFont("Helvetica", 7)
+        cv.drawString(x+5, y+195, f"GST No: {gstin} | ISO 9001:2008")
+        
+        # --- Section 2: Middle Meta Info ---
+        cv.line(x + 190, y + 235, x + 360, y + 235)
+        cv.line(x + 190, y + 220, x + 360, y + 220)
+        cv.line(x + 190, y + 205, x + 360, y + 205)
+        
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(x + 195, y + 240, "Consignor Copy / Non Negotiable")
+        cv.drawString(x + 195, y + 225, "Date:")
+        cv.drawString(x + 195, y + 210, "Origin: NOHAR")
+        cv.drawString(x + 195, y + 195, "Destination:")
+        
+        # --- Section 3: Right Logo & Barcode ---
+        # Draw Barcode
+        try:
+            from reportlab.lib.units import mm
+            bc = code128.Code128(awb, barHeight=8*mm, barWidth=0.3*mm)
+            bc.drawOn(cv, x + 380, y + 215)
+        except: pass
+        cv.setFont("Helvetica-Bold", 10)
+        cv.drawCentredString(x + 455, y + 200, f"AWB: {awb}")
+        
+        # --- Section 4: Consignor & Consignee ---
+        cv.setFont("Helvetica-Bold", 9)
+        cv.drawString(x + 5, y + 175, "Consignor:")
+        cv.drawString(x + 195, y + 175, "Consignee:")
+        
+        cv.drawString(x + 5, y + 105, "Ph.No.")
+        cv.drawString(x + 195, y + 105, "Ph.No.")
+        
+        # --- Section 5: Charges Grid (Right side below barcode) ---
+        cv.line(x + 360, y + 160, x + width, y + 160)
+        cv.line(x + 360, y + 140, x + width, y + 140)
+        cv.line(x + 360, y + 120, x + width, y + 120)
+        
+        cv.line(x + 420, y + 100, x + 420, y + 190)
+        cv.line(x + 480, y + 100, x + 480, y + 190)
+        
+        cv.setFont("Helvetica-Bold", 7)
+        cv.drawString(x + 365, y + 180, "Weight")
+        cv.drawString(x + 425, y + 180, "Declared Val")
+        cv.drawString(x + 485, y + 180, "Mode/Type")
+        
+        cv.drawString(x + 365, y + 145, "Courier Chg")
+        cv.drawString(x + 425, y + 145, "SGST")
+        cv.drawString(x + 485, y + 145, "CGST / Total")
+        
+        cv.drawString(x + 365, y + 125, "₹")
+        cv.drawString(x + 425, y + 125, "₹")
+        cv.drawString(x + 485, y + 125, "₹")
+        
+        cv.drawString(x + 365, y + 105, "Cash / Credit")
+        cv.drawString(x + 425, y + 105, "Signature")
+        
+        # --- Section 6: Terms and Conditions ---
+        terms = "1. THIS MEMO IS FOR DOCUMENTS & PARCELS. 2. MAXIMUM LIABILITY EXCEEDS NOT TO FOUR TIMES OF COURIER CHARGES IN ANY CASE. 3. CURRENCY, JEWELLERY, LIQUIDS, PERISHABLES PROHIBITED. 4. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION. 5. SERVICE TAX AS APPLICABLE. NO CLAIM WITHOUT ORIGINAL RECEIPT."
+        
+        import textwrap
+        cv.setFont("Helvetica", 5.5)
+        lines = textwrap.wrap(terms, 160)
+        ty = y + 85
+        for l in lines:
+            cv.drawString(x + 5, ty, l)
+            ty -= 7
+            
+        # Warning Box inside Terms
+        cv.rect(x + 420, y + 40, 130, 45)
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawCentredString(x + 485, y + 75, "No Claim No Guarantee")
+        cv.setFont("Helvetica", 6)
+        cv.drawCentredString(x + 485, y + 65, "Customer Care: 01555-220016")
+        cv.drawCentredString(x + 485, y + 55, "Web: www.agcgroup.in")
+        
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawCentredString(x + width/2, y + 35, "This Memo is Not Used For GST Invoice")
+        
+        # --- Section 7: Signatures ---
+        cv.setFont("Helvetica-Bold", 10)
+        cv.drawString(x + 5, y + 10, "Consignor's Sign")
+        cv.drawCentredString(x + width/2, y + 10, "Thanks for using our services")
+        cv.drawString(x + 450, y + 10, "Authorised Sign.")
+        
+        # Page Break after every 3 receipts OR at the end
+        if pos == 2 or idx == (b['end_no'] - b['start_no']):
+            cv.showPage()
+            
+    cv.save(); buf.seek(0)
+    return send_file(buf, download_name=f"C_Notes_{b['prefix']}{b['start_no']}_to_{b['end_no']}.pdf", mimetype='application/pdf')
 
 # ==========================================
 # 🎫 AWB ALLOTMENT (B2B VIRTUAL STATIONERY)
