@@ -1526,7 +1526,7 @@ def stationery():
 
 
 # ==========================================
-# 🖨️ 2.5.A THERMAL BARCODE STICKER PRINT (50mm x 25mm)
+# 🖨️ 2.5.A THERMAL BARCODE STICKER PRINT (Premium Auto-Scaling)
 # ==========================================
 @app.route('/print/stationery_barcodes/<int:bid>')
 @login_required
@@ -1541,62 +1541,62 @@ def print_stationery_barcodes(bid):
     from reportlab.pdfgen import canvas
     from reportlab.lib.units import mm
     from reportlab.graphics.barcode import code128
-    from reportlab.lib.utils import ImageReader
+    from reportlab.graphics import renderPDF
+    from reportlab.graphics.shapes import Drawing
 
     buf = io.BytesIO()
     cv = canvas.Canvas(buf, pagesize=(50*mm, 25*mm))
-    branch = get_setting('company_name', 'AGC COURIER')[:20].upper()
-    party_name = b['cust_name'] if b.get('cust_name') else 'Walk-in / Cash'
+    branch = get_setting('company_name', 'AGC COURIER')[:15].upper()
+    party_name = b['cust_name'] if b.get('cust_name') else 'Cash / Counter'
 
     for i in range(b['start_no'], b['end_no'] + 1):
         awb = f"{b['prefix']}{i}"
         
-        # 🔳 Clean Outer Border
+        # 1. Clean Minimal Border
         cv.setLineWidth(0.5)
         cv.roundRect(1*mm, 1*mm, 48*mm, 23*mm, 2*mm)
         
-        # 🌟 Robust Logo Loading
-        logo_loaded = False
-        possible_paths = ['logo.png', 'static/logo.png', '/opt/render/project/src/logo.png']
-        for lp in possible_paths:
-            if os.path.exists(lp):
-                try: 
-                    cv.drawImage(ImageReader(lp), 2*mm, 18.5*mm, width=12*mm, height=5*mm, preserveAspectRatio=True, mask='auto')
-                    logo_loaded = True
-                    break
-                except: pass
-                
-        if not logo_loaded:
-            cv.setFillColorRGB(0,0,0)
-            cv.setFont("Helvetica-Bold", 7)
-            cv.drawString(2.5*mm, 19.5*mm, "AGC")
-
-        # 🏢 Header Info (Right Aligned)
-        cv.setFillColorRGB(0,0,0)
-        cv.setFont("Helvetica-Bold", 6.5)
-        cv.drawRightString(48*mm, 20.5*mm, branch)
-        
+        # 2. Header: Branch & Party Name
+        cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawString(2.5*mm, 21*mm, branch)
         cv.setFont("Helvetica", 5.5)
-        cv.drawRightString(48*mm, 17.5*mm, f"Issued To: {party_name[:20]}")
+        cv.drawRightString(47.5*mm, 21*mm, f"To: {party_name[:18]}")
+        cv.setLineWidth(0.3)
+        cv.line(1*mm, 19.5*mm, 49*mm, 19.5*mm)
         
-        # 🔲 Centered Barcode
+        # 3. 🚀 Auto-Scaling Barcode (Kabhi border ke bahar nahi jayega)
         try:
-            bc = code128.Code128(awb, barHeight=8*mm, barWidth=0.27*mm)
+            bc = code128.Code128(awb, barHeight=8.5*mm, barWidth=0.35*mm)
             bc_w = bc.getBounds()[2] - bc.getBounds()[0]
-            bc.drawOn(cv, (50*mm - bc_w)/2, 7.5*mm)
-        except: pass
+            
+            # Agar barcode label se choda hai, toh usko scale down karo
+            scale = 1.0
+            max_bc_w = 46 * mm
+            if bc_w > max_bc_w:
+                scale = max_bc_w / bc_w
+                
+            d = Drawing(max_bc_w, 10*mm, transform=[scale, 0, 0, 1, 0, 0])
+            d.add(bc)
+            
+            # Center alignment logic
+            final_w = bc_w * scale
+            x_pos = (50*mm - final_w) / 2
+            renderPDF.draw(d, cv, x_pos, 8*mm)
+        except Exception as e:
+            print("Barcode Error:", e)
         
-        cv.setFont("Helvetica-Bold", 9)
-        cv.drawCentredString(25*mm, 3*mm, awb)
+        # 4. AWB Text at Bottom
+        cv.setFont("Helvetica-Bold", 10)
+        cv.drawCentredString(25*mm, 3.5*mm, awb)
         
         cv.showPage()
         
     cv.save(); buf.seek(0)
-    return send_file(buf, download_name=f"Barcodes_{b['prefix']}{b['start_no']}_to_{b['end_no']}.pdf", mimetype='application/pdf')
+    return send_file(buf, download_name=f"Barcodes_{b['prefix']}{b['start_no']}.pdf", mimetype='application/pdf')
 
 
 # ==========================================
-# 🖨️ 2.5.B PREMIUM A4 C-NOTES PRINT (3 Per Page + QR Code)
+# 🖨️ 2.5.B PREMIUM A4 C-NOTES PRINT (Ultra Professional Layout)
 # ==========================================
 @app.route('/print/stationery_cnotes/<int:bid>')
 @login_required
@@ -1625,7 +1625,7 @@ def print_stationery_cnotes(bid):
     gstin = get_setting('company_gstin', '08ADQPC7585D1Z9')
     phone = get_setting('company_phone', '01555-220016')
     branch = get_setting('branch_name', 'NOHAR')
-    party_name = b['cust_name'] if b.get('cust_name') else 'Walk-in / General'
+    party_name = b['cust_name'] if b.get('cust_name') else 'Cash Booking'
     
     for idx, i in enumerate(range(b['start_no'], b['end_no'] + 1)):
         awb = f"{b['prefix']}{i}"
@@ -1635,180 +1635,181 @@ def print_stationery_cnotes(bid):
         x = 15
         width = w - 30
         
-        # --- Background & Outer Wrapper ---
+        # --- Background Wrapper ---
         cv.setStrokeColor(HexColor("#94A3B8"))
         cv.setLineWidth(1)
         cv.roundRect(x, y, width, box_h, 6)
         
-        # --- 1. Top Red Warning Banner ---
+        # --- 1. Red Warning Banner (FIXED TEXT CUT-OFF) ---
         cv.setFillColor(HexColor("#FEF2F2"))
-        cv.roundRect(x, y + 250, width, 15, 6, fill=1, stroke=1)
-        cv.setFillColor(HexColor("#DC2626"))
-        cv.setFont("Helvetica-Bold", 7)
-        cv.drawCentredString(x + width/2, y + 254, "NO CASH / ORIGINAL DOCUMENTS / JEWELLERY ALLOWED. COMPANY NOT LIABLE IN CASE OF LOSS.")
+        cv.roundRect(x, y + 248, width, 17, 6, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#B91C1C"))
+        cv.setFont("Helvetica-Bold", 6.5)
+        # Text chota aur center me fit kiya gaya hai taaki overlap na ho
+        warning_text = "NO CASH, ORIGINAL DOCUMENTS, OR JEWELLERY ALLOWED. COMPANY IS NOT LIABLE FOR LOSS OF PROHIBITED ITEMS."
+        cv.drawCentredString(x + width/2, y + 253, warning_text)
         
-        # --- 2. Header Grid (Logo, Title, QR) ---
+        # --- 2. Header Section ---
         cv.setFillColor(HexColor("#0F172A"))
         
-        # Robust Logo
         logo_loaded = False
-        possible_paths = ['logo.png', 'static/logo.png', '/opt/render/project/src/logo.png']
+        possible_paths = ['logo.png', 'static/logo.png']
         for lp in possible_paths:
             if os.path.exists(lp):
                 try:
-                    cv.drawImage(ImageReader(lp), x+5, y+220, width=40, height=25, preserveAspectRatio=True, mask='auto')
+                    cv.drawImage(ImageReader(lp), x+8, y+215, width=45, height=28, preserveAspectRatio=True, mask='auto')
                     logo_loaded = True
                     break
                 except: pass
                 
         if not logo_loaded:
-            cv.setFont("Helvetica-Bold", 22); cv.drawString(x+10, y+225, "AGC")
+            cv.setFont("Helvetica-Bold", 24); cv.drawString(x+10, y+220, "AGC")
 
         # Company Title
         cv.setFont("Helvetica-Bold", 14)
-        cv.drawString(x+55, y+235, comp_name[:30])
+        cv.drawString(x+65, y+230, comp_name[:35])
         cv.setFont("Helvetica", 7.5)
-        cv.drawString(x+55, y+225, f"Branch: {branch.upper()} | Ph: {phone}")
-        cv.drawString(x+55, y+215, f"GSTIN: {gstin} | ISO 9001:2008")
+        cv.setFillColor(HexColor("#475569"))
+        cv.drawString(x+65, y+220, f"HQ: {branch.upper()} | Support: {phone}")
+        cv.drawString(x+65, y+210, f"GSTIN: {gstin} | ISO 9001:2008")
 
-        # Document Title Tag
-        cv.setFillColor(HexColor("#F8FAFC"))
-        cv.setStrokeColor(HexColor("#E2E8F0"))
-        cv.roundRect(x+260, y+230, 150, 15, 3, fill=1, stroke=1)
-        cv.setFillColor(HexColor("#334155"))
+        # Receipt Type Tag
+        cv.setFillColor(HexColor("#F1F5F9"))
+        cv.setStrokeColor(HexColor("#CBD5E1"))
+        cv.roundRect(x+270, y+225, 140, 16, 4, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#1E293B"))
         cv.setFont("Helvetica-Bold", 7.5)
-        cv.drawCentredString(x+335, y+234, "NON NEGOTIABLE CONSIGNMENT NOTE")
+        cv.drawCentredString(x+340, y+230, "NON-NEGOTIABLE C-NOTE")
 
-        # Right Barcode & QR
-        rx = x + 430
-        try:
-            bc = code128.Code128(awb, barHeight=8*mm, barWidth=0.3*mm)
-            bc.drawOn(cv, rx, y+230)
-        except: pass
-        
+        # Right Barcode & AWB
+        rx = x + 420
         cv.setFillColor(HexColor("#0F172A"))
-        cv.setFont("Helvetica-Bold", 10)
-        cv.drawString(rx + 5, y+218, f"AWB: {awb}")
-        
-        # Tracking QR
+        cv.setFont("Helvetica-Bold", 12)
+        cv.drawString(rx + 5, y+232, f"AWB: {awb}")
+        try:
+            bc = code128.Code128(awb, barHeight=7*mm, barWidth=0.28*mm)
+            bc.drawOn(cv, rx + 2, y+210)
+        except: pass
+
+        # Premium Tracking QR Code (Top Right)
         try:
             qr_data = f"https://agcgroup.in/track-now/?awb={awb}"
             qr_w = qr.QrCodeWidget(qr_data)
             b_qr = qr_w.getBounds()
-            d = Drawing(16*mm, 16*mm, transform=[16*mm/(b_qr[2]-b_qr[0]),0,0,16*mm/(b_qr[3]-b_qr[1]),0,0])
+            d = Drawing(18*mm, 18*mm, transform=[18*mm/(b_qr[2]-b_qr[0]),0,0,18*mm/(b_qr[3]-b_qr[1]),0,0])
             d.add(qr_w)
-            renderPDF.draw(d, cv, rx - 20*mm, y+215)
-            cv.setFont("Helvetica-Bold", 5)
+            renderPDF.draw(d, cv, x + width - 20*mm, y+220)
+            cv.setFont("Helvetica-Bold", 5.5)
             cv.setFillColor(HexColor("#2563EB"))
-            cv.drawCentredString(rx - 12*mm, y+212, "SCAN TO TRACK")
+            cv.drawCentredString(x + width - 11*mm, y+216, "SCAN TO TRACK")
         except: pass
 
-        # --- 3. Body Grids (Consignor, Consignee, Routing, Charges) ---
-        my = y + 125
-        cv.setStrokeColor(HexColor("#94A3B8"))
-        cv.setLineWidth(0.5)
-        cv.line(x, my+80, x+width, my+80) # Divider Below Header
+        # --- 3. Main Data Grids (Shaded Headers) ---
+        my = y + 115
         
-        # Vertical Separators
-        cv.line(x+190, my, x+190, my+80)
-        cv.line(x+380, my, x+380, my+80)
-        cv.line(x, my, x+width, my) # Divider Below Details
-
+        # 3 Boxes: Consignor, Consignee, Meta
+        cv.setStrokeColor(HexColor("#CBD5E1"))
+        cv.setLineWidth(0.5)
+        
+        # Box 1: Consignor
+        cv.setFillColor(HexColor("#F8FAFC"))
+        cv.rect(x, my, 190, 85, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#E2E8F0"))
+        cv.rect(x, my+70, 190, 15, fill=1, stroke=1) # Header shade
         cv.setFillColor(HexColor("#0F172A"))
         cv.setFont("Helvetica-Bold", 8)
-        
-        # Block A: Consignor
-        cv.drawString(x+5, my+70, "Consignor Details:")
+        cv.drawString(x+5, my+74, "Sender (Consignor) Details:")
         cv.setFont("Helvetica", 7)
-        cv.drawString(x+5, my+10, "Phone/Mob:")
-        
-        # Block B: Consignee
-        cv.setFont("Helvetica-Bold", 8)
-        cv.drawString(x+195, my+70, "Consignee Details:")
-        cv.setFont("Helvetica", 7)
-        cv.drawString(x+195, my+10, "Phone/Mob:")
-        
-        # Block C: Routing & Info (Right Side)
-        cv.setFont("Helvetica", 8)
-        cv.drawString(x+385, my+70, "Date:")
-        cv.drawString(x+385, my+55, "Origin:")
-        cv.setFont("Helvetica-Bold", 8)
-        cv.drawString(x+425, my+55, branch.upper())
-        cv.setFont("Helvetica", 8)
-        cv.drawString(x+385, my+40, "Destination:")
-        cv.drawString(x+385, my+25, "Issued To:")
-        cv.setFont("Helvetica-Bold", 7.5)
-        cv.setFillColor(HexColor("#2563EB"))
-        cv.drawString(x+435, my+25, party_name[:20])
-        
-        # --- 4. Charges & Logistics Grid (Like rasid_pankaj.jpg) ---
-        gy = y + 55
-        cv.setStrokeColor(HexColor("#CBD5E1"))
+        cv.drawString(x+5, my+5, "Phone/Mob:")
+        cv.line(x, my+15, x+190, my+15)
+
+        # Box 2: Consignee
         cv.setFillColor(HexColor("#F8FAFC"))
-        cv.rect(x, gy, width, 70, fill=1, stroke=1)
+        cv.rect(x+190, my, 190, 85, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#E2E8F0"))
+        cv.rect(x+190, my+70, 190, 15, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#0F172A"))
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(x+195, my+74, "Receiver (Consignee) Details:")
+        cv.setFont("Helvetica", 7)
+        cv.drawString(x+195, my+5, "Phone/Mob:")
+        cv.line(x+190, my+15, x+380, my+15)
+
+        # Box 3: Meta Info
+        cv.setFillColor(HexColor("#FFFFFF"))
+        cv.rect(x+380, my, width-380, 85, fill=1, stroke=1)
+        cv.setFont("Helvetica", 8)
+        cv.drawString(x+385, my+72, "Date:")
+        cv.line(x+380, my+65, x+width, my+65)
+        cv.drawString(x+385, my+52, "Origin:")
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(x+435, my+52, branch.upper())
+        cv.line(x+380, my+45, x+width, my+45)
+        cv.setFont("Helvetica", 8)
+        cv.drawString(x+385, my+32, "Destination:")
+        cv.line(x+380, my+25, x+width, my+25)
+        cv.drawString(x+385, my+10, "Issued To:")
+        cv.setFont("Helvetica-Bold", 8)
+        cv.setFillColor(HexColor("#2563EB"))
+        cv.drawString(x+435, my+10, party_name[:18])
+
+        # --- 4. Charges Grid (Professional Matrix) ---
+        gy = y + 45
+        cv.setFillColor(HexColor("#FFFFFF"))
+        cv.rect(x, gy, width, 65, fill=1, stroke=1)
         
-        cv.line(x, gy+45, x+width, gy+45)
-        cv.line(x, gy+20, x+width, gy+20)
+        # Grid Headers Shade
+        cv.setFillColor(HexColor("#F1F5F9"))
+        cv.rect(x, gy+45, width, 20, fill=1, stroke=1)
+        cv.rect(x, gy+15, width, 15, fill=1, stroke=1)
         
-        # Vertical grid lines
         col_w = width / 6
         for c_idx in range(1, 6):
-            cv.line(x + (c_idx * col_w), gy, x + (c_idx * col_w), gy+70)
+            cv.line(x + (c_idx * col_w), gy, x + (c_idx * col_w), gy+65)
 
-        cv.setFillColor(HexColor("#475569"))
-        cv.setFont("Helvetica-Bold", 7)
+        cv.setFillColor(HexColor("#334155"))
+        cv.setFont("Helvetica-Bold", 7.5)
         
         # Row 1 Headers
-        cv.drawCentredString(x + col_w*0.5, gy+55, "Weight")
-        cv.drawCentredString(x + col_w*1.5, gy+55, "Pieces")
-        cv.drawCentredString(x + col_w*2.5, gy+55, "Declared Value")
-        cv.drawCentredString(x + col_w*3.5, gy+55, "Mode (Air/Surface)")
-        cv.drawCentredString(x + col_w*4.5, gy+55, "Nature of Goods")
-        cv.drawCentredString(x + col_w*5.5, gy+55, "Dox / Parcel")
+        cv.drawCentredString(x + col_w*0.5, gy+52, "Weight (KG)")
+        cv.drawCentredString(x + col_w*1.5, gy+52, "Pieces")
+        cv.drawCentredString(x + col_w*2.5, gy+52, "Declared Value")
+        cv.drawCentredString(x + col_w*3.5, gy+52, "Mode")
+        cv.drawCentredString(x + col_w*4.5, gy+52, "Dox / Parcel")
+        cv.drawCentredString(x + col_w*5.5, gy+52, "Cash / Credit")
         
         # Row 2 Headers
-        cv.drawCentredString(x + col_w*0.5, gy+30, "Courier Charges")
-        cv.drawCentredString(x + col_w*1.5, gy+30, "SGST")
-        cv.drawCentredString(x + col_w*2.5, gy+30, "CGST")
-        cv.drawCentredString(x + col_w*3.5, gy+30, "IGST")
-        cv.drawCentredString(x + col_w*4.5, gy+30, "Other Charges")
-        cv.drawCentredString(x + col_w*5.5, gy+30, "Total Amount")
+        cv.drawCentredString(x + col_w*0.5, gy+19, "Courier Charges")
+        cv.drawCentredString(x + col_w*1.5, gy+19, "SGST")
+        cv.drawCentredString(x + col_w*2.5, gy+19, "CGST")
+        cv.drawCentredString(x + col_w*3.5, gy+19, "IGST")
+        cv.drawCentredString(x + col_w*4.5, gy+19, "Other Chg.")
+        cv.drawCentredString(x + col_w*5.5, gy+19, "Total Amount")
 
-        # Rupee Symbols
+        # Rupee Symbols & Blanks
         cv.setFont("Helvetica", 8)
         for c_idx in range(6):
-            cv.drawString(x + (c_idx * col_w) + 5, gy+5, "Rs.")
+            if c_idx < 5: cv.drawString(x + (c_idx * col_w) + 4, gy+33, "") # Placeholder for row 1 data
+            cv.drawString(x + (c_idx * col_w) + 4, gy+4, "Rs.")
 
-        # --- 5. Footer & Warning ---
-        cv.setFillColor(HexColor("#0F172A"))
-        terms = "1. THIS MEMO IS FOR DOCUMENTS & PARCELS. 2. MAXIMUM LIABILITY EXCEEDS NOT TO FOUR TIMES OF COURIER CHARGES IN ANY CASE. 3. CURRENCY, JEWELLERY, LIQUIDS, PERISHABLES PROHIBITED. 4. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION. 5. SERVICE TAX AS APPLICABLE. NO CLAIM WITHOUT ORIGINAL RECEIPT."
+        # --- 5. Footer & Signatures ---
+        cv.setFillColor(HexColor("#64748B"))
+        terms = "1. MEMO FOR DOCUMENTS & PARCELS. 2. MAX LIABILITY LIMITED TO 4x COURIER CHARGES. 3. LIQUIDS/PERISHABLES PROHIBITED. 4. DISPUTES SUBJECT TO LOCAL JURISDICTION. 5. NO CLAIM WITHOUT ORIGINAL RECEIPT."
+        cv.setFont("Helvetica", 5.5)
+        cv.drawCentredString(x + width/2, y + 35, terms)
         
-        import textwrap
-        cv.setFont("Helvetica", 5)
-        lines = textwrap.wrap(terms, 140)
-        ty = y + 45
-        for l in lines:
-            cv.drawString(x + 5, ty, l)
-            ty -= 6
-        
-        # Red No Claim Box
-        nx = x + width - 180
-        cv.setFillColor(HexColor("#FEF2F2"))
-        cv.setStrokeColor(HexColor("#EF4444"))
-        cv.rect(nx, y + 25, 175, 25, fill=1, stroke=1)
-        cv.setFillColor(HexColor("#DC2626"))
-        cv.setFont("Helvetica-Bold", 8)
-        cv.drawCentredString(nx + 175/2, y + 40, "NO CLAIM NO GUARANTEE")
-        cv.setFont("Helvetica", 6)
-        cv.drawCentredString(nx + 175/2, y + 30, f"Customer Care: {phone} | Web: agcgroup.in")
-        
+        # Signatures
         cv.setFillColor(HexColor("#0F172A"))
         cv.setFont("Helvetica-Bold", 9)
-        cv.drawString(x + 5, y + 10, "Consignor's Signature")
+        cv.drawString(x + 10, y + 10, "Sender's Signature")
+        
+        cv.setFillColor(HexColor("#94A3B8"))
         cv.setFont("Helvetica", 7)
-        cv.drawCentredString(x + width/2, y + 10, "This Memo is Not Used For GST Invoice | Computer Generated")
+        cv.drawCentredString(x + width/2, y + 10, "Computer Generated Receipt | Valid without stamp")
+        
+        cv.setFillColor(HexColor("#0F172A"))
         cv.setFont("Helvetica-Bold", 9)
-        cv.drawRightString(x + width - 5, y + 10, "Authorised Signatory")
+        cv.drawRightString(x + width - 10, y + 10, "Authorised Signatory")
 
         if pos == 2 or idx == (b['end_no'] - b['start_no']):
             cv.showPage()
