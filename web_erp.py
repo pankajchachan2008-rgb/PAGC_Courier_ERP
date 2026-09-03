@@ -1513,7 +1513,7 @@ def stationery():
                     <td>{{ b.end_no }}</td>
                     <td><span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">{{ b.qty }}</span></td>
                     <td style="white-space:nowrap;">
-                        <a href="/print/stationery_barcodes/{{ b.id }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;" title="Print Sticker"><i class="fas fa-barcode"></i> Sticker</a>
+                        <a href="/print/stationery_barcodes/{{ b.id }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;" title="Print Thermal Sticker"><i class="fas fa-barcode"></i> Sticker</a>
                         <a href="/print/stationery_cnotes/{{ b.id }}" target="_blank" class="btn-success" style="padding:4px 8px; font-size:11px;" title="Print A4 Receipt"><i class="fas fa-print"></i> C-Note</a>
                         <a href="/stationery?delete={{ b.id }}" class="btn-danger" style="padding:4px 8px; font-size:11px;" onclick="return confirm('Delete this batch?');"><i class="fas fa-trash"></i></a>
                     </td>
@@ -1527,6 +1527,282 @@ def stationery():
     """
     return render_page("Barcode & Stationery", render_template_string(html, custs=custs, batches=batches))
 
+
+# ==========================================
+# 🖨️ 2.5.A THERMAL BARCODE STICKER PRINT (50mm x 25mm)
+# ==========================================
+@app.route('/print/stationery_barcodes/<int:bid>')
+@login_required
+def print_stationery_barcodes(bid):
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT sb.*, c.name as cust_name FROM stationery_batches sb LEFT JOIN customers c ON sb.customer_id = c.id WHERE sb.id=%s", (bid,))
+    b = c.fetchone()
+    c.close(); conn.close()
+    if not b: return "Batch Not Found", 404
+
+    import os, io
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.units import mm
+    from reportlab.graphics.barcode import code128
+    from reportlab.lib.utils import ImageReader
+
+    buf = io.BytesIO()
+    # Standard 2x1 Inch Thermal Label Size
+    cv = canvas.Canvas(buf, pagesize=(50*mm, 25*mm))
+    branch = get_setting('company_name', 'AGC').split()[0].upper()
+    party_name = b['cust_name'] if b.get('cust_name') else 'General Walk-in'
+
+    for i in range(b['start_no'], b['end_no'] + 1):
+        awb = f"{b['prefix']}{i}"
+        
+        # 🌟 Draw Logo if exists
+        logo_path = 'logo.png'
+        if os.path.exists(logo_path):
+            try: cv.drawImage(ImageReader(logo_path), 2*mm, 18*mm, width=12*mm, height=5*mm, preserveAspectRatio=True, mask='auto')
+            except: pass
+        
+        cv.setFillColorRGB(0,0,0)
+        cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawString(15*mm, 21*mm, f"{branch} COURIER")
+        
+        # 👤 Alloted Party Name
+        cv.setFont("Helvetica", 5.5)
+        cv.drawString(15*mm, 17.5*mm, f"P: {party_name[:20]}")
+        
+        # 🔲 Draw Centered Barcode
+        try:
+            bc = code128.Code128(awb, barHeight=8*mm, barWidth=0.27*mm)
+            bc_w = bc.getBounds()[2] - bc.getBounds()[0]
+            bc.drawOn(cv, (50*mm - bc_w)/2, 8*mm)
+        except: pass
+        
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawCentredString(25*mm, 3*mm, awb)
+        cv.showPage()
+        
+    cv.save(); buf.seek(0)
+    return send_file(buf, download_name=f"Barcodes_{b['prefix']}{b['start_no']}_to_{b['end_no']}.pdf", mimetype='application/pdf')
+
+
+# ==========================================
+# 🖨️ 2.5.B PREMIUM A4 C-NOTES PRINT (3 Per Page + QR Code)
+# ==========================================
+@app.route('/print/stationery_cnotes/<int:bid>')
+@login_required
+def print_stationery_cnotes(bid):
+    conn = get_db(); c = conn.cursor()
+    c.execute("SELECT sb.*, c.name as cust_name FROM stationery_batches sb LEFT JOIN customers c ON sb.customer_id = c.id WHERE sb.id=%s", (bid,))
+    b = c.fetchone()
+    c.close(); conn.close()
+    if not b: return "Batch Not Found", 404
+
+    import os, io
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.colors import HexColor
+    from reportlab.graphics.barcode import code128, qr
+    from reportlab.graphics import renderPDF
+    from reportlab.graphics.shapes import Drawing
+    from reportlab.lib.utils import ImageReader
+    from reportlab.lib.units import mm
+
+    buf = io.BytesIO()
+    w, h = A4 # 595 x 842 points
+    cv = canvas.Canvas(buf, pagesize=A4)
+    
+    comp_name = get_setting('company_name', 'Pankaj Agency Courier')
+    gstin = get_setting('company_gstin', '08ADQPC7585D1Z9')
+    phone = get_setting('company_phone', '01555-220016')
+    branch = get_setting('branch_name', 'NOHAR')
+    party_name = b['cust_name'] if b.get('cust_name') else 'Cash / Counter'
+    
+    for idx, i in enumerate(range(b['start_no'], b['end_no'] + 1)):
+        awb = f"{b['prefix']}{i}"
+        pos = idx % 3
+        # Calculate Y Base for each of the 3 receipts
+        box_h = 265
+        y = h - (pos + 1) * (box_h + 10) 
+        x = 15
+        width = w - 30
+        
+        # --- Background & Outer Border ---
+        cv.setStrokeColor(HexColor("#1E293B"))
+        cv.setLineWidth(1.2)
+        cv.roundRect(x, y, width, box_h, 4)
+        
+        # --- 1. Top Red Warning Banner ---
+        cv.setFillColor(HexColor("#FEE2E2"))
+        cv.roundRect(x, y + 250, width, 15, 4, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#B91C1C"))
+        cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawCentredString(x + width/2, y + 254, "NO CASH / ORIGINAL DOCUMENTS / JEWELLERY ALLOWED. COMPANY NOT LIABLE IN CASE OF LOSS.")
+        
+        # --- 2. Header Section ---
+        cv.setFillColor(HexColor("#000000"))
+        # Logo Left
+        logo_loaded = False
+        if os.path.exists('logo.png'):
+            try:
+                cv.drawImage(ImageReader('logo.png'), x+5, y+220, width=45, height=25, preserveAspectRatio=True, mask='auto')
+                logo_loaded = True
+            except: pass
+        if not logo_loaded:
+            cv.setFont("Helvetica-Bold", 18); cv.drawString(x+5, y+230, "AGC")
+        
+        cv.setFont("Helvetica-Bold", 11)
+        cv.drawString(x+55 if logo_loaded else x+5, y+235, "Akash Ganga")
+        cv.setFont("Helvetica-BoldOblique", 9)
+        cv.setFillColor(HexColor("#DC2626"))
+        cv.drawString(x+55 if logo_loaded else x+5, y+225, "Courier Limited")
+        cv.setFillColor(HexColor("#000000"))
+        cv.setFont("Helvetica", 6.5)
+        cv.drawString(x+5, y+215, f"GST No. {gstin} | ISO 9001:2008")
+
+        # Franchise Office Details
+        cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawString(x+130, y+235, "Franchise Office:")
+        cv.setFont("Helvetica", 7.5)
+        cv.drawString(x+130, y+225, comp_name[:25])
+        cv.drawString(x+130, y+215, f"Ph: {phone}")
+
+        # Mid Grid (Date, Origin, Dest)
+        cv.setStrokeColor(HexColor("#E2E8F0"))
+        cv.setLineWidth(1)
+        gx = x + 230
+        cv.rect(gx, y+210, 140, 40)
+        cv.line(gx, y+223, gx+140, y+223)
+        cv.line(gx, y+236, gx+140, y+236)
+        cv.line(gx+50, y+210, gx+50, y+250)
+        
+        cv.setFont("Helvetica-Bold", 7)
+        cv.drawString(gx+5, y+242, "Date:")
+        cv.drawString(gx+5, y+228, "Origin:")
+        cv.drawString(gx+5, y+214, "Destination:")
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(gx+55, y+228, branch.upper())
+        
+        # Consignor Copy Tag
+        cv.setFillColor(HexColor("#1E293B"))
+        cv.rect(gx, y+250, 140, 10, fill=1, stroke=0)
+        cv.setFillColor(HexColor("#FFFFFF"))
+        cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawCentredString(gx+70, y+252, "Consignor Copy / Non Negotiable")
+
+        # Right Section (AWB & Tracking QR)
+        rx = x + 380
+        cv.setFillColor(HexColor("#000000"))
+        cv.setFont("Helvetica-Bold", 11)
+        cv.drawString(rx, y+235, f"AWB: {awb}")
+        
+        try:
+            bc = code128.Code128(awb, barHeight=6*mm, barWidth=0.25*mm)
+            bc.drawOn(cv, rx, y+215)
+        except: pass
+
+        # 🚀 Premium Tracking QR Code
+        try:
+            qr_data = f"https://agcgroup.in/track-now/?awb={awb}"
+            qr_w = qr.QrCodeWidget(qr_data)
+            b_qr = qr_w.getBounds()
+            d = Drawing(16*mm, 16*mm, transform=[16*mm/(b_qr[2]-b_qr[0]),0,0,16*mm/(b_qr[3]-b_qr[1]),0,0])
+            d.add(qr_w)
+            renderPDF.draw(d, cv, rx + 115, y+212)
+            cv.setFont("Helvetica-Bold", 5)
+            cv.drawCentredString(rx + 115 + 8*mm, y+208, "SCAN TO TRACK")
+        except: pass
+
+        # Issued To Party Name Tag
+        cv.setFont("Helvetica-Bold", 6.5)
+        cv.setFillColor(HexColor("#2563EB"))
+        cv.drawString(rx, y+205, f"Allocated To: {party_name[:25]}")
+        cv.setFillColor(HexColor("#000000"))
+
+        # --- 3. Body Section (Consignor/Consignee & Charges) ---
+        cv.setStrokeColor(HexColor("#CBD5E1"))
+        cv.rect(x, y+100, width, 105)
+        cv.line(x+200, y+100, x+200, y+205) # Split Consignor / Consignee
+        cv.line(x+380, y+100, x+380, y+205) # Split Consignee / Charges
+        
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(x+5, y+195, "Consignor Details:")
+        cv.drawString(x+205, y+195, "Consignee Details:")
+        
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawString(x+5, y+105, "Phone / Mob:")
+        cv.drawString(x+205, y+105, "Phone / Mob:")
+
+        # Charges Grid (Right Side as per design)
+        cx = x + 380
+        cw = width - 380
+        cv.line(cx, y+175, x+width, y+175)
+        cv.line(cx, y+145, x+width, y+145)
+        cv.line(cx, y+125, x+width, y+125)
+        cv.line(cx+45, y+100, cx+45, y+205)
+        cv.line(cx+90, y+100, cx+90, y+205)
+        cv.line(cx+135, y+100, cx+135, y+205)
+
+        cv.setFont("Helvetica-Bold", 6.5)
+        # Row 1
+        cv.drawString(cx+2, y+195, "Weight / Pcs")
+        cv.drawString(cx+47, y+195, "Declared Val.")
+        cv.drawString(cx+92, y+195, "Nature of Good")
+        cv.drawString(cx+137, y+195, "Air / Surface")
+        # Row 2
+        cv.drawString(cx+2, y+165, "Courier Chg.")
+        cv.drawString(cx+47, y+165, "SGST")
+        cv.drawString(cx+92, y+165, "CGST")
+        cv.drawString(cx+137, y+165, "Total Amount")
+        # Row 3 (Rupee signs)
+        cv.setFont("Helvetica", 8)
+        cv.drawString(cx+2, y+150, "Rs.")
+        cv.drawString(cx+47, y+150, "Rs.")
+        cv.drawString(cx+92, y+150, "Rs.")
+        cv.drawString(cx+137, y+150, "Rs.")
+        # Row 4
+        cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawString(cx+2, y+135, "Cash / Credit")
+        cv.drawString(cx+47, y+135, "Insurance")
+        cv.drawString(cx+92, y+135, "Dox / Parcel")
+        cv.drawString(cx+137, y+135, "Signature")
+
+        # --- 4. Terms and Footer ---
+        cv.rect(x, y+35, width, 60) # Terms box
+        cv.line(x+420, y+35, x+420, y+95) # Split terms and guarantee
+        
+        terms = "1. THIS MEMO IS FOR DOCUMENTS & PARCELS. 2. MAXIMUM LIABILITY EXCEEDS NOT TO FOUR TIMES OF COURIER CHARGES IN ANY CASE. 3. CURRENCY, JEWELLERY, LIQUIDS, PERISHABLES PROHIBITED. 4. ALL DISPUTES SUBJECT TO LOCAL JURISDICTION. 5. SERVICE TAX AS APPLICABLE. NO CLAIM WITHOUT ORIGINAL RECEIPT."
+        import textwrap
+        cv.setFont("Helvetica", 5.5)
+        lines = textwrap.wrap(terms, 150)
+        ty = y + 85
+        for l in lines:
+            cv.drawString(x + 5, ty, l)
+            ty -= 7
+        
+        # No Claim Box
+        cv.setFillColor(HexColor("#FEE2E2"))
+        cv.rect(x+420, y+75, width-420, 20, fill=1, stroke=1)
+        cv.setFillColor(HexColor("#B91C1C"))
+        cv.setFont("Helvetica-Bold", 8)
+        cv.drawCentredString(x + 420 + (width-420)/2, y+82, "NO CLAIM NO GUARANTEE")
+        
+        cv.setFillColor(HexColor("#000000"))
+        cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawCentredString(x + 420 + (width-420)/2, y+65, "Customer Care Service")
+        cv.setFont("Helvetica", 6)
+        cv.drawCentredString(x + 420 + (width-420)/2, y+55, f"Ph: {phone}")
+        cv.drawCentredString(x + 420 + (width-420)/2, y+45, "Web: www.agcgroup.in")
+
+        # Bottom Signatures
+        cv.setFont("Helvetica-Bold", 9)
+        cv.drawString(x + 5, y + 15, "Consignor's Signature")
+        cv.drawCentredString(x + width/2, y + 15, "This Memo is Not Used For GST Invoice | Thanks for using our services")
+        cv.drawRightString(x + width - 5, y + 15, "Authorised Signatory")
+
+        if pos == 2 or idx == (b['end_no'] - b['start_no']):
+            cv.showPage()
+            
+    cv.save(); buf.seek(0)
+    return send_file(buf, download_name=f"C_Notes_{b['prefix']}{b['start_no']}_to_{b['end_no']}.pdf", mimetype='application/pdf')
 
 # ==========================================
 # 🖨️ 2.5.A THERMAL BARCODE STICKER PRINT (50mm x 25mm)
