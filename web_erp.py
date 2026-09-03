@@ -1479,11 +1479,31 @@ def stationery():
     """
     return render_page("Shipper/Barcode Issue", render_template_string(html, custs=custs, hist=hist))
 
+# ==========================================
+# 🎫 AWB ALLOTMENT (B2B VIRTUAL STATIONERY)
+# ==========================================
 @app.route('/awb_allotment', methods=['GET', 'POST'])
 @login_required
 def awb_allotment():
     if session.get('role') != 'ADMIN': return redirect('/')
     conn = get_db()
+    
+    # 🚀 AUTO-FIX: Agar Database table nahi hai, toh page khulte hi pehle table banayega (Crash-Proof)
+    try:
+        with conn.cursor() as c:
+            c.execute("""CREATE TABLE IF NOT EXISTS customer_awb_series (
+                id INT AUTO_INCREMENT PRIMARY KEY, 
+                customer_id INT, 
+                prefix VARCHAR(20), 
+                start_no BIGINT, 
+                end_no BIGINT, 
+                current_no BIGINT, 
+                is_active INT DEFAULT 1,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )""")
+        conn.commit()
+    except Exception as e:
+        print(f"Table Creation Error: {e}")
     
     if request.method == 'POST':
         cid = request.form.get('cust_id')
@@ -1504,9 +1524,14 @@ def awb_allotment():
     with conn.cursor() as c:
         c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
         custs = c.fetchall()
-        c.execute("""SELECT a.*, c.name as cust_name FROM customer_awb_series a 
-                     JOIN customers c ON a.customer_id = c.id ORDER BY a.id DESC LIMIT 100""")
-        series_list = c.fetchall()
+        
+        try:
+            c.execute("""SELECT a.*, c.name as cust_name FROM customer_awb_series a 
+                         JOIN customers c ON a.customer_id = c.id ORDER BY a.id DESC LIMIT 100""")
+            series_list = c.fetchall()
+        except:
+            series_list = []
+            
     conn.close()
 
     html = """
