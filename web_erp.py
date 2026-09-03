@@ -1437,123 +1437,6 @@ def stationery():
             c.execute("SELECT prefix, start_no, end_no FROM stationery_batches WHERE id=%s", (bid,))
             b = c.fetchone()
             if b:
-                # Remove from shipments
-                for i in range(b['start_no'], b['end_no'] + 1):
-                    awb = f"{b['prefix']}{i}"
-                    c.execute("DELETE FROM shipments WHERE awb_no=%s AND status='STATIONERY'", (awb,))
-                c.execute("DELETE FROM stationery_batches WHERE id=%s", (bid,))
-                flash(f"✅ Batch Deleted and Unused AWBs Released!", "success")
-        conn.commit()
-        return redirect('/stationery')
-    
-    # ➕ ISSUE BULK STATIONERY
-    if request.method == 'POST':
-        cid = request.form.get('cust_id')
-        prefix = request.form.get('prefix', '').strip().upper()
-        start = safe_int(request.form.get('start_no'))
-        end = safe_int(request.form.get('end_no'))
-        
-        if end >= start:
-            qty = end - start + 1
-            with conn.cursor() as c:
-                c.execute("INSERT INTO stationery_batches(customer_id, prefix, start_no, end_no, qty) VALUES(%s,%s,%s,%s,%s)", (cid, prefix, start, end, qty))
-                
-                # Fast Bulk Insert into Shipments
-                shipments_data = []
-                for i in range(start, end + 1):
-                    awb = f"{prefix}{i}"
-                    shipments_data.append((awb, cid, 'STATIONERY', 'Pre-Printed Stationery'))
-                
-                c.executemany("INSERT IGNORE INTO shipments(awb_no, customer_id, status, info) VALUES(%s,%s,%s,%s)", shipments_data)
-            conn.commit()
-            flash(f"✅ {qty} AWBs ({prefix}{start} to {end}) successfully alloted!", "success")
-        else:
-            flash("❌ End Number must be greater than Start Number", "error")
-        return redirect('/stationery')
-    
-    with conn.cursor() as c:
-        c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
-        custs = c.fetchall()
-        c.execute("""SELECT sb.*, c.name as cust_name FROM stationery_batches sb 
-                     LEFT JOIN customers c ON sb.customer_id = c.id ORDER BY sb.id DESC LIMIT 100""")
-        batches = c.fetchall()
-    conn.close()
-    
-    html = """
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div class="card" style="border-top:4px solid #2563eb;">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">📦 Issue Stationery Series</h3>
-            <form method="POST" class="space-y-3">
-                <div><label class="label-modern">Issue To (Franchise/Party) *</label>
-                    <select name="cust_id" class="input-modern" required>
-                        <option value="">-- Select Party --</option>
-                        {% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
-                    </select>
-                </div>
-                <div><label class="label-modern">Prefix (e.g. AGC)</label><input type="text" name="prefix" class="input-modern uppercase font-bold text-blue-600"></div>
-                <div class="grid grid-cols-2 gap-2">
-                    <div><label class="label-modern">From AWB No *</label><input type="number" name="start_no" required class="input-modern"></div>
-                    <div><label class="label-modern">To AWB No *</label><input type="number" name="end_no" required class="input-modern"></div>
-                </div>
-                <button type="submit" class="btn-primary w-full mt-2"><i class="fas fa-check"></i> Assign AWB Series</button>
-            </form>
-        </div>
-        <div class="card lg:col-span-2">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Stationery Issue Register</h3>
-            <div class="table-responsive">
-            <table class="datatable">
-                <thead><tr><th>Date</th><th>Party Name</th><th>Prefix</th><th>Start No</th><th>End No</th><th>Qty</th><th>Actions</th></tr></thead>
-                <tbody>
-                {% for b in batches %}
-                <tr>
-                    <td>{{ b.created_at.strftime('%Y-%m-%d') }}</td>
-                    <td class="font-bold text-blue-600">{{ b.cust_name or 'Cash/Counter' }}</td>
-                    <td class="font-bold">{{ b.prefix }}</td>
-                    <td>{{ b.start_no }}</td>
-                    <td>{{ b.end_no }}</td>
-                    <td><span class="px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold">{{ b.qty }}</span></td>
-                    <td style="white-space:nowrap;">
-                        <a href="/print/stationery_barcodes/{{ b.id }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;" title="Print Thermal Sticker"><i class="fas fa-barcode"></i> Sticker</a>
-                        <a href="/print/stationery_cnotes/{{ b.id }}" target="_blank" class="btn-success" style="padding:4px 8px; font-size:11px;" title="Print A4 Receipt"><i class="fas fa-print"></i> C-Note</a>
-                        <a href="/stationery?delete={{ b.id }}" class="btn-danger" style="padding:4px 8px; font-size:11px;" onclick="return confirm('Delete this batch?');"><i class="fas fa-trash"></i></a>
-                    </td>
-                </tr>
-                {% endfor %}
-                </tbody>
-            </table>
-            </div>
-        </div>
-    </div>
-    """
-    return render_page("Barcode & Stationery", render_template_string(html, custs=custs, batches=batches))
-
-
-# ==========================================
-# 📦 2.5 BARCODE & STATIONERY (BULK ALLOTMENT & PRINT)
-# ==========================================
-@app.route('/stationery', methods=['GET', 'POST'])
-@login_required
-def stationery():
-    if session.get('role') == 'CUSTOMER': return redirect('/')
-    conn = get_db()
-    
-    # 🚀 AUTO-HEAL: Create Stationery Batches Table
-    try:
-        with conn.cursor() as c:
-            c.execute("""CREATE TABLE IF NOT EXISTS stationery_batches (
-                id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, 
-                prefix VARCHAR(20), start_no BIGINT, end_no BIGINT, qty INT, 
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
-        conn.commit()
-    except Exception as e: pass
-
-    # 🗑️ DELETE BATCH
-    if request.args.get('delete'):
-        bid = request.args.get('delete')
-        with conn.cursor() as c:
-            c.execute("SELECT prefix, start_no, end_no FROM stationery_batches WHERE id=%s", (bid,))
-            b = c.fetchone()
-            if b:
                 for i in range(b['start_no'], b['end_no'] + 1):
                     awb = f"{b['prefix']}{i}"
                     c.execute("DELETE FROM shipments WHERE awb_no=%s AND status='STATIONERY'", (awb,))
@@ -1932,6 +1815,7 @@ def print_stationery_cnotes(bid):
             
     cv.save(); buf.seek(0)
     return send_file(buf, download_name=f"C_Notes_{b['prefix']}{b['start_no']}_to_{b['end_no']}.pdf", mimetype='application/pdf')
+
 # ==========================================
 # 🎫 AWB ALLOTMENT (B2B VIRTUAL STATIONERY)
 # ==========================================
