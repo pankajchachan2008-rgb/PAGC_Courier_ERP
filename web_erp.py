@@ -4216,7 +4216,9 @@ def draw_logo_web(cv, x, y, width, height):
             except: pass
     return False
 
-# ----- LABEL PRINT ROUTE -----
+# ==========================================
+# 🖨️ WEB ERP: PRINT LABEL (DYNAMIC WHITE-LABELING)
+# ==========================================
 @app.route('/print/label/<awb>')
 @login_required
 def print_label(awb):
@@ -4232,7 +4234,8 @@ def print_label(awb):
                 c.execute("SELECT * FROM customers WHERE id=%s", (s['customer_id'],))
                 cust = c.fetchone() or {}
             
-            c.execute("SELECT origin_station, out_station FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
+            # 🚀 NEW: Fetch Network & FWD AWB details
+            c.execute("SELECT origin_station, out_station, network, network_awb FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
             outward = c.fetchone() or {}
             
             c.execute("SELECT * FROM settings")
@@ -4246,6 +4249,13 @@ def print_label(awb):
     try:
         _org = outward.get('origin_station') or "NOHAR"
         _dst = outward.get('out_station') or s.get('dest_station') or s.get('dest_name') or "-"
+        
+        # 🧠 WHITE LABEL LOGIC VARS
+        # 🧠 Agar Outward nahi hua toh Shipments table(s) se Network utha lega
+        _net = outward.get('network') if outward.get('network') else (s.get('network') or 'SELF')
+        _n_awb = outward.get('network_awb') if outward.get('network_awb') else (s.get('network_awb') or '')
+        is_self = not _net or str(_net).upper() in ["SELF", "AGC", "AKASH GANGA", "AKASHGANGA"]
+
         stype = s.get("service_type") or "SURFACE"
         if stype in ["BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"]: stype = "SURFACE"
 
@@ -4256,33 +4266,55 @@ def print_label(awb):
         cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
         cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
         
-        # Logo Draw
-        x = 14
-        if draw_logo_web(cv, x, h - 56, 68, 40): x = 90
-            
-        max_w = w - x - 20
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
-        cv.drawString(x, h - 26, fit_text(cv, settings.get("company_name") or "AGC Courier", "Helvetica-Bold", 11, max_w))
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2)
-        cv.drawString(x, h - 38, fit_text(cv, settings.get("company_address") or "", "Helvetica", 6.2, max_w))
-        cv.drawString(x, h - 50, fit_text(cv, f"GSTIN: {settings.get('company_gstin') or ''} | Ph: {settings.get('company_phone') or ''}", "Helvetica", 6.2, max_w))
+        # AWB Extraction moved up for QR Code
+        safe_awb = str(s.get("awb_no") or "")
         
+        # ==================================
+        # 🟢 HEADER DRAWING LOGIC (DYNAMIC)
+        # ==================================
+        x = 14
+        max_w = w - x - 20
+        
+        if is_self:
+            # BRANDED LOGO HEADER
+            if draw_logo_web(cv, x, h - 56, 68, 40): x = 90
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
+            cv.drawString(x, h - 26, fit_text(cv, settings.get("company_name") or "AGC Courier", "Helvetica-Bold", 11, max_w))
+            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2)
+            cv.drawString(x, h - 38, fit_text(cv, settings.get("company_address") or "", "Helvetica", 6.2, max_w))
+            cv.drawString(x, h - 50, fit_text(cv, f"GSTIN: {settings.get('company_gstin') or ''} | Ph: {settings.get('company_phone') or ''}", "Helvetica", 6.2, max_w))
+            
+            # QR CODE WITH TRACKING LINK (Only for Self)
+            track_url = f"https://agcgroup.in/track-now/?awb={safe_awb}"
+            draw_qr_web(cv, track_url, w - 74, h - 138, 58)
+            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawCentredString(w - 45, h - 148, "SCAN & TRACK")
+        else:
+            # WHITE LABEL HEADER (Neutral)
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 13)
+            cv.drawString(14, h - 28, f"ROUTED VIA: {str(_net).upper()}")
+            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 9)
+            if _n_awb:
+                cv.drawString(14, h - 44, f"FWD AWB: {_n_awb}")
+            else:
+                cv.drawString(14, h - 44, "FWD AWB: _________________________")
+                
+        # ==================================
+        # BOXES & BARCODES
+        # ==================================
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.2); cv.rect(w - 90, h - 42, 80, 16)
         cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5)
-        cv.drawCentredString(w - 50, h - 37, "PREMIUM EXPRESS")
+        box_text = "PREMIUM EXPRESS" if is_self else "NETWORK DISPATCH"
+        cv.drawCentredString(w - 50, h - 37, box_text)
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(10, h - 62, w - 10, h - 62)
         
-        safe_awb = str(s.get("awb_no") or "")
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(14, h - 74, "AWB NUMBER")
+        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6.5)
+        label_text = "AWB NUMBER" if is_self else "INTERNAL AWB NUMBER"
+        cv.drawString(14, h - 74, label_text)
+        
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, safe_awb)
         try: code128.Code128(safe_awb, barHeight=0.40*inch, barWidth=0.011*inch).drawOn(cv, 18, h - 128)
         except: pass
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, safe_awb)
-        
-        # 🚀 ADDING QR CODE WITH TRACKING LINK (LABEL)
-        track_url = f"https://agcgroup.in/track-now/?awb={safe_awb}"
-        draw_qr_web(cv, track_url, w - 74, h - 138, 58)
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawCentredString(w - 45, h - 148, "SCAN & TRACK")
         
         cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA"))
         cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
@@ -4308,10 +4340,11 @@ def print_label(awb):
             cv.drawString(22, yy, line); yy -= 10
         cv.setFont("Helvetica-Bold", 7.5); cv.drawString(22, yy, f"Ph: {s.get('dest_phone') or '-'}")
         
+        # 🚀 DYNAMIC METRICS: Shows HUB instead of Branch for 3rd Party
         cells = [("WEIGHT", f"{s.get('weight_kg') or '0'} KG"), ("PIECES", str(s.get("quantity") or "1")), 
                  ("COD", f"Rs {s.get('cod_amount') or 0}"), ("DECLARED", f"Rs {s.get('declared_value') or 0}"), 
                  ("DATE", str(s.get("booking_date") or "")[:10]), ("MODE", str(stype)),
-                 ("DEST CITY", str(_dst)[:14]), ("BRANCH", str(settings.get("branch_name") or "HQ"))]
+                 ("DEST CITY", str(_dst)[:14]), ("BRANCH", str(settings.get("branch_name") or "HQ") if is_self else "HUB")]
         
         cw = (w - 24) / 4; chh = 19; y0 = h - 258
         for i, (label, value) in enumerate(cells):
@@ -4340,7 +4373,12 @@ def print_label(awb):
         cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(10, 10, w - 20, 28, fill=1, stroke=0)
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 5.8)
         cv.drawCentredString(w / 2, 26, fit_text(cv, settings.get("terms_note") or "", "Helvetica", 5.8, w - 40))
-        cv.drawCentredString(w / 2, 17, "Computer Generated Label | AGC ERP")
+        
+        # 🟢 DYNAMIC FOOTER
+        if is_self:
+            cv.drawCentredString(w / 2, 17, "Computer Generated Label | AGC ERP")
+        else:
+            cv.drawCentredString(w / 2, 17, "Computer Generated Label | Neutral Routing Partner")
         
         cv.showPage(); cv.save()
         buf.seek(0)
