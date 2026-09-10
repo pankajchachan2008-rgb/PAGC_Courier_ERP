@@ -850,194 +850,268 @@ def track():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Track Shipment | AGC ERP</title>
+        <title>Track Shipment | PANKAJ AGENCY</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
         <style>
-            body { font-family: 'Inter', sans-serif; background-color: #f8fafc; }
-            .glass-card { background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); }
-            .timeline-dot { box-shadow: 0 0 0 4px #ffffff; }
+            body { 
+                font-family: 'Plus Jakarta Sans', sans-serif; 
+                background: radial-gradient(circle at 0% 0%, #e0c3fc 0%, #8ec5fc 100%);
+                background-attachment: fixed;
+                min-height: 100vh;
+                color: #0f172a;
+            }
+            
+            /* 💎 3D Pastel Glassmorphism Card */
+            .glass-panel {
+                background: rgba(255, 255, 255, 0.65);
+                backdrop-filter: blur(24px);
+                -webkit-backdrop-filter: blur(24px);
+                border: 1px solid rgba(255, 255, 255, 0.8);
+                box-shadow: 0 20px 40px -10px rgba(31, 38, 135, 0.1), inset 0 2px 0 0 rgba(255, 255, 255, 0.7);
+                border-radius: 28px;
+            }
+            
+            /* ✨ Luxury Gradients */
+            .text-gradient {
+                background: linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+            }
+            .btn-glow {
+                background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+                box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4);
+                transition: all 0.3s ease;
+                border: 1px solid rgba(255, 255, 255, 0.3);
+            }
+            .btn-glow:hover {
+                box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.6);
+                transform: translateY(-2px);
+            }
+
+            /* 🔍 Floating Search Input */
+            .search-box {
+                background: rgba(255, 255, 255, 0.9);
+                box-shadow: 0 8px 32px rgba(0,0,0,0.05), inset 0 2px 4px rgba(0,0,0,0.02);
+                border: 2px solid transparent;
+                transition: 0.3s;
+            }
+            .search-box:focus-within {
+                border-color: #8b5cf6;
+                box-shadow: 0 8px 32px rgba(139, 92, 246, 0.15);
+            }
+
+            /* 📡 Live Pulsing Animation for Latest Tracking Node */
+            .pulse-ring {
+                position: absolute;
+                width: 40px; height: 40px;
+                border-radius: 50%;
+                background: rgba(59, 130, 246, 0.4);
+                animation: pulse 2s infinite cubic-bezier(0.4, 0, 0.2, 1);
+                top: -8px; left: -8px;
+                z-index: -1;
+            }
+            @keyframes pulse {
+                0% { transform: scale(0.5); opacity: 1; }
+                100% { transform: scale(1.5); opacity: 0; }
+            }
         </style>
     </head>
-    <body class="text-slate-800 antialiased min-h-screen flex flex-col">
+    <body class="antialiased min-h-screen flex flex-col">
         
-        <!-- Top Navbar -->
-        <nav class="bg-slate-900 text-white shadow-md">
-            <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div class="flex items-center justify-between h-16">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden p-1">
-                            <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='AGC'" class="w-full h-full object-contain">
+        <!-- Top Navbar (Glass) -->
+        <nav class="bg-white/40 backdrop-blur-md border-b border-white/50 sticky top-0 z-50">
+            <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex items-center justify-between h-20">
+                    <div class="flex items-center gap-4">
+                        <div class="w-12 h-12 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 p-2 border border-white">
+                            <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerHTML='<span class=\\'text-blue-600 font-bold text-xl\\'>AGC</span>'" class="w-full h-full object-contain">
                         </div>
-                        <span class="font-bold text-xl tracking-tight">PANKAJ AGENCY</span>
+                        <div>
+                            <span class="font-extrabold text-2xl tracking-tight text-slate-800">PANKAJ AGENCY</span>
+                            <p class="text-[10px] font-bold text-blue-600 uppercase tracking-widest leading-none">Tracking Portal</p>
+                        </div>
                     </div>
                 </div>
             </div>
         </nav>
 
         <!-- Main Content -->
-        <main class="flex-1 max-w-5xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-10 md:py-14">
+        <main class="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 py-10">
             
-            <!-- Search Section -->
+            <!-- Hero Search Section -->
             <div class="text-center mb-12">
-                <h1 class="text-3xl md:text-4xl font-extrabold text-slate-900 mb-3 tracking-tight">Track Your Shipment</h1>
-                <p class="text-slate-500 mb-8 font-medium">Enter your AWB or Reference Number to get real-time status.</p>
+                <h1 class="text-4xl md:text-5xl font-black text-slate-800 mb-4 tracking-tight drop-shadow-sm">Track Your <span class="text-gradient">Shipment</span></h1>
+                <p class="text-slate-600 mb-8 font-medium text-lg">Enter your AWB or Reference Number to get real-time detailed status.</p>
                 
-                <form method="GET" action="/track" class="max-w-2xl mx-auto flex shadow-xl rounded-xl overflow-hidden bg-white border border-slate-200 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 transition-all">
-                    <div class="flex items-center pl-5 text-slate-400"><i class="fas fa-search text-lg"></i></div>
-                    <input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB Number..." class="flex-1 px-4 py-4 md:py-5 outline-none text-slate-700 font-bold uppercase text-lg" required>
-                    <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-8 md:px-10 py-4 md:py-5 font-bold transition-colors text-lg">TRACK</button>
+                <form method="GET" action="/track" class="max-w-2xl mx-auto flex rounded-2xl overflow-hidden search-box p-1">
+                    <div class="flex items-center pl-6 text-blue-500"><i class="fas fa-search text-xl"></i></div>
+                    <input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB Number..." class="flex-1 px-4 py-4 md:py-5 outline-none text-slate-800 font-bold uppercase text-lg bg-transparent" required>
+                    <button type="submit" class="btn-glow text-white px-8 md:px-12 py-4 rounded-xl font-bold tracking-wider text-lg m-1">TRACK</button>
                 </form>
             </div>
 
             {% if error_msg %}
-            <div class="max-w-2xl mx-auto bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg shadow-sm mb-8">
-                <div class="flex items-center">
-                    <i class="fas fa-exclamation-circle text-red-500 text-xl mr-3"></i>
-                    <p class="text-red-700 font-medium">{{ error_msg }}</p>
+            <div class="glass-panel p-6 border-l-4 border-l-red-500 mb-8 flex items-center gap-4">
+                <div class="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center text-red-500 text-xl shadow-inner"><i class="fas fa-exclamation-triangle"></i></div>
+                <div>
+                    <h3 class="text-red-800 font-bold text-lg">Error processing request</h3>
+                    <p class="text-red-600 font-medium">{{ error_msg }}</p>
                 </div>
             </div>
             {% elif awb and not shipment %}
-            <div class="max-w-2xl mx-auto bg-amber-50 border-l-4 border-amber-500 p-8 rounded-r-lg shadow-sm mb-8 text-center">
-                <i class="fas fa-box-open text-amber-400 text-5xl mb-4"></i>
-                <h3 class="text-amber-800 font-bold text-xl">No Shipment Found!</h3>
-                <p class="text-amber-700 mt-2 font-medium">Please check your AWB number and try again. It might take some time to update.</p>
+            <div class="glass-panel p-10 mb-8 text-center">
+                <div class="w-24 h-24 bg-white rounded-full flex items-center justify-center mx-auto mb-6 shadow-xl shadow-amber-500/20 border-4 border-amber-50 text-amber-500 text-4xl">
+                    <i class="fas fa-box-open"></i>
+                </div>
+                <h3 class="text-slate-800 font-black text-2xl mb-2">Shipment Not Found</h3>
+                <p class="text-slate-500 font-medium text-lg">Please check the AWB number and try again. Data might take some time to sync.</p>
             </div>
             {% elif shipment %}
             
             <!-- Dynamic Progress Bar Logic -->
             {% set status = shipment.status %}
-            {% set progress = 10 %}
-            {% set bar_color = 'bg-blue-500' %}
+            {% set progress = 12 %}
+            {% set bar_color = 'from-blue-400 to-blue-600' %}
             
             {% if status == 'OUTWARD' or status == 'INWARD' %}{% set progress = 50 %}{% endif %}
-            {% if status == 'ON_DRS' %}{% set progress = 80 %}{% endif %}
-            {% if status == 'DELIVERED' %}{% set progress = 100 %}{% set bar_color = 'bg-green-500' %}{% endif %}
-            {% if status == 'CANCELLED' %}{% set progress = 100 %}{% set bar_color = 'bg-red-500' %}{% endif %}
-            {% if status == 'UNDELIVERED' %}{% set progress = 80 %}{% set bar_color = 'bg-orange-500' %}{% endif %}
+            {% if status == 'ON_DRS' %}{% set progress = 75 %}{% endif %}
+            {% if status == 'DELIVERED' %}{% set progress = 100 %}{% set bar_color = 'from-emerald-400 to-emerald-600' %}{% endif %}
+            {% if status == 'CANCELLED' %}{% set progress = 100 %}{% set bar_color = 'from-rose-400 to-rose-600' %}{% endif %}
+            {% if status == 'UNDELIVERED' or status == 'RETURNED' %}{% set progress = 80 %}{% set bar_color = 'from-amber-400 to-amber-600' %}{% endif %}
 
-            <div class="glass-card rounded-2xl p-6 md:p-8 mb-8">
-                <!-- Header Info -->
-                <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-6 mb-8">
+            <!-- 💎 Shipment Summary Card -->
+            <div class="glass-panel p-8 mb-8 relative overflow-hidden">
+                <div class="absolute -right-20 -top-20 w-64 h-64 bg-white/40 rounded-full blur-3xl"></div>
+                
+                <div class="flex flex-col md:flex-row md:items-center justify-between border-b border-white/50 pb-6 mb-8 relative z-10">
                     <div>
-                        <p class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">AWB Number</p>
-                        <h2 class="text-3xl font-black text-slate-800 tracking-tight">
+                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1 drop-shadow-sm">AWB Number</p>
+                        <h2 class="text-4xl font-black text-slate-800 tracking-tighter text-gradient drop-shadow-sm">
                             {{ shipment.awb_no }}
                         </h2>
                     </div>
                     <div class="mt-4 md:mt-0 text-left md:text-right">
-                        <p class="text-slate-400 text-xs font-bold uppercase tracking-wider mb-1">Current Status</p>
-                        <span class="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold uppercase tracking-wider border
-                            {% if status == 'DELIVERED' %}bg-green-50 text-green-700 border-green-200
-                            {% elif status == 'CANCELLED' %}bg-red-50 text-red-700 border-red-200
-                            {% elif status == 'ON_DRS' %}bg-blue-50 text-blue-700 border-blue-200
-                            {% elif status == 'UNDELIVERED' %}bg-orange-50 text-orange-700 border-orange-200
-                            {% else %}bg-indigo-50 text-indigo-700 border-indigo-200{% endif %} shadow-sm">
-                            {% if status == 'DELIVERED' %}<i class="fas fa-check-circle"></i>
-                            {% elif status == 'CANCELLED' %}<i class="fas fa-times-circle"></i>
-                            {% elif status == 'ON_DRS' %}<i class="fas fa-motorcycle"></i>
-                            {% else %}<i class="fas fa-truck-fast"></i>{% endif %}
+                        <p class="text-slate-500 text-xs font-bold uppercase tracking-widest mb-2">Current Status</p>
+                        <div class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest bg-white border border-white/60 shadow-[0_4px_15px_rgba(0,0,0,0.05)]
+                            {% if status == 'DELIVERED' %}text-emerald-600
+                            {% elif status == 'CANCELLED' %}text-rose-600
+                            {% elif status == 'ON_DRS' %}text-blue-600
+                            {% elif status == 'UNDELIVERED' or status == 'RETURNED' %}text-amber-600
+                            {% else %}text-indigo-600{% endif %}">
+                            {% if status == 'DELIVERED' %}<i class="fas fa-check-circle text-lg"></i>
+                            {% elif status == 'CANCELLED' %}<i class="fas fa-times-circle text-lg"></i>
+                            {% elif status == 'ON_DRS' %}<i class="fas fa-motorcycle text-lg"></i>
+                            {% else %}<i class="fas fa-truck-fast text-lg"></i>{% endif %}
                             {{ status|replace('_', ' ') }}
-                        </span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Visual Progress Bar -->
-                <div class="mb-10 px-2">
-                    <div class="w-full bg-slate-100 rounded-full h-3 mb-4 relative overflow-hidden shadow-inner">
-                        <div class="{{ bar_color }} h-3 rounded-full transition-all duration-1000 ease-out" style="width: {{ progress }}%"></div>
-                    </div>
-                    <div class="flex justify-between text-[11px] md:text-xs font-bold text-slate-400 uppercase tracking-wider">
-                        <span class="{% if progress >= 10 %}text-slate-800{% endif %}">Booked</span>
-                        <span class="{% if progress >= 50 %}text-slate-800{% endif %} text-center">In Transit</span>
-                        <span class="{% if progress >= 80 %}text-slate-800{% endif %} text-center">Out for Delivery</span>
-                        <span class="{% if progress == 100 %}text-slate-800{% endif %} text-right">Delivered</span>
+                <!-- 🚥 Horizontal Stepper -->
+                <div class="mb-10 px-4 relative z-10 hidden sm:block">
+                    <div class="relative flex justify-between items-center w-full">
+                        <div class="absolute left-0 top-1/2 -translate-y-1/2 w-full h-2 bg-white/60 rounded-full shadow-inner border border-white"></div>
+                        <div class="absolute left-0 top-1/2 -translate-y-1/2 h-2 rounded-full bg-gradient-to-r {{ bar_color }} shadow-[0_0_10px_rgba(59,130,246,0.5)] transition-all duration-1000" style="width: {{ progress }}%"></div>
+                        
+                        <div class="relative flex flex-col items-center z-10">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-md border-2 border-white transition-all duration-500 {% if progress >= 12 %}bg-blue-600 text-white{% else %}bg-slate-200 text-slate-400{% endif %}">1</div>
+                            <span class="absolute top-10 text-[10px] font-bold uppercase tracking-wider text-slate-600 w-24 text-center">Booked</span>
+                        </div>
+                        <div class="relative flex flex-col items-center z-10">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-md border-2 border-white transition-all duration-500 {% if progress >= 50 %}bg-blue-600 text-white{% else %}bg-slate-200 text-slate-400{% endif %}">2</div>
+                            <span class="absolute top-10 text-[10px] font-bold uppercase tracking-wider text-slate-600 w-24 text-center">In Transit</span>
+                        </div>
+                        <div class="relative flex flex-col items-center z-10">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-md border-2 border-white transition-all duration-500 {% if progress >= 75 %}bg-blue-600 text-white{% else %}bg-slate-200 text-slate-400{% endif %}">3</div>
+                            <span class="absolute top-10 text-[10px] font-bold uppercase tracking-wider text-slate-600 w-32 text-center">Out For Delivery</span>
+                        </div>
+                        <div class="relative flex flex-col items-center z-10">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-md border-2 border-white transition-all duration-500 {% if progress == 100 %}{% if status == 'DELIVERED' %}bg-emerald-500{% else %}bg-rose-500{% endif %} text-white{% else %}bg-slate-200 text-slate-400{% endif %}">4</div>
+                            <span class="absolute top-10 text-[10px] font-bold uppercase tracking-wider text-slate-600 w-24 text-center">Delivered</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Quick Details Grid -->
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
+                <!-- 🗂️ Quick Details Grid -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 bg-white/40 p-6 rounded-2xl border border-white shadow-inner relative z-10 mt-12 sm:mt-0">
                     <div>
-                        <div class="flex items-center gap-2 text-slate-500 mb-2">
-                            <i class="fas fa-plane-departure text-slate-400"></i>
-                            <span class="text-xs font-bold uppercase tracking-wider">Origin</span>
-                        </div>
-                        <p class="font-bold text-slate-800 truncate" title="{{ shipment.origin_name }}">{{ shipment.origin_name }}</p>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Origin</p>
+                        <p class="font-black text-slate-800 text-sm truncate" title="{{ shipment.origin_name }}">{{ shipment.origin_name }}</p>
                     </div>
                     <div>
-                        <div class="flex items-center gap-2 text-slate-500 mb-2">
-                            <i class="fas fa-location-dot text-slate-400"></i>
-                            <span class="text-xs font-bold uppercase tracking-wider">Destination</span>
-                        </div>
-                        <p class="font-bold text-slate-800 truncate" title="{{ shipment.dest_name }}">{{ shipment.dest_name }}</p>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Destination</p>
+                        <p class="font-black text-slate-800 text-sm truncate" title="{{ shipment.dest_name }}">{{ shipment.dest_name }}</p>
                     </div>
                     <div>
-                        <div class="flex items-center gap-2 text-slate-500 mb-2">
-                            <i class="fas fa-calendar-alt text-slate-400"></i>
-                            <span class="text-xs font-bold uppercase tracking-wider">Booked On</span>
-                        </div>
-                        <p class="font-bold text-slate-800">{{ shipment.booking_date }}</p>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Booked On</p>
+                        <p class="font-black text-slate-800 text-sm">{{ shipment.booking_date }}</p>
                     </div>
                     <div>
-                        <div class="flex items-center gap-2 text-slate-500 mb-2">
-                            <i class="fas fa-weight-scale text-slate-400"></i>
-                            <span class="text-xs font-bold uppercase tracking-wider">Weight / Pcs</span>
-                        </div>
-                        <p class="font-bold text-slate-800">{{ shipment.weight_kg }} KG <span class="text-slate-500 font-semibold ml-1">({{ shipment.quantity }} Pcs)</span></p>
+                        <p class="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">Weight / Pcs</p>
+                        <p class="font-black text-slate-800 text-sm">{{ shipment.weight_kg }} KG <span class="text-blue-600 font-bold ml-1">({{ shipment.quantity }} Pcs)</span></p>
                     </div>
                 </div>
             </div>
 
-            <!-- Vertical Timeline Section -->
-            <div class="glass-card rounded-2xl p-6 md:p-8">
-                <h3 class="text-xl font-extrabold text-slate-800 mb-8 flex items-center gap-3 border-b border-slate-100 pb-4">
-                    <i class="fas fa-history text-blue-600"></i> Detailed Tracking History
+            <!-- 📍 Vertical Timeline Section -->
+            <div class="glass-panel p-8">
+                <h3 class="text-2xl font-black text-slate-800 mb-8 flex items-center gap-3 border-b border-white/50 pb-5">
+                    <div class="w-10 h-10 bg-white rounded-xl shadow-sm border border-white flex items-center justify-center text-blue-600"><i class="fas fa-route"></i></div> 
+                    Tracking Journey
                 </h3>
                 
                 {% if not events %}
-                <div class="text-center py-8">
-                    <i class="fas fa-hourglass-empty text-5xl text-slate-200 mb-4"></i>
-                    <p class="text-slate-500 font-medium text-lg">Tracking history is being updated.</p>
+                <div class="text-center py-10 bg-white/40 rounded-2xl border border-white">
+                    <div class="w-20 h-20 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm text-slate-300 text-3xl"><i class="fas fa-hourglass-half"></i></div>
+                    <p class="text-slate-600 font-bold text-lg">Tracking history is being processed.</p>
                 </div>
                 {% else %}
-                <div class="relative border-l-2 border-slate-200 ml-4 md:ml-6 pb-4">
+                <div class="relative border-l-2 border-blue-200/60 ml-4 md:ml-8 pb-4">
                     {% for e in events %}
                     
-                    <!-- Dynamic Icon & Color Logic -->
+                    {% set is_latest = loop.first %}
                     {% set icon_color = 'bg-slate-400' %}
                     {% set icon_class = 'fa-circle' %}
                     
                     {% if e.scan_type == 'BOOKED' %}{% set icon_color = 'bg-blue-500' %}{% set icon_class = 'fa-box' %}{% endif %}
                     {% if e.scan_type == 'OUTWARD' %}{% set icon_color = 'bg-indigo-500' %}{% set icon_class = 'fa-truck-fast' %}{% endif %}
-                    {% if e.scan_type == 'INWARD' %}{% set icon_color = 'bg-teal-500' %}{% set icon_class = 'fa-building' %}{% endif %}
+                    {% if e.scan_type == 'INWARD' %}{% set icon_color = 'bg-teal-500' %}{% set icon_class = 'fa-building-circle-check' %}{% endif %}
                     {% if e.scan_type == 'NETWORK DISPATCH' %}{% set icon_color = 'bg-purple-500' %}{% set icon_class = 'fa-network-wired' %}{% endif %}
                     {% if e.scan_type == 'ON_DRS' %}{% set icon_color = 'bg-amber-500' %}{% set icon_class = 'fa-motorcycle' %}{% endif %}
-                    {% if e.scan_type == 'DELIVERED' %}{% set icon_color = 'bg-green-500' %}{% set icon_class = 'fa-check' %}{% endif %}
+                    {% if e.scan_type == 'DELIVERED' %}{% set icon_color = 'bg-emerald-500' %}{% set icon_class = 'fa-check' %}{% endif %}
                     {% if e.scan_type == 'UNDELIVERED' %}{% set icon_color = 'bg-orange-500' %}{% set icon_class = 'fa-exclamation' %}{% endif %}
-                    {% if e.scan_type == 'CANCELLED' %}{% set icon_color = 'bg-red-500' %}{% set icon_class = 'fa-times' %}{% endif %}
+                    {% if e.scan_type == 'CANCELLED' %}{% set icon_color = 'bg-rose-500' %}{% set icon_class = 'fa-times' %}{% endif %}
 
-                    <div class="mb-8 ml-8 md:ml-10 relative">
-                        <!-- Timeline Dot -->
-                        <span class="timeline-dot absolute -left-12 md:-left-14 flex items-center justify-center w-8 h-8 rounded-full {{ icon_color }} text-white text-xs shadow-md">
-                            <i class="fas {{ icon_class }}"></i>
-                        </span>
+                    <div class="mb-8 ml-8 md:ml-12 relative group">
+                        <!-- Timeline Dot with Pulse if Latest -->
+                        <div class="absolute -left-[45px] md:-left-[61px] top-1">
+                            {% if is_latest and status not in ['DELIVERED', 'CANCELLED'] %}
+                                <div class="pulse-ring"></div>
+                            {% endif %}
+                            <span class="flex items-center justify-center w-8 h-8 rounded-full {{ icon_color }} text-white text-xs shadow-[0_0_0_4px_rgba(255,255,255,0.8)] relative z-10">
+                                <i class="fas {{ icon_class }}"></i>
+                            </span>
+                        </div>
                         
-                        <!-- Content Card -->
-                        <div class="bg-white border border-slate-100 rounded-xl p-4 md:p-5 shadow-sm hover:shadow-md transition-shadow">
-                            <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-3">
-                                <h4 class="text-base font-bold text-slate-800 uppercase tracking-wide">{{ e.scan_type|replace('_', ' ') }}</h4>
-                                <span class="text-xs font-bold text-slate-500 flex items-center gap-2 bg-slate-100 px-3 py-1 rounded-full">
-                                    <i class="far fa-clock"></i> {{ e.f_date }}
+                        <!-- Event Card -->
+                        <div class="bg-white/80 backdrop-blur-sm border border-white rounded-2xl p-5 shadow-[0_4px_20px_-5px_rgba(0,0,0,0.05)] transition-all hover:shadow-[0_8px_30px_-5px_rgba(0,0,0,0.1)] hover:-translate-y-1">
+                            <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-2 mb-3 border-b border-slate-100 pb-3">
+                                <h4 class="text-sm font-black text-slate-800 uppercase tracking-widest">{{ e.scan_type|replace('_', ' ') }}</h4>
+                                <span class="text-xs font-bold text-slate-500 flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-full border border-slate-200 shadow-inner">
+                                    <i class="far fa-clock text-blue-500"></i> {{ e.f_date }}
                                 </span>
                             </div>
-                            <p class="text-slate-700 font-semibold flex items-center gap-2 mb-2">
-                                <i class="fas fa-map-marker-alt text-slate-400"></i> {{ e.location }}
+                            <p class="text-slate-700 font-bold flex items-center gap-2 text-sm">
+                                <i class="fas fa-map-marker-alt text-slate-400 w-4 text-center"></i> {{ e.location }}
                             </p>
                             {% if e.remarks %}
-                            <p class="text-sm text-slate-600 mt-2 bg-slate-50 p-3 rounded-lg border border-slate-100 font-medium">
-                                <i class="fas fa-info-circle text-blue-400 mr-2"></i> {{ e.remarks }}
-                            </p>
+                            <div class="mt-3 bg-blue-50/50 p-3 rounded-xl border border-blue-100/50">
+                                <p class="text-xs text-slate-600 font-bold flex items-start gap-2">
+                                    <i class="fas fa-info-circle text-blue-500 mt-0.5"></i> <span>{{ e.remarks }}</span>
+                                </p>
+                            </div>
                             {% endif %}
                         </div>
                     </div>
@@ -1050,8 +1124,8 @@ def track():
         </main>
         
         <!-- Footer -->
-        <footer class="bg-slate-900 text-slate-400 py-6 text-center text-sm mt-auto border-t border-slate-800">
-            <p class="font-medium">&copy; 2026 PANKAJ AGENCY. All rights reserved.</p>
+        <footer class="text-slate-500 py-6 text-center text-xs font-bold uppercase tracking-widest mt-auto">
+            <p>&copy; 2026 PANKAJ AGENCY. All rights reserved.</p>
         </footer>
     </body>
     </html>
