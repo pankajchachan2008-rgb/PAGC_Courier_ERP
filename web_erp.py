@@ -927,7 +927,7 @@ def dashboard():
     return render_page("Dashboard", html)
 
 # ==========================================
-# 🌍 NETWORK TRACKING
+# 🌍 NETWORK TRACKING & UNIFIED TIMELINE ENGINE
 # ==========================================
 def fetch_network_tracking(network_name, network_awb):
     events = []
@@ -936,14 +936,38 @@ def fetch_network_tracking(network_name, network_awb):
     except Exception as e: logging.error(f"Network API: {e}")
     return events
 
-# ==========================================
-# 🌍 NETWORK TRACKING (LUXURY UI + LIVE BARCODE & QR)
-# ==========================================
-def fetch_network_tracking(network_name, network_awb):
+# 🚀 NAYA: Smart Timeline Merger (Brings Data from ALL Tables)
+def get_unified_timeline(c, awb, shipment_id):
     events = []
-    try:
-        events.append({'scan_type': 'NETWORK DISPATCH', 'location': f'Forwarded to {network_name}', 'f_date': datetime.datetime.now().strftime('%d-%b-%Y %I:%M %p'), 'remarks': f"Partner AWB: {network_awb}"})
-    except Exception as e: logging.error(f"Network API: {e}")
+    # 1. Base Scan Events
+    c.execute("SELECT scan_type, location, remarks, created_at, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM scan_events WHERE shipment_id=%s", (shipment_id,))
+    for rs in c.fetchall():
+        events.append({'scan_type': rs['scan_type'], 'location': rs['location'], 'remarks': rs['remarks'], 'f_date': rs['f_date'], 'raw_date': rs['created_at']})
+    
+    # 2. Outward / Manifest Session Info
+    c.execute("SELECT out_station, outward_no, manifest_no, created_at, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM outward_register WHERE awb_no=%s AND finalized=1", (awb,))
+    for o in c.fetchall():
+        events.append({'scan_type': 'MANIFEST DISPATCH', 'location': f"To {o['out_station']}", 'remarks': f"Outward No: {o['outward_no']} | Manifest: {o['manifest_no']}", 'f_date': o['f_date'], 'raw_date': o['created_at']})
+    
+    # 3. Inward Session Info
+    c.execute("SELECT in_station, inward_no, created_at, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM inward_register WHERE awb_no=%s AND finalized=1", (awb,))
+    for i in c.fetchall():
+        events.append({'scan_type': 'HUB INWARD', 'location': f"At {i['in_station']}", 'remarks': f"Inward Session: {i['inward_no']}", 'f_date': i['f_date'], 'raw_date': i['created_at']})
+    
+    # 4. Delivery Run Sheet (DRS) & Rider Info
+    c.execute("SELECT delivery_boy, drs_no, created_at, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM delivery_register WHERE awb_no=%s AND finalized=1", (awb,))
+    for d in c.fetchall():
+        events.append({'scan_type': 'OUT FOR DELIVERY', 'location': "Local Area", 'remarks': f"Rider: {d['delivery_boy']} | DRS No: {d['drs_no']}", 'f_date': d['f_date'], 'raw_date': d['created_at']})
+    
+    # 5. Reverse Sort (Latest Event First)
+    events.sort(key=lambda x: x['raw_date'] if x['raw_date'] else datetime.datetime.min, reverse=True)
+    
+    # 6. Check for Forwarding Network
+    c.execute("SELECT network, network_awb FROM outward_register WHERE awb_no=%s AND network != 'SELF' ORDER BY id DESC LIMIT 1", (awb,))
+    od = c.fetchone()
+    if od and od['network_awb']: 
+        events = fetch_network_tracking(od['network'], od['network_awb']) + events
+        
     return events
 
 @app.route('/track', methods=['GET', 'POST'])
@@ -957,12 +981,10 @@ def track():
                 c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
                 shipment = c.fetchone()
                 if shipment:
-                    c.execute("SELECT scan_type, location, remarks, DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p') as f_date FROM scan_events WHERE shipment_id=%s ORDER BY id DESC", (shipment['id'],))
-                    events = list(c.fetchall())
-                    c.execute("SELECT network, network_awb FROM outward_register WHERE awb_no=%s AND network != 'SELF' ORDER BY id DESC LIMIT 1", (awb,))
-                    od = c.fetchone()
-                    if od and od['network_awb']: events = fetch_network_tracking(od['network'], od['network_awb']) + events
+                    # 🚀 USE THE NEW UNIFIED TIMELINE ENGINE
+                    events = get_unified_timeline(c, awb, shipment['id'])
 
+                    # Data Cleaning for UI
                     if not shipment.get('origin_name') or str(shipment['origin_name']).lower() == 'none':
                         c.execute("SELECT origin_station FROM outward_register WHERE awb_no=%s ORDER BY id ASC LIMIT 1", (awb,))
                         orig_row = c.fetchone()
@@ -973,6 +995,14 @@ def track():
                         
                     if shipment.get('booking_date'):
                         shipment['booking_date'] = str(shipment['booking_date']).split(' ')[0]
+                        
+                    # 🚀 NEW: Fetch Receiver Name if Delivered
+                    if shipment['status'] == 'DELIVERED':
+                        c.execute("SELECT receiver_name FROM drs_items WHERE shipment_id=%s AND status='DELIVERED' ORDER BY id DESC LIMIT 1", (shipment['id'],))
+                        rx = c.fetchone()
+                        if rx and rx['receiver_name']:
+                            shipment['receiver_name'] = rx['receiver_name']
+                            
         except Exception as e: 
             error_msg = str(e)
         finally:
@@ -990,27 +1020,11 @@ def track():
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-        
-        <!-- Live Barcode & QR Code Libraries -->
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-        
         <style>
-            body { 
-                font-family: 'Plus Jakarta Sans', sans-serif; 
-                background: radial-gradient(circle at 0% 0%, #e0c3fc 0%, #8ec5fc 100%);
-                background-attachment: fixed;
-                min-height: 100vh;
-                color: #0f172a;
-            }
-            .glass-panel {
-                background: rgba(255, 255, 255, 0.65);
-                backdrop-filter: blur(24px);
-                -webkit-backdrop-filter: blur(24px);
-                border: 1px solid rgba(255, 255, 255, 0.8);
-                box-shadow: 0 20px 40px -10px rgba(31, 38, 135, 0.1), inset 0 2px 0 0 rgba(255, 255, 255, 0.7);
-                border-radius: 28px;
-            }
+            body { font-family: 'Plus Jakarta Sans', sans-serif; background: radial-gradient(circle at 0% 0%, #e0c3fc 0%, #8ec5fc 100%); background-attachment: fixed; min-height: 100vh; color: #0f172a; }
+            .glass-panel { background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 20px 40px -10px rgba(31, 38, 135, 0.1), inset 0 2px 0 0 rgba(255, 255, 255, 0.7); border-radius: 28px; }
             .text-gradient { background: linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
             .btn-glow { background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4); transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.3); }
             .btn-glow:hover { box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.6); transform: translateY(-2px); }
@@ -1018,7 +1032,6 @@ def track():
             .search-box:focus-within { border-color: #8b5cf6; box-shadow: 0 8px 32px rgba(139, 92, 246, 0.15); }
             .pulse-ring { position: absolute; width: 40px; height: 40px; border-radius: 50%; background: rgba(59, 130, 246, 0.4); animation: pulse 2s infinite cubic-bezier(0.4, 0, 0.2, 1); top: -8px; left: -8px; z-index: -1; }
             @keyframes pulse { 0% { transform: scale(0.5); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } }
-            
             #awb-qrcode img { border-radius: 8px; }
         </style>
     </head>
@@ -1044,7 +1057,6 @@ def track():
             <div class="text-center mb-12">
                 <h1 class="text-4xl md:text-5xl font-black text-slate-800 mb-4 tracking-tight drop-shadow-sm">Track Your <span class="text-gradient">Shipment</span></h1>
                 <p class="text-slate-600 mb-8 font-medium text-lg">Enter your AWB or Reference Number to get real-time detailed status.</p>
-                
                 <form method="GET" action="/track" class="max-w-2xl mx-auto flex rounded-2xl overflow-hidden search-box p-1">
                     <div class="flex items-center pl-6 text-blue-500"><i class="fas fa-search text-xl"></i></div>
                     <input type="text" name="awb" value="{{ awb }}" placeholder="Enter AWB Number..." class="flex-1 px-4 py-4 md:py-5 outline-none text-slate-800 font-bold uppercase text-lg bg-transparent" required>
@@ -1082,12 +1094,8 @@ def track():
                         <div>
                             <p class="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1 drop-shadow-sm">Tracking ID</p>
                             <h2 class="text-4xl font-black text-slate-800 tracking-tighter text-gradient drop-shadow-sm mb-1">{{ shipment.awb_no }}</h2>
-                            
-                            <!-- 🚀 Live Barcode Display -->
                             <svg id="live-barcode"></svg>
                         </div>
-                        
-                        <!-- 🚀 Secure Live QR Code -->
                         <div class="hidden sm:block p-3 bg-white rounded-xl shadow-[0_4px_15px_rgba(0,0,0,0.1)] border border-slate-100 transform hover:scale-105 transition-transform" title="Admin/Staff Secure Scan">
                             <div id="live-qrcode"></div>
                             <p class="text-[9px] text-center font-black text-blue-600 mt-2 uppercase tracking-widest"><i class="fas fa-lock text-slate-400"></i> Secure Scan</p>
@@ -1101,6 +1109,17 @@ def track():
                             {% if status == 'DELIVERED' %}<i class="fas fa-check-circle text-lg"></i>{% elif status == 'CANCELLED' %}<i class="fas fa-times-circle text-lg"></i>{% elif status == 'ON_DRS' %}<i class="fas fa-motorcycle text-lg"></i>{% else %}<i class="fas fa-truck-fast text-lg"></i>{% endif %}
                             {{ status|replace('_', ' ') }}
                         </div>
+                        
+                        <!-- 🚀 Received By Block (Visible only if Delivered) -->
+                        {% if status == 'DELIVERED' and shipment.receiver_name %}
+                        <div class="mt-3 p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-end gap-3 shadow-inner">
+                            <div class="text-right">
+                                <p class="text-[9px] uppercase font-black tracking-widest text-emerald-600">Received By</p>
+                                <p class="text-sm font-black text-emerald-900">{{ shipment.receiver_name }}</p>
+                            </div>
+                            <div class="w-8 h-8 rounded-full bg-emerald-200 text-emerald-700 flex items-center justify-center"><i class="fas fa-signature"></i></div>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
 
@@ -1152,11 +1171,13 @@ def track():
                     {% set is_latest = loop.first %}
                     {% set icon_color = 'bg-slate-400' %}
                     {% set icon_class = 'fa-circle' %}
+                    
                     {% if e.scan_type == 'BOOKED' %}{% set icon_color = 'bg-blue-500' %}{% set icon_class = 'fa-box' %}{% endif %}
                     {% if e.scan_type == 'OUTWARD' %}{% set icon_color = 'bg-indigo-500' %}{% set icon_class = 'fa-truck-fast' %}{% endif %}
-                    {% if e.scan_type == 'INWARD' %}{% set icon_color = 'bg-teal-500' %}{% set icon_class = 'fa-building-circle-check' %}{% endif %}
+                    {% if e.scan_type == 'MANIFEST DISPATCH' %}{% set icon_color = 'bg-indigo-600' %}{% set icon_class = 'fa-file-contract' %}{% endif %}
+                    {% if e.scan_type == 'INWARD' or e.scan_type == 'HUB INWARD' %}{% set icon_color = 'bg-teal-500' %}{% set icon_class = 'fa-building-circle-check' %}{% endif %}
                     {% if e.scan_type == 'NETWORK DISPATCH' %}{% set icon_color = 'bg-purple-500' %}{% set icon_class = 'fa-network-wired' %}{% endif %}
-                    {% if e.scan_type == 'ON_DRS' %}{% set icon_color = 'bg-amber-500' %}{% set icon_class = 'fa-motorcycle' %}{% endif %}
+                    {% if e.scan_type == 'ON_DRS' or e.scan_type == 'OUT FOR DELIVERY' %}{% set icon_color = 'bg-amber-500' %}{% set icon_class = 'fa-motorcycle' %}{% endif %}
                     {% if e.scan_type == 'DELIVERED' %}{% set icon_color = 'bg-emerald-500' %}{% set icon_class = 'fa-check' %}{% endif %}
                     {% if e.scan_type == 'UNDELIVERED' %}{% set icon_color = 'bg-orange-500' %}{% set icon_class = 'fa-exclamation' %}{% endif %}
                     {% if e.scan_type == 'CANCELLED' %}{% set icon_color = 'bg-rose-500' %}{% set icon_class = 'fa-times' %}{% endif %}
@@ -1194,30 +1215,16 @@ def track():
             <p>&copy; 2026 PANKAJ AGENCY. All rights reserved.</p>
         </footer>
         
-        <!-- 🚀 LIVE BARCODE & QR GENERATOR SCRIPT -->
         <script>
             {% if shipment %}
             document.addEventListener("DOMContentLoaded", function() {
-                // Generate Sleek Barcode
                 JsBarcode("#live-barcode", "{{ shipment.awb_no }}", {
-                    format: "CODE128",
-                    lineColor: "#1e293b",
-                    width: 1.5,
-                    height: 35,
-                    displayValue: false,
-                    background: "transparent",
-                    margin: 0
+                    format: "CODE128", lineColor: "#1e293b", width: 1.5, height: 35, displayValue: false, background: "transparent", margin: 0
                 });
 
-                // Generate Secure Admin QR Code
                 const secureUrl = window.location.origin + "/secure_track/{{ shipment.awb_no }}";
                 new QRCode(document.getElementById("live-qrcode"), {
-                    text: secureUrl,
-                    width: 80,
-                    height: 80,
-                    colorDark : "#0f172a",
-                    colorLight : "#ffffff",
-                    correctLevel : QRCode.CorrectLevel.H
+                    text: secureUrl, width: 80, height: 80, colorDark : "#0f172a", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.H
                 });
             });
             {% endif %}
@@ -1226,6 +1233,79 @@ def track():
     </html>
     """
     return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
+
+# ==========================================
+# 🔒 SECURE PACKET DETAILS (SCAN VIA QR)
+# ==========================================
+@app.route('/secure_track/<awb>')
+@login_required
+def secure_track(awb):
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            c.execute("""SELECT s.*, c.name as cust_name FROM shipments s 
+                         LEFT JOIN customers c ON s.customer_id = c.id 
+                         WHERE s.awb_no=%s""", (awb,))
+            s = c.fetchone()
+            if not s:
+                flash("Packet not found in secure database.", "error")
+                return redirect('/')
+                
+            # Use the unified timeline engine for secure audit trail
+            events = get_unified_timeline(c, awb, s['id'])
+    finally:
+        conn.close()
+
+    html = """
+    <div class="card" style="border-top: 4px solid #8b5cf6;">
+        <div class="flex justify-between items-center mb-6 border-b pb-4">
+            <div>
+                <h2 class="text-2xl font-black text-slate-800">Secure Packet Dossier</h2>
+                <p class="text-slate-500 font-bold tracking-widest text-xs mt-1">INTERNAL AWB: {{ s.awb_no }}</p>
+            </div>
+            <span class="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold uppercase tracking-wider text-sm">{{ s.status }}</span>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                <h3 class="text-sm font-black text-indigo-600 uppercase tracking-widest mb-3 border-b pb-2"><i class="fas fa-user-tag"></i> Commercials & Dimensions</h3>
+                <ul class="space-y-2 text-sm font-medium text-slate-700">
+                    <li><span class="text-slate-400">B2B Account:</span> {{ s.cust_name or 'Cash/Retail' }}</li>
+                    <li><span class="text-slate-400">Total Billed:</span> <span class="font-bold text-red-600">₹ {{ "{:,.2f}".format(s.total_amount or 0) }}</span></li>
+                    <li><span class="text-slate-400">COD Amount:</span> ₹ {{ "{:,.2f}".format(s.cod_amount or 0) }}</li>
+                    <li><span class="text-slate-400">Weight & Pcs:</span> {{ s.weight_kg }} KG ({{ s.quantity }} Pcs)</li>
+                    <li><span class="text-slate-400">Volumetric (LxWxH):</span> {{ s.length_cm or 0 }}x{{ s.width_cm or 0 }}x{{ s.height_cm or 0 }} cm (Vol: {{ s.vol_weight or 0 }} KG)</li>
+                </ul>
+            </div>
+            
+            <div class="bg-slate-50 p-5 rounded-xl border border-slate-200">
+                <h3 class="text-sm font-black text-emerald-600 uppercase tracking-widest mb-3 border-b pb-2"><i class="fas fa-network-wired"></i> Routing & Addresses</h3>
+                <ul class="space-y-2 text-sm font-medium text-slate-700">
+                    <li><span class="text-slate-400">Network Partner:</span> {{ s.network or 'SELF (AGC)' }}</li>
+                    <li><span class="text-slate-400">Forwarding AWB:</span> <span class="font-bold">{{ s.network_awb or 'N/A' }}</span></li>
+                    <li><span class="text-slate-400">Origin / Shipper:</span> {{ s.origin_name }} ({{ s.origin_phone or 'No Ph' }})</li>
+                    <li><span class="text-slate-400">Dest Station:</span> <span class="font-bold text-blue-600">{{ s.dest_station }}</span></li>
+                    <li><span class="text-slate-400">Consignee:</span> {{ s.dest_name }} ({{ s.dest_phone or 'No Ph' }})</li>
+                </ul>
+            </div>
+        </div>
+        
+        <h3 class="text-sm font-black text-slate-600 uppercase tracking-widest mb-3"><i class="fas fa-list-ol"></i> Internal Audit Trail</h3>
+        <div class="table-responsive">
+            <table class="datatable w-full text-left text-sm">
+                <thead class="bg-slate-100 text-slate-500">
+                    <tr><th class="p-2">Date/Time</th><th class="p-2">Action</th><th class="p-2">Location</th><th class="p-2">Remarks</th></tr>
+                </thead>
+                <tbody>
+                    {% for sc in events %}
+                    <tr class="border-b"><td class="p-2 font-mono text-xs">{{ sc.f_date }}</td><td class="p-2 font-bold">{{ sc.scan_type }}</td><td class="p-2">{{ sc.location }}</td><td class="p-2 text-slate-500">{{ sc.remarks }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    """
+    return render_page(f"Secure Dossier: {s['awb_no']}", render_template_string(html, s=s, events=events))
 
 @app.route('/track_doc', methods=['POST'])
 @login_required
