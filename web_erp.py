@@ -933,10 +933,11 @@ def fetch_network_tracking(network_name, network_awb):
     events = []
     try:
         events.append({'scan_type': 'NETWORK DISPATCH', 'location': f'Forwarded to {network_name}', 'f_date': datetime.datetime.now().strftime('%d-%b-%Y %I:%M %p'), 'remarks': f"Partner AWB: {network_awb}"})
-    except Exception as e: logging.error(f"Network API: {e}")
+    except Exception as e: 
+        logging.error(f"Network API: {e}")
     return events
 
-# 🚀 NAYA: Smart Timeline Merger (Brings Data from ALL Tables)
+# 🚀 SMART TIMELINE MERGER (Brings Data from ALL Tables)
 def get_unified_timeline(c, awb, shipment_id):
     events = []
     # 1. Base Scan Events
@@ -970,6 +971,9 @@ def get_unified_timeline(c, awb, shipment_id):
         
     return events
 
+# ==========================================
+# 🔍 MAIN TRACKING PAGE (PUBLIC PORTAL)
+# ==========================================
 @app.route('/track', methods=['GET', 'POST'])
 def track():
     awb = (request.args.get('awb') or request.form.get('awb') or '').strip().upper()
@@ -1020,11 +1024,27 @@ def track():
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
         <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+        
+        <!-- Live Barcode & QR Code Libraries -->
         <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.0/dist/JsBarcode.all.min.js"></script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+        
         <style>
-            body { font-family: 'Plus Jakarta Sans', sans-serif; background: radial-gradient(circle at 0% 0%, #e0c3fc 0%, #8ec5fc 100%); background-attachment: fixed; min-height: 100vh; color: #0f172a; }
-            .glass-panel { background: rgba(255, 255, 255, 0.65); backdrop-filter: blur(24px); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 20px 40px -10px rgba(31, 38, 135, 0.1), inset 0 2px 0 0 rgba(255, 255, 255, 0.7); border-radius: 28px; }
+            body { 
+                font-family: 'Plus Jakarta Sans', sans-serif; 
+                background: radial-gradient(circle at 0% 0%, #e0c3fc 0%, #8ec5fc 100%);
+                background-attachment: fixed;
+                min-height: 100vh;
+                color: #0f172a;
+            }
+            .glass-panel {
+                background: rgba(255, 255, 255, 0.65);
+                backdrop-filter: blur(24px);
+                -webkit-backdrop-filter: blur(24px);
+                border: 1px solid rgba(255, 255, 255, 0.8);
+                box-shadow: 0 20px 40px -10px rgba(31, 38, 135, 0.1), inset 0 2px 0 0 rgba(255, 255, 255, 0.7);
+                border-radius: 28px;
+            }
             .text-gradient { background: linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
             .btn-glow { background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%); box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4); transition: all 0.3s ease; border: 1px solid rgba(255, 255, 255, 0.3); }
             .btn-glow:hover { box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.6); transform: translateY(-2px); }
@@ -1110,7 +1130,6 @@ def track():
                             {{ status|replace('_', ' ') }}
                         </div>
                         
-                        <!-- 🚀 Received By Block (Visible only if Delivered) -->
                         {% if status == 'DELIVERED' and shipment.receiver_name %}
                         <div class="mt-3 p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-end gap-3 shadow-inner">
                             <div class="text-right">
@@ -1235,6 +1254,54 @@ def track():
     return render_template_string(html, awb=awb, shipment=shipment, events=events, error_msg=error_msg)
 
 # ==========================================
+# 📄 DOCUMENT REDIRECTOR
+# ==========================================
+@app.route('/track_doc', methods=['POST'])
+@login_required
+def track_doc():
+    doc_no = request.form.get('awb', '').strip().upper()
+    doc_type = request.form.get('doc_type', '')
+    err = "<html><body style='font-family:Inter;padding:40px;background:#fee2e2;color:#991b1b;text-align:center;'><h2>Error!</h2><p>{}</p><button onclick='window.close()' style='margin-top:10px;padding:10px 20px;background:#ef4444;color:white;border:none;border-radius:8px;'>Close</button></body></html>"
+    if not doc_no: return err.format("Enter Document Number.")
+    conn = None
+    try:
+        conn = get_db()
+        with conn.cursor() as c:
+            if doc_type in ['c_note', 'pkg_slip']: return redirect(url_for('track', awb=doc_no))
+            elif doc_type == 'drs':
+                c.execute("SELECT * FROM drs WHERE drs_no=%s", (doc_no,))
+                drs = c.fetchone()
+                if drs:
+                    c.execute("SELECT s.awb_no, di.receiver_name, s.dest_address, di.status FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (drs['id'],))
+                    items = c.fetchall()
+                    rows_html = ""
+                    
+                    for i in items: 
+                        safe_awb = escape(i['awb_no'] or '')
+                        safe_rec = escape(i['receiver_name'] or '')
+                        safe_addr = escape(i['dest_address'] or '')
+                        safe_status = escape(i['status'] or '')
+                        rows_html += f"<tr><td>{safe_awb}</td><td>{safe_rec}</td><td>{safe_addr}</td><td>{safe_status}</td></tr>"
+                    
+                    safe_drs_no = escape(drs['drs_no'] or '')
+                    safe_rider = escape(drs['rider_name'] or '')
+                    
+                    return f"<html><body style='font-family:Inter;padding:20px;'><h2>DRS: {safe_drs_no} | Rider: {safe_rider}</h2><table border='1' cellpadding='8' style='border-collapse:collapse;width:100%;'><tr style='background:#2563eb;color:white;'><th>AWB</th><th>Receiver</th><th>Address</th><th>Status</th></tr>{rows_html}</table></body></html>"
+                return err.format("DRS not found.")
+            elif doc_type == 'invoice':
+                c.execute("SELECT id FROM invoices WHERE invoice_no=%s", (doc_no,))
+                inv = c.fetchone()
+                if inv: return redirect(f"/print/invoice/{inv['id']}")
+                return err.format("Invoice not found.")
+    except Exception as e: 
+        return err.format(escape(str(e)))
+    finally: 
+        if conn:
+            try: conn.close()
+            except: pass
+    return err.format("Invalid type.")
+
+# ==========================================
 # 🔒 SECURE PACKET DETAILS (SCAN VIA QR)
 # ==========================================
 @app.route('/secure_track/<awb>')
@@ -1297,8 +1364,8 @@ def secure_track(awb):
                     <tr><th class="p-2">Date/Time</th><th class="p-2">Action</th><th class="p-2">Location</th><th class="p-2">Remarks</th></tr>
                 </thead>
                 <tbody>
-                    {% for sc in events %}
-                    <tr class="border-b"><td class="p-2 font-mono text-xs">{{ sc.f_date }}</td><td class="p-2 font-bold">{{ sc.scan_type }}</td><td class="p-2">{{ sc.location }}</td><td class="p-2 text-slate-500">{{ sc.remarks }}</td></tr>
+                    {% for e in events %}
+                    <tr class="border-b"><td class="p-2 font-mono text-xs">{{ e.f_date }}</td><td class="p-2 font-bold">{{ e.scan_type }}</td><td class="p-2">{{ e.location }}</td><td class="p-2 text-slate-500">{{ e.remarks }}</td></tr>
                     {% endfor %}
                 </tbody>
             </table>
@@ -1306,130 +1373,6 @@ def secure_track(awb):
     </div>
     """
     return render_page(f"Secure Dossier: {s['awb_no']}", render_template_string(html, s=s, events=events))
-
-@app.route('/track_doc', methods=['POST'])
-@login_required
-def track_doc():
-    doc_no = request.form.get('awb', '').strip().upper()
-    doc_type = request.form.get('doc_type', '')
-    err = "<html><body style='font-family:Inter;padding:40px;background:#fee2e2;color:#991b1b;text-align:center;'><h2>Error!</h2><p>{}</p><button onclick='window.close()' style='margin-top:10px;padding:10px 20px;background:#ef4444;color:white;border:none;border-radius:8px;'>Close</button></body></html>"
-    if not doc_no: return err.format("Enter Document Number.")
-    conn = None
-    try:
-        conn = get_db()
-        with conn.cursor() as c:
-            if doc_type in ['c_note', 'pkg_slip']: return redirect(url_for('track', awb=doc_no))
-            elif doc_type == 'drs':
-                c.execute("SELECT * FROM drs WHERE drs_no=%s", (doc_no,))
-                drs = c.fetchone()
-                if drs:
-                    c.execute("SELECT s.awb_no, di.receiver_name, s.dest_address, di.status FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s", (drs['id'],))
-                    items = c.fetchall()
-                    rows_html = ""
-                    
-                    for i in items: 
-                        # 🛡️ SECURITY FIX: Escape raw DB inputs to prevent HTML/JS execution
-                        safe_awb = escape(i['awb_no'] or '')
-                        safe_rec = escape(i['receiver_name'] or '')
-                        safe_addr = escape(i['dest_address'] or '')
-                        safe_status = escape(i['status'] or '')
-                        rows_html += f"<tr><td>{safe_awb}</td><td>{safe_rec}</td><td>{safe_addr}</td><td>{safe_status}</td></tr>"
-                    
-                    # 🛡️ SECURITY FIX: Escape the DRS and Rider names as well
-                    safe_drs_no = escape(drs['drs_no'] or '')
-                    safe_rider = escape(drs['rider_name'] or '')
-                    
-                    return f"<html><body style='font-family:Inter;padding:20px;'><h2>DRS: {safe_drs_no} | Rider: {safe_rider}</h2><table border='1' cellpadding='8' style='border-collapse:collapse;width:100%;'><tr style='background:#2563eb;color:white;'><th>AWB</th><th>Receiver</th><th>Address</th><th>Status</th></tr>{rows_html}</table></body></html>"
-                return err.format("DRS not found.")
-            elif doc_type == 'invoice':
-                c.execute("SELECT id FROM invoices WHERE invoice_no=%s", (doc_no,))
-                inv = c.fetchone()
-                if inv: return redirect(f"/print/invoice/{inv['id']}")
-                return err.format("Invoice not found.")
-    except Exception as e: 
-        # Escape the error string to prevent injection via exception messages
-        return err.format(escape(str(e)))
-    finally: 
-        if conn:
-            try: conn.close()
-            except: pass
-    return err.format("Invalid type.")
-
-# ==========================================
-# 🔒 SECURE PACKET DETAILS (SCAN VIA QR)
-# ==========================================
-@app.route('/secure_track/<awb>')
-@login_required
-def secure_track(awb):
-    conn = get_db()
-    try:
-        with conn.cursor() as c:
-            c.execute("""SELECT s.*, c.name as cust_name FROM shipments s 
-                         LEFT JOIN customers c ON s.customer_id = c.id 
-                         WHERE s.awb_no=%s""", (awb,))
-            s = c.fetchone()
-            if not s:
-                flash("Packet not found in secure database.", "error")
-                return redirect('/')
-                
-            c.execute("SELECT * FROM scan_events WHERE shipment_id=%s ORDER BY id DESC", (s['id'],))
-            scans = c.fetchall()
-            
-            c.execute("SELECT * FROM outward_register WHERE awb_no=%s", (awb,))
-            outwards = c.fetchall()
-    finally:
-        conn.close()
-
-    html = """
-    <div class="card" style="border-top: 4px solid #8b5cf6;">
-        <div class="flex justify-between items-center mb-6 border-b pb-4">
-            <div>
-                <h2 class="text-2xl font-black text-slate-800">Secure Packet Dossier</h2>
-                <p class="text-slate-500 font-bold tracking-widest text-xs mt-1">INTERNAL AWB: {{ s.awb_no }}</p>
-            </div>
-            <span class="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg font-bold uppercase tracking-wider text-sm">{{ s.status }}</span>
-        </div>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div class="bg-slate-50 p-5 rounded-xl border border-slate-200">
-                <h3 class="text-sm font-black text-indigo-600 uppercase tracking-widest mb-3 border-b pb-2"><i class="fas fa-user-tag"></i> Commercials & Dimensions</h3>
-                <ul class="space-y-2 text-sm font-medium text-slate-700">
-                    <li><span class="text-slate-400">B2B Account:</span> {{ s.cust_name or 'Cash/Retail' }}</li>
-                    <li><span class="text-slate-400">Total Billed:</span> <span class="font-bold text-red-600">₹ {{ "{:,.2f}".format(s.total_amount or 0) }}</span></li>
-                    <li><span class="text-slate-400">COD Amount:</span> ₹ {{ "{:,.2f}".format(s.cod_amount or 0) }}</li>
-                    <li><span class="text-slate-400">Weight & Pcs:</span> {{ s.weight_kg }} KG ({{ s.quantity }} Pcs)</li>
-                    <li><span class="text-slate-400">Volumetric (LxWxH):</span> {{ s.length_cm }}x{{ s.width_cm }}x{{ s.height_cm }} cm (Vol: {{ s.vol_weight }} KG)</li>
-                </ul>
-            </div>
-            
-            <div class="bg-slate-50 p-5 rounded-xl border border-slate-200">
-                <h3 class="text-sm font-black text-emerald-600 uppercase tracking-widest mb-3 border-b pb-2"><i class="fas fa-network-wired"></i> Routing & Addresses</h3>
-                <ul class="space-y-2 text-sm font-medium text-slate-700">
-                    <li><span class="text-slate-400">Network Partner:</span> {{ s.network or 'SELF (AGC)' }}</li>
-                    <li><span class="text-slate-400">Forwarding AWB:</span> <span class="font-bold">{{ s.network_awb or 'N/A' }}</span></li>
-                    <li><span class="text-slate-400">Origin / Shipper:</span> {{ s.origin_name }} ({{ s.origin_phone or 'No Ph' }})</li>
-                    <li><span class="text-slate-400">Dest Station:</span> <span class="font-bold text-blue-600">{{ s.dest_station }}</span></li>
-                    <li><span class="text-slate-400">Consignee:</span> {{ s.dest_name }} ({{ s.dest_phone or 'No Ph' }})</li>
-                </ul>
-            </div>
-        </div>
-        
-        <h3 class="text-sm font-black text-slate-600 uppercase tracking-widest mb-3"><i class="fas fa-list-ol"></i> Internal Audit Trail</h3>
-        <div class="table-responsive">
-            <table class="datatable w-full text-left text-sm">
-                <thead class="bg-slate-100 text-slate-500">
-                    <tr><th class="p-2">Date/Time</th><th class="p-2">Action</th><th class="p-2">Location</th><th class="p-2">Remarks</th></tr>
-                </thead>
-                <tbody>
-                    {% for sc in scans %}
-                    <tr class="border-b"><td class="p-2 font-mono text-xs">{{ sc.created_at }}</td><td class="p-2 font-bold">{{ sc.scan_type }}</td><td class="p-2">{{ sc.location }}</td><td class="p-2 text-slate-500">{{ sc.remarks }}</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-    """
-    return render_page(f"Secure Dossier: {s['awb_no']}", render_template_string(html, s=s, scans=scans, outwards=outwards))
 
 # ==========================================
 # 📱 PWA MANIFEST
