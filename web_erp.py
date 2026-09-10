@@ -2522,24 +2522,62 @@ def booking():
                     <div><label class="label-modern">Applied Wt (KG)</label><input type="text" id="app_wt" readonly class="input-modern bg-slate-100 text-red-600 font-bold"></div>
                 </div>
                 
-                <div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end mb-3 border-b border-green-200 pb-3">
-                    <div class="col-span-2"><label class="label-modern">Forwarding Network</label><select name="network" class="input-modern"><option value="SELF">SELF (AGC)</option><option value="TRACKON">TRACKON</option><option value="DELHIVERY">DELHIVERY</option><option value="DTDC">DTDC</option><option value="INDIA POST">INDIA POST</option></select></div>
-                    <div class="col-span-2"><label class="label-modern">Network AWB</label><input type="text" name="network_awb" class="input-modern" placeholder="If known..."></div>
+<div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end mb-3 border-b border-green-200 pb-3">
+                    <div class="col-span-2">
+                        <label class="label-modern">Forwarding Network</label>
+                        <select name="network" class="input-modern">
+                            <option value="SELF">SELF (AGC)</option>
+                            <option value="TRACKON">TRACKON</option>
+                            <option value="DELHIVERY">DELHIVERY</option>
+                            <option value="DTDC">DTDC</option>
+                            <option value="INDIA POST">INDIA POST</option>
+                            <option value="PROFESSIONAL COURIER">PROFESSIONAL COURIER</option>
+                            <option value="TIRUPATI COURIER">TIRUPATI COURIER</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="label-modern">Network AWB</label>
+                        <input type="text" name="network_awb" class="input-modern" placeholder="If known...">
+                    </div>
                 </div>
                 
                 <div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
-                    <div><label class="label-modern">Weight (KG)</label><input type="number" step="0.01" name="wt" id="wt" value="1.0" required oninput="manualCalc(); fetchRate();" class="input-modern font-bold"></div>
-                    <div><label class="label-modern">Pieces</label><input type="number" name="pcs" value="1" required class="input-modern"></div>
-                    <div><label class="label-modern">COD Amt</label><input type="number" step="0.01" name="cod" value="0" class="input-modern"></div>
-                    <div><label class="label-modern">Freight (₹)</label><input type="number" step="0.01" name="fr" id="fr" value="0.0" oninput="manualCalc()" required class="input-modern text-right"></div>
-                    <div><label class="label-modern">Tax %</label><input type="number" name="tax" id="tax" value="18" oninput="manualCalc()" required class="input-modern text-right"></div>
-                    <div><label class="label-modern">Grand Total (₹)</label><input type="number" step="0.01" name="amt" id="amt" value="0.0" readonly class="input-modern font-bold text-red-600 text-right bg-red-50"></div>
+                    <div>
+                        <label class="label-modern">Weight (KG)</label>
+                        <input type="number" step="0.01" name="wt" id="wt" value="1.0" required oninput="manualCalc(); fetchRate();" class="input-modern font-bold">
+                    </div>
+                    <div>
+                        <label class="label-modern">Pieces</label>
+                        <input type="number" name="pcs" value="1" required class="input-modern">
+                    </div>
+                    <div>
+                        <label class="label-modern">COD Amt</label>
+                        <input type="number" step="0.01" name="cod" value="0" class="input-modern">
+                    </div>
+                    <div>
+                        <label class="label-modern">Freight (₹)</label>
+                        <input type="number" step="0.01" name="fr" id="fr" value="0.0" oninput="manualCalc()" required class="input-modern text-right">
+                    </div>
+                    <div>
+                        <label class="label-modern">Tax %</label>
+                        <input type="number" name="tax" id="tax" value="18" oninput="manualCalc()" required class="input-modern text-right">
+                    </div>
+                    <div>
+                        <label class="label-modern">Grand Total (₹)</label>
+                        <input type="number" step="0.01" name="amt" id="amt" value="0.0" readonly class="input-modern font-bold text-red-600 text-right bg-red-50">
+                    </div>
                 </div>
+                
                 <div id="calc_hint" class="text-xs text-amber-600 font-bold mt-2 text-right">⚡ Auto-Rate API Ready</div>
             </div>
+            
             <div class="flex gap-3 justify-end">
-                <button type="button" class="btn-danger" onclick="document.getElementById('bkForm').reset()"><i class="fas fa-undo"></i> Reset</button>
-                <button type="submit" class="btn-primary"><i class="fas fa-save"></i> BOOK PARCEL</button>
+                <button type="button" class="btn-danger" onclick="document.getElementById('bkForm').reset()">
+                    <i class="fas fa-undo"></i> Reset
+                </button>
+                <button type="submit" class="btn-primary">
+                    <i class="fas fa-save"></i> BOOK PARCEL
+                </button>
             </div>
         </form>
     </div>
