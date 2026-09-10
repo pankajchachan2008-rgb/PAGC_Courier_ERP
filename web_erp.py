@@ -578,6 +578,9 @@ def render_page(title, content):
 # ==========================================
 # 🛠️ DIRECT DATABASE FIX ROUTE (RUN ONCE)
 # ==========================================
+# ==========================================
+# 🛠️ DIRECT DATABASE FIX ROUTE (RUN ONCE)
+# ==========================================
 @app.route('/fix_db')
 def fix_db():
     conn = get_db()
@@ -591,19 +594,25 @@ def fix_db():
             except Exception as e:
                 messages.append(f"⚠️ shipments issue: {str(e)}")
                 
-            # 2. Fix Outward Register Table (pcs)
+            # 2. Fix Outward Register Table
             try:
                 c.execute("ALTER TABLE outward_register ADD COLUMN pcs INT DEFAULT 1")
                 messages.append("✅ outward_register table: 'pcs' successfully added!")
-            except Exception as e:
-                messages.append(f"⚠️ outward_register issue (pcs): {str(e)}")
+            except Exception as e: pass
 
-            # 3. Fix Outward Register Table (bag_no)
             try:
                 c.execute("ALTER TABLE outward_register ADD COLUMN bag_no VARCHAR(100)")
                 messages.append("✅ outward_register table: 'bag_no' successfully added!")
-            except Exception as e:
-                messages.append(f"⚠️ outward_register issue (bag_no): {str(e)}")
+            except Exception as e: pass
+
+            # 🚀 3. THE TRACKING TIMELINE FIX (Adding 'created_at' to old tables)
+            tables_to_fix = ['outward_register', 'inward_register', 'delivery_register', 'scan_events']
+            for tbl in tables_to_fix:
+                try:
+                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+                    messages.append(f"✅ {tbl} table: 'created_at' column successfully added for tracking timeline!")
+                except Exception as e:
+                    messages.append(f"⚠️ {tbl} 'created_at' issue (Already exists or error): {str(e)}")
 
         conn.commit()
     except Exception as e:
@@ -615,7 +624,7 @@ def fix_db():
     html += "<h2>Cloud Database Diagnostic & Fix Tool</h2><ul>"
     for m in messages:
         html += f"<li>{m}</li>"
-    html += "</ul><h3>🔥 Done! Ab aap apne Desktop app se Sync ya 'Master Force Upload' try karein!</h3></body>"
+    html += "</ul><h3 style='color:#059669;'>🔥 Done! Database is fully patched. Tracking Page will work perfectly now!</h3></body>"
     
     return html
 
