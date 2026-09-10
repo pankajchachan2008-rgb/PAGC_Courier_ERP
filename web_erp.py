@@ -19,6 +19,53 @@ from markupsafe import escape
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # ==========================================
+# 📧 WEB ERP: BACKGROUND EMAIL ENGINE
+# ==========================================
+import smtplib, threading
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+def send_web_email_alert(subject, html_message):
+    def email_task():
+        try:
+            # 1. Database se SMTP Settings nikalna
+            conn = get_db()
+            with conn.cursor() as c:
+                c.execute("SELECT * FROM settings")
+                # Handle old vs new settings table structure
+                settings = {}
+                for r in c.fetchall():
+                    k = r.get('key') if 'key' in r else r.get('name')
+                    if k: settings[k] = r.get('value')
+            conn.close()
+
+            sender_email = settings.get("smtp_email", "").strip()
+            sender_pwd = settings.get("smtp_password", "").strip()
+            admin_email = settings.get("company_email", sender_email).strip()
+
+            if not sender_email or not sender_pwd or not admin_email:
+                return # Agar settings khali hain toh kuch mat karo
+
+            # 2. Email Tayar Karna
+            msg = MIMEMultipart()
+            msg['From'] = f"AGC Web Portal <{sender_email}>"
+            msg['To'] = admin_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(html_message, 'html'))
+
+            # 3. Email Bhejna (Gmail Server ke zariye)
+            server = smtplib.SMTP('smtp.gmail.com', 587)
+            server.starttls()
+            server.login(sender_email, sender_pwd)
+            server.send_message(msg)
+            server.quit()
+        except Exception as e:
+            print(f"Web Email Alert Failed: {str(e)}")
+
+    # App ko fast rakhne ke liye email background thread me bhejenge
+    threading.Thread(target=email_task, daemon=True).start()
+
+# ==========================================
 # 🛡️ LOGGING & CONFIG
 # ==========================================
 logging.basicConfig(filename='agc_erp.log', level=logging.ERROR, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -172,6 +219,22 @@ def auto_heal_db():
             except: pass
             
             try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
+            except: pass
+
+            # 🚀 SYNC FIX: Add missing volumetric and network columns to Web DB
+            try: c.execute("ALTER TABLE shipments ADD COLUMN length_cm DOUBLE DEFAULT 0")
+            except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN width_cm DOUBLE DEFAULT 0")
+            except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN height_cm DOUBLE DEFAULT 0")
+            except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN vol_weight DOUBLE DEFAULT 0")
+            except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN applied_weight DOUBLE DEFAULT 0")
+            except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN network VARCHAR(100) DEFAULT 'SELF'")
+            except: pass
+            try: c.execute("ALTER TABLE shipments ADD COLUMN network_awb VARCHAR(100)")
             except: pass
             
             # ✅ FIX: Trailing spaces removed from keys
@@ -2321,9 +2384,22 @@ def booking():
     conn = get_db()
     if request.method == 'POST':
         d = request.form
-        fr = safe_float(d.get('fr')); tax = safe_float(d.get('tax', 18)); wt = safe_float(d.get('wt', 1))
+        
+        # 🚀 VOLUMETRIC WEIGHT LOGIC
+        actual_wt = safe_float(d.get('wt', 1))
+        l_cm = safe_float(d.get('l_cm', 0))
+        w_cm = safe_float(d.get('w_cm', 0))
+        h_cm = safe_float(d.get('h_cm', 0))
+        vol_weight = (l_cm * w_cm * h_cm) / 5000.0
+        applied_weight = max(actual_wt, vol_weight)
+        
+        network = d.get('network', 'SELF')
+        network_awb = d.get('network_awb', '')
+        
+        fr = safe_float(d.get('fr')); tax = safe_float(d.get('tax', 18))
         fuel = safe_float(get_setting("fuel_surcharge", "0"))
         taxable = fr * (1 + (fuel/100)); gst = taxable * (tax / 100); tot = taxable + gst
+        
         cgst = sgst = igst = 0
         if str(d.get('ostate','')).strip().upper() == str(d.get('dstate','')).strip().upper():
             cgst = sgst = gst / 2
@@ -2335,24 +2411,24 @@ def booking():
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d.get('dstat','').upper(),))
                 cid = session.get('customer_id') if session.get('role') == 'CUSTOMER' else (safe_int(d.get('cust_id')) if d.get('cust_id') else None)
                 
-                # 👇 NAYA CODE YAHAN AAYEGA 👇
                 if session.get('role') == 'CUSTOMER':
-                    # Customer ke liye Auto AWB
                     awb = get_customer_awb(cid)
                     if not awb:
-                        flash("❌ Booking Failed: Your AWB Series is exhausted! Please contact Admin to allot new AWBs.", "error")
+                        flash("❌ Booking Failed: Your AWB Series is exhausted!", "error")
                         return redirect('/booking')
                 else:
-                    # Admin / Branch ke liye Manual AWB
                     awb = d.get('awb','').upper()
+                    
+                # 🚀 INSERT WITH VOLUMETRIC AND NETWORK COLUMNS
                 c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, 
-                    dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount, declared_value, 
-                    service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, status, current_location, is_synced)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s, 0)""",
+                    dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, length_cm, width_cm, height_cm, vol_weight, applied_weight, quantity, cod_amount, declared_value, 
+                    service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, network, network_awb, status, current_location, is_synced)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s, 0)""",
                     (awb, cid, d.get('date',''), d.get('oname',''), d.get('ophone',''), d.get('oaddr',''), d.get('ostate',''),
                      d.get('dname',''), d.get('dphone',''), d.get('daddr',''), d.get('dstate',''), d.get('dstat','').upper(),
-                     wt, safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')), d.get('srv','SURFACE'),
-                     taxable, tax, cgst, sgst, igst, tot, d.get('info',''), session.get('branch','HQ')))
+                     actual_wt, l_cm, w_cm, h_cm, vol_weight, applied_weight, safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')), d.get('srv','SURFACE'),
+                     taxable, tax, cgst, sgst, igst, tot, d.get('info',''), network, network_awb, session.get('branch','HQ')))
+                     
                 sid = c.lastrowid
                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session.get('branch','HQ')))
                 if cid:
@@ -2366,18 +2442,16 @@ def booking():
     with conn.cursor() as c:
         c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1"); custs = c.fetchall()
         c.execute("SELECT name FROM stations ORDER BY name"); stations = c.fetchall()
-        my_cust = None
-        addr_book = [] # 🚀 NAYA
+        my_cust = None; addr_book = []
         if session.get('role') == 'CUSTOMER':
             c.execute("SELECT id, name, phone, state_code, address FROM customers WHERE id=%s", (session.get('customer_id'),))
             my_cust = c.fetchone()
-            # 🚀 NAYA: Fetch Address Book
             try:
                 c.execute("SELECT * FROM address_book WHERE customer_id=%s", (session.get('customer_id'),))
                 addr_book = c.fetchall()
             except: pass
         q_recent = """SELECT s.id, s.awb_no, COALESCE(c.name,'CASH') as customer_name, COALESCE(s.dest_station,'') as dest_station,
-            s.weight_kg, s.total_amount, s.status, s.booking_date FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id"""
+            s.weight_kg, s.quantity, s.total_amount, s.status, s.booking_date FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id"""
         params_recent = []
         if session.get('role') == 'CUSTOMER':
             q_recent += " WHERE s.customer_id = %s"; params_recent.append(session.get('customer_id'))
@@ -2435,10 +2509,26 @@ def booking():
                     </div>
                 </div>
             </div>
+            
             <div class="border border-green-200 rounded-lg p-4 bg-green-50">
-                <h4 class="font-bold text-green-700 mb-3 text-sm">💰 CHARGE DETAILS</h4>
+                <h4 class="font-bold text-green-700 mb-3 text-sm">💰 CHARGE & VOLUMETRIC DETAILS</h4>
+                
+                <!-- 🚀 NEW: VOLUMETRIC & NETWORK INPUTS -->
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3 items-end mb-3">
+                    <div><label class="label-modern">L (cm)</label><input type="number" id="l_cm" name="l_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
+                    <div><label class="label-modern">W (cm)</label><input type="number" id="w_cm" name="w_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
+                    <div><label class="label-modern">H (cm)</label><input type="number" id="h_cm" name="h_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
+                    <div><label class="label-modern">Volumetric (KG)</label><input type="text" id="vol_wt" readonly class="input-modern bg-slate-100 text-blue-600 font-bold"></div>
+                    <div><label class="label-modern">Applied Wt (KG)</label><input type="text" id="app_wt" readonly class="input-modern bg-slate-100 text-red-600 font-bold"></div>
+                </div>
+                
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end mb-3 border-b border-green-200 pb-3">
+                    <div class="col-span-2"><label class="label-modern">Forwarding Network</label><select name="network" class="input-modern"><option value="SELF">SELF (AGC)</option><option value="TRACKON">TRACKON</option><option value="DELHIVERY">DELHIVERY</option><option value="DTDC">DTDC</option><option value="INDIA POST">INDIA POST</option></select></div>
+                    <div class="col-span-2"><label class="label-modern">Network AWB</label><input type="text" name="network_awb" class="input-modern" placeholder="If known..."></div>
+                </div>
+                
                 <div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
-                    <div><label class="label-modern">Weight (KG)</label><input type="number" step="0.01" name="wt" id="wt" value="1.0" required oninput="fetchRate()" class="input-modern font-bold"></div>
+                    <div><label class="label-modern">Weight (KG)</label><input type="number" step="0.01" name="wt" id="wt" value="1.0" required oninput="manualCalc(); fetchRate();" class="input-modern font-bold"></div>
                     <div><label class="label-modern">Pieces</label><input type="number" name="pcs" value="1" required class="input-modern"></div>
                     <div><label class="label-modern">COD Amt</label><input type="number" step="0.01" name="cod" value="0" class="input-modern"></div>
                     <div><label class="label-modern">Freight (₹)</label><input type="number" step="0.01" name="fr" id="fr" value="0.0" oninput="manualCalc()" required class="input-modern text-right"></div>
@@ -2453,6 +2543,7 @@ def booking():
             </div>
         </form>
     </div>
+    
     <div class="card mt-4">
         <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Recent Bookings</h3>
         <table class="datatable">
@@ -2466,10 +2557,13 @@ def booking():
                 <td>{{ r.weight_kg }} KG</td>
                 <td class="font-bold">₹{{ r.total_amount }}</td>
                 <td><span class="px-2 py-1 rounded-full text-xs font-bold {% if r.status=='BOOKED' %}bg-blue-100 text-blue-700{% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.status }}</span></td>
-                <td>
-                    <a href="/edit_shipment/{{ r.id }}" class="btn-primary" style="padding:4px 8px; font-size:11px;"><i class="fas fa-edit"></i></a>
-                    <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;"><i class="fas fa-tag"></i> Label</a>
-                    <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn-success" style="padding:4px 8px; font-size:11px;"><i class="fas fa-receipt"></i> Receipt</a>
+                <td style="white-space:nowrap;">
+                    <a href="/edit_shipment/{{ r.id }}" class="btn-primary" style="padding:4px 8px; font-size:11px;" title="Edit"><i class="fas fa-edit"></i></a>
+                    <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;" title="Print Label"><i class="fas fa-tag"></i></a>
+                    <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn-success" style="padding:4px 8px; font-size:11px;" title="Print Receipt"><i class="fas fa-receipt"></i></a>
+                    {% if r.quantity > 1 %}
+                    <a href="/print/multi_piece/{{ r.awb_no }}" target="_blank" class="btn-danger" style="padding:4px 8px; font-size:11px;" title="Multi-Piece Barcodes"><i class="fas fa-cubes"></i></a>
+                    {% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -2497,21 +2591,42 @@ def booking():
             let opt = document.getElementById('cid').options[document.getElementById('cid').selectedIndex];
             if(opt) document.getElementById('ost').value = opt.getAttribute('data-state');
         }
-        let data = { cust_id: cid, ostate: document.getElementById('ost').value, dstate: document.getElementById('dst').value, wt: document.getElementById('wt').value, fr: 0 };
+        
+        let act_wt = parseFloat(document.getElementById('wt').value) || 1.0;
+        let l = parseFloat(document.getElementById('l_cm').value) || 0;
+        let w = parseFloat(document.getElementById('w_cm').value) || 0;
+        let h = parseFloat(document.getElementById('h_cm').value) || 0;
+        let vol_wt = (l * w * h) / 5000.0;
+        let applied_wt = Math.max(act_wt, vol_wt);
+        
+        let data = { cust_id: cid, ostate: document.getElementById('ost').value, dstate: document.getElementById('dst').value, wt: applied_wt, fr: 0 };
         fetch('/api/calc_rate', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) })
         .then(r => r.json()).then(res => { 
             document.getElementById('fr').value = res.freight;
             document.getElementById('tax').value = res.tax_rate;
             document.getElementById('amt').value = res.total;
-            document.getElementById('calc_hint').innerHTML = `✅ Taxable: ₹${res.taxable} | GST: ₹${res.gst}`;
+            document.getElementById('calc_hint').innerHTML = `✅ Taxable: ₹${res.taxable} | GST: ₹${res.gst} (Applied Wt: ${applied_wt} KG)`;
         });
     }
+    
     function manualCalc() {
+        let l = parseFloat(document.getElementById('l_cm').value)||0;
+        let w = parseFloat(document.getElementById('w_cm').value)||0;
+        let h = parseFloat(document.getElementById('h_cm').value)||0;
+        let act_wt = parseFloat(document.getElementById('wt').value)||1;
+        
+        let vol = (l * w * h) / 5000.0;
+        let app_wt = Math.max(act_wt, vol);
+        
+        document.getElementById('vol_wt').value = vol.toFixed(2);
+        document.getElementById('app_wt').value = app_wt.toFixed(2);
+        
         let fr = parseFloat(document.getElementById('fr').value)||0;
         let tx = parseFloat(document.getElementById('tax').value)||0;
         document.getElementById('amt').value = (fr + (fr * tx / 100)).toFixed(2);
-        document.getElementById('calc_hint').innerHTML = "✏️ Manual Override Applied";
+        document.getElementById('calc_hint').innerHTML = "✏️ Volumetric & Manual Override Applied";
     }
+    
     if(document.getElementById('cid').tagName === 'INPUT') fetchRate();
     </script>
     """
@@ -2671,6 +2786,7 @@ def shipments():
     html = """
     <div class="card">
         <h3 class="text-lg font-bold text-slate-800 mb-4">{% if session.get('role') == 'CUSTOMER' %}📦 My Shipments{% else %}📦 Delivery Status Register{% endif %}</h3>
+        <div class="table-responsive">
         <table class="datatable">
             <thead><tr><th>AWB</th><th>Date</th><th>Destination</th><th>Station</th><th>Weight</th><th>Status</th><th>Total</th><th>Actions</th></tr></thead>
             <tbody>
@@ -2683,24 +2799,172 @@ def shipments():
                 <td>{{ r.weight_kg }} KG</td>
                 <td><span class="px-2 py-1 rounded-full text-xs font-bold {% if r.status=='DELIVERED' %}bg-green-100 text-green-700{% elif r.status=='OUTWARD' %}bg-purple-100 text-purple-700{% elif r.status=='INWARD' %}bg-amber-100 text-amber-700{% elif r.status=='ON_DRS' %}bg-blue-100 text-blue-700{% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.status }}</span></td>
                 <td class="font-bold">₹{{ r.total_amount or 0 }}</td>
-                <td>
+                <td style="white-space:nowrap;">
                     {% if session.get('role') != 'CUSTOMER' or r.status == 'BOOKED' %}
-                    <a href="/edit_shipment/{{ r.id }}" class="btn-primary" style="padding:3px 8px; font-size:11px;"><i class="fas fa-edit"></i></a>
+                    <a href="/edit_shipment/{{ r.id }}" class="btn-primary" style="padding:3px 8px; font-size:11px;" title="Edit Entry"><i class="fas fa-edit"></i></a>
                     {% endif %}
-                    <a href="/track?awb={{ r.awb_no }}" target="_blank" class="btn-success" style="padding:3px 8px; font-size:11px;"><i class="fas fa-map-marker-alt"></i></a>
-                    <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:3px 8px; font-size:11px;"><i class="fas fa-tag"></i></a>
-                    <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn-primary" style="padding:3px 8px; font-size:11px;"><i class="fas fa-receipt"></i></a>
+                    <a href="/track?awb={{ r.awb_no }}" target="_blank" class="btn-success" style="padding:3px 8px; font-size:11px;" title="Track"><i class="fas fa-map-marker-alt"></i></a>
+                    <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:3px 8px; font-size:11px;" title="Print Label"><i class="fas fa-tag"></i></a>
+                    <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn-primary" style="padding:3px 8px; font-size:11px;" title="Print Receipt"><i class="fas fa-receipt"></i></a>
+                    
+                    {% if session.get('role') != 'CUSTOMER' and r.status not in ['DELIVERED', 'RETURNED'] %}
+                    <button onclick="openRtoModal('{{ r.id }}', '{{ r.awb_no }}', '{{ r.total_amount }}')" class="btn-warning" style="background:#f97316; padding:3px 8px; font-size:11px;" title="Process RTO"><i class="fas fa-undo"></i></button>
+                    {% endif %}
+                    
+                    <a href="/print/multi_piece/{{ r.awb_no }}" target="_blank" class="btn-danger" style="background:#8b5cf6; padding:3px 8px; font-size:11px;" title="Multi-Piece Child Barcodes"><i class="fas fa-cubes"></i></a>
+
                     {% if session.get('role') != 'CUSTOMER' or r.status == 'BOOKED' %}
-                    <a href="/shipments?delete={{ r.id }}" class="btn-danger" style="padding:3px 8px; font-size:11px;" onclick="return confirm('Delete?');"><i class="fas fa-trash"></i></a>
+                    <a href="/shipments?delete={{ r.id }}" class="btn-danger" style="padding:3px 8px; font-size:11px;" onclick="return confirm('Delete?');" title="Delete"><i class="fas fa-trash"></i></a>
                     {% endif %}
                 </td>
             </tr>
             {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
+    
+    <!-- MODAL: RTO PROCESS -->
+    <div id="rtoModal" class="modal">
+        <div class="modal-content">
+            <h3 class="text-lg font-bold text-slate-800 mb-4">🔄 Return To Origin (RTO)</h3>
+            <p class="text-sm text-slate-500 mb-3">Initiating RTO for Master AWB: <b id="rto_awb_label" class="text-red-600"></b></p>
+            <form method="POST" action="/rto_shipment" class="space-y-3">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="shipment_id" id="rto_shipment_id">
+                <div><label class="label-modern">New RTO AWB Number *</label><input type="text" name="rto_awb" id="rto_awb_input" class="input-modern font-bold text-blue-600 uppercase" required></div>
+                <div><label class="label-modern">Return Freight / RTO Penalty Charge (₹) *</label><input type="number" step="0.01" name="rto_charge" id="rto_charge_input" class="input-modern font-bold" required></div>
+                <div><label class="label-modern">Reason for RTO *</label><input type="text" name="reason" placeholder="e.g. Customer Refused, Consignee Shifted" class="input-modern" required></div>
+                <div class="flex gap-3 mt-4">
+                    <button type="button" class="btn-danger flex-1" onclick="document.getElementById('rtoModal').style.display='none'">Cancel</button>
+                    <button type="submit" class="btn-warning flex-1" style="background:#f97316;"><i class="fas fa-check-double"></i> Confirm RTO</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+    function openRtoModal(id, awb, total) {
+        document.getElementById('rto_shipment_id').value = id;
+        document.getElementById('rto_awb_label').innerText = awb;
+        document.getElementById('rto_awb_input').value = 'RTO-' + awb;
+        document.getElementById('rto_charge_input').value = parseFloat(total || 0).toFixed(2);
+        document.getElementById('rtoModal').style.display = 'block';
+    }
+    </script>
     """
     return render_page("Shipments Register", render_template_string(html, rows=rows))
+
+# ==========================================
+# 🖨️ WEB ERP: MULTI-PIECE BARCODE GENERATOR
+# ==========================================
+@app.route('/print/multi_piece/<awb>')
+@login_required
+def print_multi_piece(awb):
+    conn = get_db()
+    with conn.cursor() as c:
+        c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
+        s = c.fetchone()
+        if not s: return "Shipment Not Found", 404
+        
+        c.execute("SELECT * FROM customers WHERE id=%s", (s.get('customer_id'),))
+        cust = c.fetchone() or {}
+    conn.close()
+    
+    pcs = safe_int(s.get('quantity', 1))
+    if pcs <= 1: return "<h2 style='font-family:sans-serif;text-align:center;margin-top:50px;'>Multi-piece printing requires quantity to be greater than 1.</h2>", 400
+    
+    buf = io.BytesIO()
+    w, h = 4 * inch, 6 * inch
+    cv = canvas.Canvas(buf, pagesize=(w, h))
+    
+    cust_name = cust.get('name') or s.get('origin_name') or 'Walk-in Customer'
+    
+    for i in range(pcs):
+        child_awb = f"{s['awb_no']}-{i+1:03d}"
+        
+        cv.setStrokeColorRGB(0, 0, 0); cv.setLineWidth(1.5)
+        cv.roundRect(10, 10, w - 20, h - 20, 6)
+        
+        cv.setFillColorRGB(0, 0, 0); cv.rect(10, h - 50, w - 20, 40, fill=1, stroke=0)
+        cv.setFont("Helvetica-Bold", 14); cv.setFillColorRGB(1, 1, 1)
+        cv.drawCentredString(w/2, h - 30, "MULTI-PIECE SHIPMENT")
+        cv.setFont("Helvetica-Bold", 10); cv.setFillColorRGB(1, 0.84, 0) # Gold Color
+        cv.drawCentredString(w/2, h - 45, f"PIECE {i+1} OF {pcs}")
+        
+        cv.setFillColorRGB(0, 0, 0)
+        cv.setFont("Helvetica-Bold", 9)
+        cv.drawString(20, h - 70, "FROM:"); cv.setFont("Helvetica", 9); cv.drawString(55, h - 70, str(cust_name)[:35])
+        cv.setFont("Helvetica-Bold", 9)
+        cv.drawString(20, h - 90, "TO:"); cv.setFont("Helvetica", 10); cv.drawString(55, h - 90, str(s.get('dest_name') or 'Receiver')[:35])
+        cv.setFont("Helvetica", 8); cv.drawString(55, h - 105, str(s.get('dest_address') or '')[:40])
+        cv.drawString(55, h - 115, f"City: {s.get('dest_station', '')} | Ph: {s.get('dest_phone', '')}")
+        
+        try: 
+            bc = code128.Code128(child_awb, barHeight=45, barWidth=1.5)
+            bc.drawOn(cv, 40, 140)
+        except: pass
+        
+        cv.setFont("Helvetica-Bold", 16)
+        cv.drawCentredString(w/2, 115, child_awb)
+        
+        cv.setFont("Helvetica", 9)
+        cv.drawString(25, 70, f"Parent Master AWB: {s['awb_no']}")
+        cv.drawString(25, 50, f"Weight: {s.get('weight_kg', 0)} KG | Total Pcs: {pcs}")
+        cv.drawString(25, 30, f"Date: {str(s.get('booking_date', ''))[:10]}")
+        
+        cv.showPage()
+        
+    cv.save(); buf.seek(0)
+    return send_file(buf, as_attachment=False, download_name=f"MultiPiece_{s['awb_no']}.pdf", mimetype='application/pdf')
+
+# ==========================================
+# 🔄 RTO (RETURN TO ORIGIN) WORKFLOW
+# ==========================================
+@app.route('/rto_shipment', methods=['POST'])
+@login_required
+def rto_shipment():
+    if session.get('role') == 'CUSTOMER': return abort(403)
+    sid = request.form.get('shipment_id')
+    rto_awb = request.form.get('rto_awb', '').strip().upper()
+    reason = request.form.get('reason', '').strip()
+    rto_charge = safe_float(request.form.get('rto_charge', 0.0))
+    
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT * FROM shipments WHERE id=%s", (sid,))
+            s = c.fetchone()
+            if not s:
+                flash("Shipment not found!", "error"); return redirect('/shipments')
+            if s['status'] in ('DELIVERED', 'RETURNED'):
+                flash("Delivered/Returned parcel cannot be RTO'd.", "error"); return redirect('/shipments')
+            
+            # 1. Update Old Shipment Status
+            c.execute("UPDATE shipments SET status='RETURNED', info=%s WHERE id=%s", (f"RTO Initiated: {reason}", sid))
+            c.execute("INSERT INTO scan_events(shipment_id,scan_type,location,remarks) VALUES(%s,'RTO_INITIATED','Hub',%s)", (sid, reason))
+            
+            # 2. Create New RTO Shipment (Swapping Origin and Destination)
+            d = datetime.datetime.now().strftime("%Y-%m-%d")
+            c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, 
+                         dest_name, dest_phone, dest_address, dest_station, weight_kg, quantity, service_type, status, 
+                         current_location, taxable_amount, total_amount, info) 
+                         VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'SURFACE','INWARD','RTO-HUB',%s,%s,%s)""",
+                      (rto_awb, s['customer_id'], d, 
+                       s['dest_name'], s['dest_phone'], s['dest_address'], 
+                       s['origin_name'], s['origin_phone'], s['origin_address'], "RETURN-HUB", 
+                       s['weight_kg'], s['quantity'], rto_charge, rto_charge, f"Returning RTO of {s['awb_no']}"))
+            
+            # 3. Add Ledger Entry for RTO Penalty/Charge
+            if s['customer_id'] and rto_charge > 0:
+                c.execute("INSERT INTO ledger(customer_id,entry_date,voucher_type,reference,debit,credit,narration) VALUES(%s,%s,'RTO_CHG',%s,%s,0,%s)",
+                          (s['customer_id'], d, rto_awb, rto_charge, f"RTO Freight for {s['awb_no']}"))
+        conn.commit()
+        flash(f"✅ RTO Successfully Created: {rto_awb}", "success")
+    except Exception as e:
+        flash(f"Error processing RTO: {str(e)}", "error")
+    finally:
+        conn.close()
+    return redirect('/shipments')
 
 # ==========================================
 # 📥 3.5 CARGO INWARD (ADD + DELETE)
@@ -4234,15 +4498,11 @@ def print_label(awb):
                 c.execute("SELECT * FROM customers WHERE id=%s", (s['customer_id'],))
                 cust = c.fetchone() or {}
             
-            # 🚀 NEW: Fetch Network & FWD AWB details
             c.execute("SELECT origin_station, out_station, network, network_awb FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
             outward = c.fetchone() or {}
             
             c.execute("SELECT * FROM settings")
-            settings = {}
-            for r in c.fetchall():
-                k = r.get('key') if 'key' in r else r.get('name')
-                if k: settings[k] = r.get('value')
+            settings = {r.get('key_name') or r.get('key') or r.get('name'): r.get('value') for r in c.fetchall()}
         conn.close()
     except Exception as e: return f"Database Error: {str(e)}", 500
 
@@ -4250,81 +4510,111 @@ def print_label(awb):
         _org = outward.get('origin_station') or "NOHAR"
         _dst = outward.get('out_station') or s.get('dest_station') or s.get('dest_name') or "-"
         
-        # 🧠 WHITE LABEL LOGIC VARS
-        # 🧠 Agar Outward nahi hua toh Shipments table(s) se Network utha lega
         _net = outward.get('network') if outward.get('network') else (s.get('network') or 'SELF')
         _n_awb = outward.get('network_awb') if outward.get('network_awb') else (s.get('network_awb') or '')
         is_self = not _net or str(_net).upper() in ["SELF", "AGC", "AKASH GANGA", "AKASHGANGA"]
 
+        # 🧠 SMART PINCODE EXTRACTION LOGIC
+        import re
+        def extract_pin(station, address):
+            match = re.search(r'\b\d{6}\b', str(station))
+            if not match: match = re.search(r'\b\d{6}\b', str(address))
+            pin = match.group(0) if match else ""
+            clean_station = re.sub(r'\s*-?\s*\b\d{6}\b\s*', '', str(station)).strip()
+            return clean_station, pin
+
+        _org_clean, org_pin = extract_pin(_org, s.get("origin_address", ""))
+        _dst_clean, dst_pin = extract_pin(_dst, s.get("dest_address", ""))
+
         stype = s.get("service_type") or "SURFACE"
         if stype in ["BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"]: stype = "SURFACE"
 
-        buf = io.BytesIO()
-        w, h = 4 * inch, 6 * inch
+        buf = io.BytesIO(); w, h = 4 * inch, 6 * inch
         cv = canvas.Canvas(buf, pagesize=(w, h))
-        
         cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
         cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
         
-        # AWB Extraction moved up for QR Code
         safe_awb = str(s.get("awb_no") or "")
-        
-        # ==================================
-        # 🟢 HEADER DRAWING LOGIC (DYNAMIC)
-        # ==================================
         x = 14
-        max_w = w - x - 20
+        
+        # 🚀 DYNAMIC BOX CALCULATION (Top Right Box)
+        cv.setFont("Helvetica-Bold", 6.5)
+        box_text = "PREMIUM EXPRESS" if is_self else "NETWORK DISPATCH"
+        box_text_width = cv.stringWidth(box_text, "Helvetica-Bold", 6.5)
+        box_w = box_text_width + 16 
+        box_x = w - box_w - 14 
+        max_w = box_x - x - 10 
         
         if is_self:
-            # BRANDED LOGO HEADER
-            if draw_logo_web(cv, x, h - 56, 68, 40): x = 90
+            if draw_logo_web(cv, x, h - 56, 68, 40): 
+                x = 90
+                max_w = box_x - x - 10
             cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
-            cv.drawString(x, h - 26, fit_text(cv, settings.get("company_name") or "AGC Courier", "Helvetica-Bold", 11, max_w))
+            cv.drawString(x, h - 26, fit_text(cv, settings.get("company_name", "AGC Courier"), "Helvetica-Bold", 11, max_w))
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2)
-            cv.drawString(x, h - 38, fit_text(cv, settings.get("company_address") or "", "Helvetica", 6.2, max_w))
-            cv.drawString(x, h - 50, fit_text(cv, f"GSTIN: {settings.get('company_gstin') or ''} | Ph: {settings.get('company_phone') or ''}", "Helvetica", 6.2, max_w))
+            yy = h - 36
+            for ln in wrap_lines(cv, settings.get("company_address", ""), "Helvetica", 6.2, max_w)[:2]:
+                cv.drawString(x, yy, ln); yy -= 8
+            cv.drawString(x, yy - 1, fit_text(cv, f"GSTIN: {settings.get('company_gstin','')} | Ph: {settings.get('company_phone','')}", "Helvetica", 6.2, max_w))
             
-            # QR CODE WITH TRACKING LINK (Only for Self)
             track_url = f"https://agcgroup.in/track-now/?awb={safe_awb}"
             draw_qr_web(cv, track_url, w - 74, h - 138, 58)
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawCentredString(w - 45, h - 148, "SCAN & TRACK")
         else:
-            # WHITE LABEL HEADER (Neutral)
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 13)
-            cv.drawString(14, h - 28, f"ROUTED VIA: {str(_net).upper()}")
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 12)
+            cv.drawString(14, h - 28, fit_text(cv, f"ROUTED VIA: {str(_net).upper()}", "Helvetica-Bold", 12, max_w))
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 9)
-            if _n_awb:
-                cv.drawString(14, h - 44, f"FWD AWB: {_n_awb}")
-            else:
-                cv.drawString(14, h - 44, "FWD AWB: _________________________")
+            cv.drawString(14, h - 42, fit_text(cv, f"SYSTEM AWB: {safe_awb}", "Helvetica-Bold", 9, max_w))
                 
-        # ==================================
-        # BOXES & BARCODES
-        # ==================================
-        cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.2); cv.rect(w - 90, h - 42, 80, 16)
+        # Draw Dynamic Premium Box
+        cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.2); cv.rect(box_x, h - 42, box_w, 16)
         cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5)
-        box_text = "PREMIUM EXPRESS" if is_self else "NETWORK DISPATCH"
-        cv.drawCentredString(w - 50, h - 37, box_text)
+        cv.drawCentredString(box_x + (box_w / 2), h - 37, box_text)
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(10, h - 62, w - 10, h - 62)
         
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6.5)
-        label_text = "AWB NUMBER" if is_self else "INTERNAL AWB NUMBER"
-        cv.drawString(14, h - 74, label_text)
+        cv.drawString(14, h - 74, "AWB NUMBER" if is_self else "FORWARDING AWB NUMBER")
         
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, safe_awb)
-        try: code128.Code128(safe_awb, barHeight=0.40*inch, barWidth=0.011*inch).drawOn(cv, 18, h - 128)
-        except: pass
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, safe_awb)
+        display_awb = safe_awb if is_self else _n_awb
+        if display_awb:
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, display_awb)
+            try: code128.Code128(display_awb, barHeight=0.40*inch, barWidth=0.011*inch).drawOn(cv, 18, h - 128)
+            except: pass
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, display_awb)
+        else:
+            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 12)
+            cv.drawString(14, h - 90, "PENDING FWD AWB")
+            cv.setFont("Helvetica", 8)
+            cv.drawString(14, h - 105, "This parcel will be dispatched")
+            cv.drawString(14, h - 115, "with the partner network soon.")
         
         cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA"))
         cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6)
         cv.drawString(20, h - 158, "ORIGIN"); cv.drawCentredString(w / 2, h - 158, "SERVICE"); cv.drawRightString(w - 20, h - 158, "DESTINATION")
         
+        # 🚀 DYNAMIC SERVICE BOX CALCULATION
+        cv.setFont("Helvetica-Bold", 7.5)
+        stype_text_w = cv.stringWidth(str(stype), "Helvetica-Bold", 7.5)
+        stype_box_w = max(80, stype_text_w + 16) 
+        stype_box_x = (w / 2) - (stype_box_w / 2)
+        safe_station_w = stype_box_x - 24 
+
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
-        cv.drawString(20, h - 172, fit_text(cv, str(_org).upper(), "Helvetica-Bold", 11, 75))
-        cv.drawRightString(w - 20, h - 170, fit_text(cv, str(_dst).upper(), "Helvetica-Bold", 11, 75))
-        cv.setStrokeColorRGB(*hex_rgb("#0E8A6D")); cv.setLineWidth(1.2); cv.rect(w / 2 - 40, h - 174, 80, 16)
+        cv.drawString(20, h - 169, fit_text(cv, _org_clean.upper(), "Helvetica-Bold", 11, safe_station_w))
+        cv.drawRightString(w - 20, h - 169, fit_text(cv, _dst_clean.upper(), "Helvetica-Bold", 11, safe_station_w))
+        
+        if org_pin:
+            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 8)
+            cv.drawString(20, h - 178, f"PIN: {org_pin}")
+        if dst_pin:
+            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 8)
+            cv.drawRightString(w - 20, h - 178, f"PIN: {dst_pin}")
+        else:
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 6)
+            cv.drawRightString(w - 20, h - 178, fit_text(cv, s.get("dest_name") or "", "Helvetica", 6, safe_station_w))
+
+        cv.setStrokeColorRGB(*hex_rgb("#0E8A6D")); cv.setLineWidth(1.2); cv.rect(stype_box_x, h - 175, stype_box_w, 18)
         cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.setFont("Helvetica-Bold", 7.5); cv.drawCentredString(w / 2, h - 169, str(stype))
         
         cv.setFillColorRGB(1, 1, 1); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, h - 254, w - 24, 70, fill=1, stroke=1)
@@ -4340,11 +4630,10 @@ def print_label(awb):
             cv.drawString(22, yy, line); yy -= 10
         cv.setFont("Helvetica-Bold", 7.5); cv.drawString(22, yy, f"Ph: {s.get('dest_phone') or '-'}")
         
-        # 🚀 DYNAMIC METRICS: Shows HUB instead of Branch for 3rd Party
         cells = [("WEIGHT", f"{s.get('weight_kg') or '0'} KG"), ("PIECES", str(s.get("quantity") or "1")), 
                  ("COD", f"Rs {s.get('cod_amount') or 0}"), ("DECLARED", f"Rs {s.get('declared_value') or 0}"), 
                  ("DATE", str(s.get("booking_date") or "")[:10]), ("MODE", str(stype)),
-                 ("DEST CITY", str(_dst)[:14]), ("BRANCH", str(settings.get("branch_name") or "HQ") if is_self else "HUB")]
+                 ("DEST CITY", str(_dst_clean)[:14]), ("BRANCH", str(settings.get("branch_name", "HQ")) if is_self else "HUB")]
         
         cw = (w - 24) / 4; chh = 19; y0 = h - 258
         for i, (label, value) in enumerate(cells):
@@ -4370,15 +4659,14 @@ def print_label(awb):
         for line in wrap_lines(cv, shipper_info, "Helvetica", 6.8, w - 44)[:2]:
             cv.drawString(20, yy, line); yy -= 9
             
+        history_text = f"AWB:{safe_awb}|DT:{s.get('booking_date')}|ORG:{_org_clean}|DST:{_dst_clean}|WT:{s.get('weight_kg')}|STAT:{s.get('status')}"
+        draw_qr_web(cv, history_text, 14, 42, 45)
+
         cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(10, 10, w - 20, 28, fill=1, stroke=0)
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 5.8)
-        cv.drawCentredString(w / 2, 26, fit_text(cv, settings.get("terms_note") or "", "Helvetica", 5.8, w - 40))
-        
-        # 🟢 DYNAMIC FOOTER
-        if is_self:
-            cv.drawCentredString(w / 2, 17, "Computer Generated Label | AGC ERP")
-        else:
-            cv.drawCentredString(w / 2, 17, "Computer Generated Label | Neutral Routing Partner")
+        cv.drawCentredString(w / 2, 26, fit_text(cv, settings.get("terms_note", ""), "Helvetica", 5.8, w - 40))
+        if is_self: cv.drawCentredString(w / 2, 17, "Computer Generated Label | AGC ERP")
+        else: cv.drawCentredString(w / 2, 17, "Computer Generated Label | Neutral Routing Partner")
         
         cv.showPage(); cv.save()
         buf.seek(0)
@@ -4402,16 +4690,26 @@ def print_receipt(awb):
             c.execute("SELECT origin_station, out_station FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
             outward = c.fetchone() or {}
             c.execute("SELECT * FROM settings")
-            settings = {}
-            for r in c.fetchall():
-                k = r.get('key') if 'key' in r else r.get('name')
-                if k: settings[k] = r.get('value')
+            settings = {r.get('key_name') or r.get('key') or r.get('name'): r.get('value') for r in c.fetchall()}
         conn.close()
     except Exception as e: return f"Database Error: {str(e)}", 500
 
     try:
         _org = outward.get('origin_station') or "NOHAR"
         _dst = outward.get('out_station') or s.get('dest_station') or s.get('dest_name') or "-"
+        
+        # 🧠 SMART PINCODE EXTRACTION LOGIC FOR RECEIPT
+        import re
+        def extract_pin(station, address):
+            match = re.search(r'\b\d{6}\b', str(station))
+            if not match: match = re.search(r'\b\d{6}\b', str(address))
+            pin = match.group(0) if match else ""
+            clean_station = re.sub(r'\s*-?\s*\b\d{6}\b\s*', '', str(station)).strip()
+            return clean_station, pin
+
+        _org_clean, org_pin = extract_pin(_org, s.get("origin_address", ""))
+        _dst_clean, dst_pin = extract_pin(_dst, s.get("dest_address", ""))
+
         stype = s.get("service_type") or "SURFACE"
         if stype in ["BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"]: stype = "SURFACE"
 
@@ -4423,33 +4721,34 @@ def print_receipt(awb):
         if draw_logo_web(cv, x, h - 60, 90, 45): x = 130
             
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 13)
-        cv.drawString(x, h - 35, settings.get("company_name") or "AGC Courier")
+        cv.drawString(x, h - 35, settings.get("company_name", "AGC Courier"))
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.5)
-        cv.drawString(x, h - 46, settings.get("company_address") or "")
-        cv.drawString(x, h - 55, f"GSTIN: {settings.get('company_gstin') or ''} | Ph: {settings.get('company_phone') or ''}")
+        cv.drawString(x, h - 46, settings.get("company_address", ""))
+        cv.drawString(x, h - 55, f"GSTIN: {settings.get('company_gstin', '')} | Ph: {settings.get('company_phone', '')}")
 
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5)
         cv.roundRect(w - 175, h - 52, 145, 30, 8, fill=0, stroke=1)
         cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 11)
         cv.drawCentredString(w - 102, h - 41, "COURIER SLIP / RECEIPT")
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 7)
-        cv.drawRightString(w - 30, h - 62, f"Date: {str(s.get('booking_date') or '')[:10]}")
+        cv.drawRightString(w - 30, h - 62, f"Date: {str(s.get('booking_date', ''))[:10]}")
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(20, h - 70, w - 20, h - 70)
 
-        safe_awb = str(s.get("awb_no") or "")
+        safe_awb = str(s.get("awb_no", ""))
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 16)
         cv.drawString(30, h - 90, safe_awb)
         try: code128.Code128(safe_awb, barHeight=0.30*inch, barWidth=0.011*inch).drawOn(cv, 34, h - 125)
         except: pass
         cv.setFont("Courier-Bold", 8); cv.drawString(34, h - 135, safe_awb)
         
-        # 🚀 ADDING QR CODE WITH TRACKING LINK (RECEIPT)
         track_url = f"https://agcgroup.in/track-now/?awb={safe_awb}"
         draw_qr_web(cv, track_url, w - 95, h - 135, 60)
 
-        # 🚀 ADDING STATIONS ABOVE BOXES
+        # 🚀 ADDING CLEAN STATIONS & PINCODES
         cv.setFillColorRGB(*hex_rgb("#0B6B55")); cv.setFont("Helvetica-Bold", 10)
-        cv.drawString(30, h - 150, f"Origin: {str(_org).upper()}    ➔    Destination: {str(_dst).upper()}")
+        org_text = f"{_org_clean.upper()} {org_pin}".strip()
+        dst_text = f"{_dst_clean.upper()} {dst_pin}".strip()
+        cv.drawString(30, h - 150, f"Origin: {org_text}    ➔    Destination: {dst_text}")
 
         bw = (w - 70) / 2
         yb = h - 250
@@ -4466,18 +4765,17 @@ def print_receipt(awb):
         if str(shipper_addr).lower() == 'none': shipper_addr = ''
         for ln in wrap_lines(cv, f"{shipper_name} {shipper_addr}", "Helvetica", 7.5, bw - 16)[:3]:
             cv.drawString(38, yy, ln); yy -= 9
-        cv.drawString(38, yy - 2, f"GSTIN: {cust.get('gstin') or '-'}")
+        cv.drawString(38, yy - 2, f"GSTIN: {cust.get('gstin', '-')}")
         
         yy = yb + 68
-        for ln in wrap_lines(cv, f"{s.get('dest_name') or ''} {s.get('dest_address') or ''}", "Helvetica", 7.5, bw - 16)[:3]:
+        for ln in wrap_lines(cv, f"{s.get('dest_name', '')} {s.get('dest_address', '')}", "Helvetica", 7.5, bw - 16)[:3]:
             cv.drawString(48 + bw, yy, ln); yy -= 9
-        cv.drawString(48 + bw, yy - 2, f"Ph: {s.get('dest_phone') or '-'} | State: {s.get('dest_state_code') or '-'}")
+        cv.drawString(48 + bw, yy - 2, f"Ph: {s.get('dest_phone', '-')} | State: {s.get('dest_state_code', '-')}")
 
-        # Metrics
-        vals = [("WEIGHT", f"{s.get('weight_kg') or 0} KG"), ("PIECES", str(s.get('quantity') or 1)), ("SERVICE", stype),
-                ("COD", f"Rs {s.get('cod_amount') or 0}"), ("TAXABLE", f"{s.get('taxable_amount') or 0}"),
+        vals = [("WEIGHT", f"{s.get('weight_kg', 0)} KG"), ("PIECES", str(s.get('quantity', 1))), ("SERVICE", stype),
+                ("COD", f"Rs {s.get('cod_amount', 0)}"), ("TAXABLE", f"{s.get('taxable_amount', 0)}"),
                 ("GST", f"{(s.get('cgst') or 0) + (s.get('sgst') or 0) + (s.get('igst') or 0)}"),
-                ("TOTAL", f"Rs {s.get('total_amount') or 0}")]
+                ("TOTAL", f"Rs {s.get('total_amount', 0)}")]
                 
         cw2 = (w - 60) / len(vals)
         yc = yb - 18
@@ -4488,19 +4786,36 @@ def print_receipt(awb):
             cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, yc - 19, str(vl))
 
         cv.setFont("Helvetica", 6.5); cv.setFillColorRGB(*hex_rgb("#6B7280"))
-        # Helper string conversion without crashing
-        tot_amt = str(s.get('total_amount') or 0)
+        tot_amt = str(s.get('total_amount', 0))
         cv.drawString(30, yc - 38, f"Grand Total: Rs {tot_amt}")
         cv.line(w - 170, yc - 30, w - 30, yc - 30)
-        cv.drawString(w - 170, yc - 40, f"For {settings.get('company_name') or 'AGC'}")
+        cv.drawString(w - 170, yc - 40, f"For {settings.get('company_name', 'AGC')}")
         cv.setFont("Helvetica", 6)
-        cv.drawString(30, 20, str(settings.get("terms_note") or ""))
-        cv.drawRightString(w - 30, 20, str(settings.get("company_website") or ""))
+        cv.drawString(30, 20, str(settings.get("terms_note", "")))
+        cv.drawRightString(w - 30, 20, str(settings.get("company_website", "")))
         
         cv.showPage(); cv.save()
         buf.seek(0)
         return send_file(buf, as_attachment=False, download_name=f"Receipt_{awb}.pdf", mimetype='application/pdf')
     except Exception as e: return f"PDF Generator Error: {str(e)}", 500
+
+@app.route('/developer_api')
+@login_required
+def developer_api():
+    if session.get('role') != 'CUSTOMER': return redirect('/')
+    
+    html = """
+    <div class="card" style="border-top:4px solid #10b981;">
+        <h3 class="text-lg font-bold text-slate-800 mb-4">💻 Developer API (B2B Integration)</h3>
+        <p class="text-slate-600 mb-4">REST API endpoints documentation and access keys will be available here soon.</p>
+        <div class="p-4 bg-slate-100 rounded-lg font-mono text-sm text-slate-800">
+            <strong>Endpoint:</strong> https://pagcerp.cgsmart.in/api/v1/create_shipment<br>
+            <strong>Method:</strong> POST<br>
+            <strong>Auth:</strong> Bearer Token
+        </div>
+    </div>
+    """
+    return render_page("API Integration", render_template_string(html))
 
 # ==========================================
 # 📊 5.3 ACCOUNT STATEMENT PDF PRINT (WITH LOGO)
@@ -5025,9 +5340,11 @@ def sync_smart():
     try:
         with conn.cursor() as c:
             cols = ["customer_id","booking_date","origin_name","origin_phone","origin_address","origin_state_code",
-                    "dest_name","dest_phone","dest_address","dest_state_code","dest_station","weight_kg","quantity",
-                    "cod_amount","declared_value","service_type","taxable_amount","tax_rate","cgst","sgst","igst",
-                    "total_amount","status","current_location","info","updated_at"]
+                    "dest_name","dest_phone","dest_address","dest_state_code","dest_station","weight_kg",
+                    "length_cm", "width_cm", "height_cm", "vol_weight", "applied_weight",
+                    "quantity","cod_amount","declared_value","service_type","taxable_amount","tax_rate",
+                    "cgst","sgst","igst","total_amount","status","current_location","info",
+                    "network", "network_awb", "updated_at"]
             
             RANK = {"STATIONERY":0,"BOOKED":1,"OUTWARD":2,"INWARD":3,"ON_DRS":4,"DELIVERED":5,"UNDELIVERED":5,"CANCELLED":6}
 
