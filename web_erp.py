@@ -578,41 +578,47 @@ def render_page(title, content):
 # ==========================================
 # 🛠️ DIRECT DATABASE FIX ROUTE (RUN ONCE)
 # ==========================================
-# ==========================================
-# 🛠️ DIRECT DATABASE FIX ROUTE (RUN ONCE)
-# ==========================================
 @app.route('/fix_db')
 def fix_db():
     conn = get_db()
     messages = []
     try:
         with conn.cursor() as c:
-            # 1. Fix Shipments Table
+            # 1. Purane Fixes
             try:
                 c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
                 messages.append("✅ shipments table: 'updated_at' successfully added!")
-            except Exception as e:
-                messages.append(f"⚠️ shipments issue: {str(e)}")
-                
-            # 2. Fix Outward Register Table
-            try:
-                c.execute("ALTER TABLE outward_register ADD COLUMN pcs INT DEFAULT 1")
-                messages.append("✅ outward_register table: 'pcs' successfully added!")
             except Exception as e: pass
 
-            try:
-                c.execute("ALTER TABLE outward_register ADD COLUMN bag_no VARCHAR(100)")
-                messages.append("✅ outward_register table: 'bag_no' successfully added!")
-            except Exception as e: pass
+            # 🚀 2. THE VOLUMETRIC & NETWORK FIX (Naye columns add karna)
+            new_cols = [
+                ("length_cm", "DOUBLE DEFAULT 0"),
+                ("width_cm", "DOUBLE DEFAULT 0"),
+                ("height_cm", "DOUBLE DEFAULT 0"),
+                ("vol_weight", "DOUBLE DEFAULT 0"),
+                ("applied_weight", "DOUBLE DEFAULT 0"),
+                ("network", "VARCHAR(100) DEFAULT 'SELF'"),
+                ("network_awb", "VARCHAR(100)")
+            ]
+            
+            for col_name, col_type in new_cols:
+                try:
+                    c.execute(f"ALTER TABLE shipments ADD COLUMN {col_name} {col_type}")
+                    messages.append(f"✅ shipments table: '{col_name}' successfully added!")
+                except Exception as e:
+                    messages.append(f"⚠️ {col_name} issue (Already exists or safely skipped): {str(e)}")
 
-            # 🚀 3. THE TRACKING TIMELINE FIX (Adding 'created_at' to old tables)
+            # 3. Outward Register Fixes
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN pcs INT DEFAULT 1")
+            except Exception: pass
+            try: c.execute("ALTER TABLE outward_register ADD COLUMN bag_no VARCHAR(100)")
+            except Exception: pass
+
+            # 4. Tracking Timeline Fixes
             tables_to_fix = ['outward_register', 'inward_register', 'delivery_register', 'scan_events']
             for tbl in tables_to_fix:
-                try:
-                    c.execute(f"ALTER TABLE {tbl} ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
-                    messages.append(f"✅ {tbl} table: 'created_at' column successfully added for tracking timeline!")
-                except Exception as e:
-                    messages.append(f"⚠️ {tbl} 'created_at' issue (Already exists or error): {str(e)}")
+                try: c.execute(f"ALTER TABLE {tbl} ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+                except Exception: pass
 
         conn.commit()
     except Exception as e:
@@ -624,7 +630,7 @@ def fix_db():
     html += "<h2>Cloud Database Diagnostic & Fix Tool</h2><ul>"
     for m in messages:
         html += f"<li>{m}</li>"
-    html += "</ul><h3 style='color:#059669;'>🔥 Done! Database is fully patched. Tracking Page will work perfectly now!</h3></body>"
+    html += "</ul><h3 style='color:#059669;'>🔥 Done! Database is fully patched. Sync should work perfectly now!</h3></body>"
     
     return html
 
