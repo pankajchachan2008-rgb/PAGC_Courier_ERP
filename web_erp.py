@@ -870,7 +870,7 @@ def track():
                         <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center text-blue-600 font-bold text-xl overflow-hidden p-1">
                             <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerText='AGC'" class="w-full h-full object-contain">
                         </div>
-                        <span class="font-bold text-xl tracking-tight">AGC Logistics</span>
+                        <span class="font-bold text-xl tracking-tight">PANKAJ AGENCY</span>
                     </div>
                 </div>
             </div>
@@ -1051,7 +1051,7 @@ def track():
         
         <!-- Footer -->
         <footer class="bg-slate-900 text-slate-400 py-6 text-center text-sm mt-auto border-t border-slate-800">
-            <p class="font-medium">&copy; 2026 AGC Enterprise Logistics. All rights reserved.</p>
+            <p class="font-medium">&copy; 2026 PANKAJ AGENCY. All rights reserved.</p>
         </footer>
     </body>
     </html>
@@ -1610,7 +1610,7 @@ def print_stationery_barcodes(bid):
 
     buf = io.BytesIO()
     cv = canvas.Canvas(buf, pagesize=(50*mm, 25*mm))
-    branch = get_setting('company_name', 'AGC COURIER')[:15].upper()
+    branch = get_setting('company_name', 'PANKAJ AGENCY')[:15].upper()
     party_name = b['cust_name'] if b.get('cust_name') else 'Cash / Counter'
 
     for i in range(b['start_no'], b['end_no'] + 1):
@@ -4588,7 +4588,7 @@ def print_label(awb):
                 x = 90
                 max_w = box_x - x - 10
             cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
-            cv.drawString(x, h - 26, fit_text(cv, settings.get("company_name", "AGC Courier"), "Helvetica-Bold", 11, max_w))
+            cv.drawString(x, h - 26, fit_text(cv, settings.get("company_name", "PANKAJ AGENCY"), "Helvetica-Bold", 11, max_w))
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2)
             yy = h - 36
             for ln in wrap_lines(cv, settings.get("company_address", ""), "Helvetica", 6.2, max_w)[:2]:
@@ -4759,7 +4759,7 @@ def print_receipt(awb):
         if draw_logo_web(cv, x, h - 60, 90, 45): x = 130
             
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 13)
-        cv.drawString(x, h - 35, settings.get("company_name", "AGC Courier"))
+        cv.drawString(x, h - 35, settings.get("company_name", "PANKAJ AGENCY"))
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.5)
         cv.drawString(x, h - 46, settings.get("company_address", ""))
         cv.drawString(x, h - 55, f"GSTIN: {settings.get('company_gstin', '')} | Ph: {settings.get('company_phone', '')}")
@@ -4890,7 +4890,7 @@ def print_statement(cid):
     
     cv.setFillColor(HexColor("#FFFFFF"))
     cv.setFont("Helvetica-Bold", 16)
-    cv.drawCentredString(300, 815, str(get_setting('company_name', 'AGC COURIER')))
+    cv.drawCentredString(300, 815, str(get_setting('company_name', 'PANKAJ AGENCY')))
     cv.setFont("Helvetica", 9)
     cv.drawCentredString(300, 795, f"{get_setting('company_address', '')} | GSTIN: {get_setting('company_gstin', '')}")
     
