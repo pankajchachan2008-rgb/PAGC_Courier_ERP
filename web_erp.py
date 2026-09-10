@@ -620,14 +620,23 @@ def fix_db():
     return html
 
 # ==========================================
-# 🔐 LOGIN / LOGOUT
+# 🔐 LOGIN / LOGOUT (DETAILED PASTEL GLASSMORPHISM)
 # ==========================================
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    conn = get_db()
+    c = conn.cursor()
+    
+    # 🏢 Fetch Settings for Contact Us & Branding Display
+    c.execute("SELECT * FROM settings")
+    settings = {}
+    for r in c.fetchall():
+        k = r.get('key_name') or r.get('key') or r.get('name')
+        if k: settings[k] = r.get('value')
+        
     if request.method == 'POST':
         u = request.form.get('username', '')
         p = request.form.get('password', '')
-        conn = get_db(); c = conn.cursor()
         c.execute("SELECT * FROM users WHERE username=%s AND active=1", (u,))
         r = c.fetchone()
         
@@ -636,7 +645,6 @@ def login():
             # Check 1: Old SHA256 Logic (Auto-upgrade to new secure hash if matched)
             if r['password_hash'] == hashlib.sha256(p.encode()).hexdigest():
                 is_valid = True
-                # Automatically secure the password for future logins
                 from werkzeug.security import generate_password_hash
                 new_secure_hash = generate_password_hash(p)
                 c.execute("UPDATE users SET password_hash=%s WHERE id=%s", (new_secure_hash, r['id']))
@@ -657,93 +665,216 @@ def login():
                     'branch': str(r.get('branch_name', 'HQ')) if r else 'HQ',
                     'customer_id': r.get('customer_id') if r else None
                 })
-                conn.close()
+                c.close(); conn.close()
                 return redirect(url_for('dashboard'))
                 
-        flash('Invalid Credentials!', 'error')
-        conn.close()
+        flash('Invalid Credentials! Please verify your username and password.', 'error')
+    
+    c.close(); conn.close()
     
     login_html = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Secure Login | AGC Premium</title>
+    <title>Secure Login | PANKAJ AGENCY ERP</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Outfit', sans-serif; overflow: hidden; background: #0f172a; }
-        /* Mesmerizing Animated Background */
-        .bg-shapes { position: absolute; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; top: 0; left: 0; }
-        .shape { position: absolute; filter: blur(80px); border-radius: 50%; animation: float 20s infinite ease-in-out; }
-        .shape-1 { width: 500px; height: 500px; background: rgba(56, 189, 248, 0.4); top: -10%; left: -10%; animation-delay: 0s; }
-        .shape-2 { width: 400px; height: 400px; background: rgba(139, 92, 246, 0.3); bottom: -10%; right: -5%; animation-delay: -5s; }
-        .shape-3 { width: 600px; height: 600px; background: rgba(16, 185, 129, 0.2); bottom: -20%; left: 20%; animation-delay: -10s; }
-        @keyframes float { 
-            0%, 100% { transform: translate(0, 0) scale(1); } 
-            33% { transform: translate(30px, -50px) scale(1.1); } 
-            66% { transform: translate(-20px, 20px) scale(0.9); } 
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background: radial-gradient(circle at 0% 0%, #e0c3fc 0%, #8ec5fc 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: #0f172a;
         }
-        /* Ultra-Premium Glass Card */
-        .glass-card {
-            background: rgba(255, 255, 255, 0.03);
+        
+        /* 💎 3D Pastel Glassmorphism Main Card */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.55);
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            box-shadow: 0 20px 50px -10px rgba(31, 38, 135, 0.15), inset 0 2px 0 0 rgba(255, 255, 255, 0.7);
+            border-radius: 32px;
         }
-        /* Luxury Inputs */
+
+        /* 🪟 Inner Left Panel (Slightly more transparent) */
+        .glass-left {
+            background: rgba(255, 255, 255, 0.3);
+            border-right: 1px solid rgba(255, 255, 255, 0.6);
+        }
+
+        /* ✨ Luxury Elements */
+        .text-gradient {
+            background: linear-gradient(135deg, #2563eb 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        
+        .btn-glow {
+            background: linear-gradient(135deg, #3b82f6 0%, #6366f1 100%);
+            box-shadow: 0 10px 20px -5px rgba(59, 130, 246, 0.4);
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+        .btn-glow:hover {
+            box-shadow: 0 15px 25px -5px rgba(59, 130, 246, 0.6);
+            transform: translateY(-2px);
+        }
+
+        .btn-track {
+            background: rgba(255, 255, 255, 0.9);
+            color: #2563eb;
+            box-shadow: 0 8px 20px -5px rgba(0, 0, 0, 0.08);
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255, 255, 255, 1);
+        }
+        .btn-track:hover {
+            background: #ffffff;
+            box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.12);
+            transform: translateY(-2px);
+        }
+
+        /* 🌫️ Neumorphic Inputs */
         .glass-input {
-            background: rgba(0, 0, 0, 0.2); border: 1px solid rgba(255, 255, 255, 0.08); color: #fff; transition: all 0.3s;
+            background: rgba(255, 255, 255, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.9);
+            color: #0f172a;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02);
+            transition: all 0.3s;
         }
-        .glass-input:focus { background: rgba(0, 0, 0, 0.4); border-color: #38bdf8; box-shadow: 0 0 0 4px rgba(56,189,248,0.15); outline: none; }
-        /* Glow Button */
-        .glow-btn {
-            background: linear-gradient(135deg, #2563eb, #38bdf8); box-shadow: 0 4px 15px rgba(56,189,248,0.4); transition: all 0.3s; border: 1px solid rgba(255,255,255,0.2);
+        .glass-input:focus { 
+            background: #ffffff; 
+            border-color: #8b5cf6; 
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02), 0 0 0 4px rgba(139,92,246,0.15); 
+            outline: none; 
         }
-        .glow-btn:hover { box-shadow: 0 8px 25px rgba(56,189,248,0.6); transform: translateY(-2px); }
+
+        /* 📡 Animated background shapes */
+        .bg-shapes { position: absolute; width: 100vw; height: 100vh; z-index: -1; overflow: hidden; top: 0; left: 0; }
+        .shape { position: absolute; filter: blur(90px); border-radius: 50%; animation: float 20s infinite ease-in-out; }
+        .shape-1 { width: 500px; height: 500px; background: rgba(56, 189, 248, 0.5); top: -10%; left: -10%; animation-delay: 0s; }
+        .shape-2 { width: 400px; height: 400px; background: rgba(139, 92, 246, 0.4); bottom: -10%; right: -5%; animation-delay: -5s; }
+        @keyframes float { 
+            0%, 100% { transform: translate(0, 0) scale(1); } 
+            50% { transform: translate(30px, -50px) scale(1.1); } 
+        }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen">
+<body class="flex items-center justify-center p-4 md:p-8">
     
     <div class="bg-shapes">
-        <div class="shape shape-1"></div><div class="shape shape-2"></div><div class="shape shape-3"></div>
+        <div class="shape shape-1"></div><div class="shape shape-2"></div>
     </div>
 
-    <div class="glass-card p-10 rounded-3xl w-[400px] z-10 relative">
-        <div class="text-center mb-8">
-            <div class="w-20 h-20 bg-white/5 backdrop-blur-md rounded-2xl flex items-center justify-center border border-white/10 mx-auto mb-4 shadow-[0_0_20px_rgba(56,189,248,0.2)]">
-                <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerHTML='<span class=\\'text-3xl text-white font-bold\\'>AGC</span>'" class="w-14 h-14 object-contain">
-            </div>
-            <h1 class="text-3xl font-bold text-white tracking-tight">AGC Premium</h1>
-            <p class="text-blue-300 text-sm mt-1 uppercase tracking-widest font-medium">Enterprise Portal</p>
-        </div>
+    <div class="glass-panel w-full max-w-6xl flex flex-col md:flex-row overflow-hidden relative z-10">
         
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        <div class="mb-6 p-3 bg-red-500/20 border border-red-500/50 text-red-200 text-sm rounded-xl text-center backdrop-blur-sm">
-            {% for category, message in messages %}{{ message }}{% endfor %}
+        <!-- LEFT PANEL: Info & Tracking -->
+        <div class="glass-left w-full md:w-5/12 p-8 lg:p-12 flex flex-col justify-between relative">
+            
+            <!-- Branding -->
+            <div>
+                <div class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/10 p-2 border border-white mb-6">
+                    <img src="/logo.png" onerror="this.style.display='none'; this.parentElement.innerHTML='<span class=\\'text-blue-600 font-bold text-xl\\'>AGC</span>'" class="w-full h-full object-contain">
+                </div>
+                <h1 class="text-3xl lg:text-4xl font-black text-slate-800 tracking-tight leading-tight mb-2">
+                    {{ settings.get('company_name', 'PANKAJ AGENCY') }}
+                </h1>
+                <p class="text-blue-600 font-bold text-sm uppercase tracking-widest mb-6">Enterprise ERP System</p>
+                <p class="text-slate-600 font-medium leading-relaxed">
+                    Welcome to our state-of-the-art logistics management portal. Designed for speed, accuracy, and absolute transparency.
+                </p>
+            </div>
+
+            <!-- Quick Actions & Contact Us -->
+            <div class="mt-10">
+                <a href="/track" class="btn-track w-full flex items-center justify-center gap-3 py-4 rounded-xl font-bold text-base mb-8">
+                    <i class="fas fa-search-location text-lg"></i> Track Your Shipment
+                </a>
+
+                <div class="bg-white/40 border border-white/60 p-6 rounded-2xl shadow-sm">
+                    <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 border-b border-white/50 pb-2">Contact Support</h3>
+                    <ul class="space-y-4">
+                        <li class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center shrink-0"><i class="fas fa-phone-alt text-xs"></i></div>
+                            <div>
+                                <p class="text-[10px] font-bold text-slate-500 uppercase">Phone</p>
+                                <p class="text-sm font-bold text-slate-800">{{ settings.get('company_phone', 'Not Available') }}</p>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center shrink-0"><i class="fas fa-envelope text-xs"></i></div>
+                            <div>
+                                <p class="text-[10px] font-bold text-slate-500 uppercase">Email</p>
+                                <p class="text-sm font-bold text-slate-800 break-all">{{ settings.get('company_email', 'support@agcgroup.in') }}</p>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <div class="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0"><i class="fas fa-map-marker-alt text-xs"></i></div>
+                            <div>
+                                <p class="text-[10px] font-bold text-slate-500 uppercase">Head Office</p>
+                                <p class="text-sm font-bold text-slate-800">{{ settings.get('company_address', 'Main Branch') }}</p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+            </div>
         </div>
-        {% endif %}
-        {% endwith %}
-        
-        <form method="POST" class="space-y-5">
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">Username</label>
-                <input type="text" name="username" required class="glass-input w-full px-4 py-3 rounded-xl" placeholder="Enter your ID">
+
+        <!-- RIGHT PANEL: Login Form -->
+        <div class="w-full md:w-7/12 p-8 lg:p-16 flex flex-col justify-center">
+            
+            <div class="max-w-md w-full mx-auto">
+                <h2 class="text-3xl font-black text-slate-800 tracking-tight mb-2">Welcome Back</h2>
+                <p class="text-slate-500 font-medium mb-10">Please sign in to access your dashboard.</p>
+                
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                <div class="mb-8 p-4 bg-red-50 border border-red-200 text-red-600 text-sm rounded-xl flex items-center gap-3 font-semibold shadow-sm">
+                    <i class="fas fa-exclamation-circle text-red-500 text-lg"></i>
+                    <div>{% for category, message in messages %}{{ message }}{% endfor %}</div>
+                </div>
+                {% endif %}
+                {% endwith %}
+                
+                <form method="POST" class="space-y-6">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Username / User ID</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                                <i class="fas fa-user"></i>
+                            </div>
+                            <input type="text" name="username" required class="glass-input w-full pl-11 pr-4 py-4 rounded-xl font-bold text-slate-800" placeholder="Enter your ID">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-widest">Password</label>
+                        <div class="relative">
+                            <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                                <i class="fas fa-lock"></i>
+                            </div>
+                            <input type="password" name="password" required class="glass-input w-full pl-11 pr-4 py-4 rounded-xl font-bold text-slate-800" placeholder="••••••••">
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn-glow w-full text-white py-4 rounded-xl font-bold text-sm tracking-widest uppercase mt-4 flex items-center justify-center gap-2">
+                        <span>Authenticate & Enter</span> <i class="fas fa-arrow-right"></i>
+                    </button>
+                </form>
+                
+                <div class="mt-12 text-center border-t border-white/50 pt-6">
+                    <p class="text-xs font-bold text-slate-400 uppercase tracking-widest">Secure Cloud Enterprise Architecture</p>
+                </div>
             </div>
-            <div>
-                <label class="block text-xs font-semibold text-slate-300 mb-1.5 uppercase tracking-wider">Password</label>
-                <input type="password" name="password" required class="glass-input w-full px-4 py-3 rounded-xl" placeholder="••••••••">
-            </div>
-            <button type="submit" class="glow-btn w-full text-white py-3.5 rounded-xl font-bold text-sm tracking-wide uppercase mt-4">
-                Authenticate & Enter
-            </button>
-        </form>
+            
+        </div>
     </div>
 </body>
 </html>"""
-    return render_template_string(login_html)
+    return render_template_string(login_html, settings=settings)
 
 @app.route('/logout')
 def logout():
