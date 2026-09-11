@@ -2716,6 +2716,16 @@ def booking():
                 c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session.get('branch','HQ')))
                 if cid:
                     c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, d.get('date',''), awb, tot, f"Booking {awb}"))
+# 🚀 SMART HELPER: Auto-Save Receiver to Address Book
+                if d.get('save_address') == '1' and cid and d.get('dname'):
+                    # Check if this address already exists to avoid duplicates
+                    c.execute("SELECT id FROM address_book WHERE customer_id=%s AND (phone=%s OR name=%s) LIMIT 1", 
+                              (cid, d.get('dphone', ''), d.get('dname', '')))
+                    if not c.fetchone():
+                        c.execute("""INSERT INTO address_book (customer_id, name, phone, address, station, state_code) 
+                                     VALUES (%s,%s,%s,%s,%s,%s)""",
+                                  (cid, d.get('dname', ''), d.get('dphone', ''), d.get('daddr', ''), 
+                                   d.get('dstat', '').upper(), d.get('dstate', '')))
                 conn.commit()
                 flash(f"✅ AWB {awb} Booked! Total: ₹{tot:,.2f}", "success")
             except Exception as e:
@@ -2789,6 +2799,14 @@ def booking():
                         <input name="dstat" id="dstat" list="stations" class="input-modern uppercase font-bold" placeholder="Destination Station" required><datalist id="stations">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
                         <input name="dstate" id="dst" onchange="fetchRate()" class="input-modern" placeholder="State Code">
                         <input name="daddr" id="daddr" class="input-modern" placeholder="Address">
+                        
+                        <!-- 🚀 NAYA: Smart Auto-Save Checkbox -->
+                        {% if session.get('role') == 'CUSTOMER' %}
+                        <div class="flex items-center gap-2 mt-3 pt-2 border-t border-blue-200/50">
+                            <input type="checkbox" name="save_address" id="save_address" value="1" checked class="w-4 h-4 text-blue-600 rounded border-slate-300 cursor-pointer">
+                            <label for="save_address" class="text-xs font-bold text-blue-700 cursor-pointer">💾 Auto-Save to Address Book for future</label>
+                        </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -6497,6 +6515,55 @@ def manage_wallets():
     </div>
     """
     return render_page("Manage Wallets", render_template_string(html, custs=custs, txns=txns))
+
+# ==========================================
+# 🔄 1-CLICK OLD DATA TO ADDRESS BOOK SYNC
+# ==========================================
+@app.route('/sync_old_addresses')
+@login_required
+def sync_old_addresses():
+    if session.get('role') != 'ADMIN': 
+        return "Only Admin can run this tool!"
+        
+    conn = get_db()
+    added = 0
+    try:
+        with conn.cursor() as c:
+            # 1. Purane saare unique shipments nikalna jinme B2B customer link hai
+            c.execute("""SELECT DISTINCT customer_id, dest_name, dest_phone, dest_address, dest_station, dest_state_code 
+                         FROM shipments 
+                         WHERE customer_id IS NOT NULL AND dest_name != '' AND dest_name IS NOT NULL""")
+            old_records = c.fetchall()
+            
+            for r in old_records:
+                cid = r['customer_id']
+                name = r['dest_name']
+                phone = r.get('dest_phone') or ''
+                
+                # Check karna ki yeh naam aur number customer ki address book me pehle se toh nahi
+                c.execute("SELECT id FROM address_book WHERE customer_id=%s AND name=%s AND phone=%s LIMIT 1", (cid, name, phone))
+                if not c.fetchone():
+                    # Agar nahi hai, toh automatically Address Book me daal do
+                    c.execute("""INSERT INTO address_book (customer_id, name, phone, address, station, state_code) 
+                                 VALUES (%s,%s,%s,%s,%s,%s)""",
+                              (cid, name, phone, r.get('dest_address') or '', str(r.get('dest_station') or '').upper(), r.get('dest_state_code') or ''))
+                    added += 1
+            conn.commit()
+            
+        html = f"""
+        <body style="font-family: sans-serif; text-align: center; padding: 50px; background-color: #f0fdf4; color: #166534;">
+            <h1 style="font-size: 50px;">🎉</h1>
+            <h2>Magic Sync Complete!</h2>
+            <p>Total <b>{added}</b> old unique addresses successfully added to the Address Books of respective customers.</p>
+            <br>
+            <a href="/" style="padding: 10px 20px; background: #16a34a; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">Go back to Dashboard</a>
+        </body>
+        """
+        return html
+    except Exception as e:
+        return f"<h3>Error in Sync:</h3><p>{str(e)}</p>"
+    finally:
+        conn.close()
 
 # ==========================================
 # SERVER LAUNCHER
