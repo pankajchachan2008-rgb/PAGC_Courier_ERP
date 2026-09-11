@@ -6237,30 +6237,35 @@ def address_book():
     conn = get_db()
     cid = session.get('customer_id')
     
-    # Auto-Heal: Create Table
+    # 🚀 Auto-Heal: Create Table & Add Missing Pincode Column (Crash-Proof)
     with conn.cursor() as c:
         c.execute("""CREATE TABLE IF NOT EXISTS address_book (
             id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, name VARCHAR(100), 
             phone VARCHAR(50), address TEXT, station VARCHAR(100), state_code VARCHAR(10), 
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP)""")
+        try: c.execute("ALTER TABLE address_book ADD COLUMN pincode VARCHAR(20)")
+        except: pass
             
     if request.method == 'POST':
         action = request.form.get('action')
         with conn.cursor() as c:
             if action == 'add':
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (request.form.get('station').upper(),))
-                c.execute("INSERT INTO address_book (customer_id, name, phone, address, station, state_code) VALUES (%s,%s,%s,%s,%s,%s)",
-                          (cid, request.form.get('name'), request.form.get('phone'), request.form.get('address'), request.form.get('station').upper(), request.form.get('state_code')))
+                c.execute("""INSERT INTO address_book (customer_id, name, phone, address, station, state_code, pincode) 
+                             VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                          (cid, request.form.get('name'), request.form.get('phone'), 
+                           request.form.get('address'), request.form.get('station').upper(), 
+                           request.form.get('state_code'), request.form.get('pincode')))
                 flash("✅ Address saved to your Address Book!", "success")
                 
-            # 🚀 NAYA: EDIT/UPDATE LOGIC
             elif action == 'edit':
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (request.form.get('station').upper(),))
-                c.execute("""UPDATE address_book SET name=%s, phone=%s, station=%s, state_code=%s, address=%s 
+                c.execute("""UPDATE address_book SET name=%s, phone=%s, station=%s, state_code=%s, pincode=%s, address=%s 
                              WHERE id=%s AND customer_id=%s""",
                           (request.form.get('name'), request.form.get('phone'), 
                            request.form.get('station').upper(), request.form.get('state_code'), 
-                           request.form.get('address'), request.form.get('edit_id'), cid))
+                           request.form.get('pincode'), request.form.get('address'), 
+                           request.form.get('edit_id'), cid))
                 flash("✅ Address updated successfully!", "success")
                 
             elif action == 'delete':
@@ -6277,81 +6282,128 @@ def address_book():
     conn.close()
     
     html = """
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div class="card" style="border-top:4px solid #10b981;">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">📘 Add New Receiver</h3>
-            <form method="POST" class="space-y-3">
-                <input type="hidden" name="action" value="add">
-                <div><label class="label-modern">Receiver Name *</label><input type="text" name="name" required class="input-modern"></div>
-                <div><label class="label-modern">Phone</label><input type="text" name="phone" class="input-modern"></div>
-                <div><label class="label-modern">Dest Station *</label><input type="text" name="station" list="st_list" class="input-modern uppercase font-bold" required><datalist id="st_list">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist></div>
-                <div><label class="label-modern">State Code</label><input type="text" name="state_code" class="input-modern" maxlength="2"></div>
-                <div><label class="label-modern">Full Address</label><textarea name="address" rows="3" class="input-modern"></textarea></div>
-                <button type="submit" class="btn-success w-full"><i class="fas fa-save"></i> Save Address</button>
-            </form>
+    <!-- 🌟 TOP SECTION: MODERN ADDRESS FORM -->
+    <div class="card mb-6" style="border-top:4px solid #10b981;">
+        <h3 class="text-xl font-black text-slate-800 mb-6 flex items-center gap-3">
+            <div class="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-xl flex items-center justify-center"><i class="fas fa-address-card"></i></div>
+            Add New Receiver
+        </h3>
+        
+        <form method="POST" class="space-y-5">
+            <input type="hidden" name="action" value="add">
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div><label class="label-modern">Receiver Name *</label><input type="text" name="name" placeholder="e.g. Rahul Sharma" required class="input-modern font-bold text-slate-800"></div>
+                <div><label class="label-modern">Phone Number</label><input type="text" name="phone" placeholder="10-digit mobile number" class="input-modern"></div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
+                <div>
+                    <label class="label-modern">Dest Station / City *</label>
+                    <input type="text" name="station" list="st_list" class="input-modern uppercase font-bold text-blue-600" placeholder="Type city name..." required>
+                    <datalist id="st_list">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
+                </div>
+                <div><label class="label-modern">Pincode</label><input type="text" name="pincode" class="input-modern" placeholder="6-digit pincode" maxlength="6"></div>
+                <div><label class="label-modern">State Code</label><input type="text" name="state_code" class="input-modern uppercase" placeholder="e.g. RJ" maxlength="2"></div>
+            </div>
+            
+            <div><label class="label-modern">Full Address</label><textarea name="address" rows="2" placeholder="House No, Street, Landmark..." class="input-modern"></textarea></div>
+            
+            <div class="flex justify-end pt-2">
+                <button type="submit" class="btn-success px-10 py-3 shadow-lg"><i class="fas fa-save mr-2"></i> Save to Address Book</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- 🌟 BOTTOM SECTION: FULL WIDTH ADDRESS LIST -->
+    <div class="card">
+        <div class="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
+            <h3 class="text-xl font-black text-slate-800 flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center"><i class="fas fa-list-ul"></i></div>
+                Saved Addresses
+            </h3>
+            <span class="px-4 py-1.5 bg-slate-100 text-slate-600 rounded-full text-sm font-bold shadow-inner">{{ addrs|length }} Records</span>
         </div>
-        <div class="card lg:col-span-2">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Saved Addresses ({{ addrs|length }})</h3>
-            <div class="table-responsive">
-            <table class="datatable">
-                <thead><tr><th>Name / Phone</th><th>Destination</th><th>Address</th><th>Action</th></tr></thead>
+        
+        <div class="table-responsive">
+            <table class="datatable w-full">
+                <thead><tr><th>Name / Phone</th><th>Destination Info</th><th>Detailed Address</th><th style="width:120px; text-align:center;">Action</th></tr></thead>
                 <tbody>
                 {% for a in addrs %}
-                <tr>
-                    <td><span class="font-bold text-blue-600">{{ a.name }}</span><br><span class="text-xs text-slate-500">{{ a.phone }}</span></td>
-                    <td class="font-bold">{{ a.station }} <br><span class="text-xs text-slate-500 font-normal">State: {{ a.state_code }}</span></td>
-                    <td class="text-xs">{{ a.address }}</td>
-                    <td style="white-space:nowrap;">
-                        <!-- 🚀 NAYA: Edit Button -->
-                        <button type="button" onclick="openAddressEdit('{{ a.id }}', '{{ a.name }}', '{{ a.phone }}', '{{ a.station }}', '{{ a.state_code }}', '{{ a.address | replace('\n', ' ') | replace('\r', '') }}')" class="btn-primary" style="padding:3px 8px; font-size:11px;" title="Edit Address"><i class="fas fa-edit"></i></button>
+                <tr class="hover:bg-slate-50 transition-colors">
+                    <td>
+                        <span class="font-bold text-blue-600 text-[15px]">{{ a.name }}</span><br>
+                        <span class="text-xs text-slate-500 font-bold"><i class="fas fa-phone-alt text-slate-400 mr-1"></i> {{ a.phone or 'N/A' }}</span>
+                    </td>
+                    <td>
+                        <span class="font-bold text-slate-800 text-[14px]">{{ a.station }}</span><br>
+                        <span class="text-xs text-slate-500 font-bold">State: <span class="text-amber-600">{{ a.state_code or '-' }}</span> &nbsp;|&nbsp; Pin: <span class="text-emerald-600">{{ a.pincode or '-' }}</span></span>
+                    </td>
+                    <td class="text-sm text-slate-600 max-w-xs truncate" title="{{ a.address }}">{{ a.address or '-' }}</td>
+                    <td style="text-align:center;">
+                        <!-- Edit Button -->
+                        <button type="button" onclick="openAddressEdit('{{ a.id }}', '{{ a.name }}', '{{ a.phone }}', '{{ a.station }}', '{{ a.pincode }}', '{{ a.state_code }}', '{{ a.address | replace('\n', ' ') | replace('\r', '') }}')" class="btn-primary" style="padding:6px 12px; font-size:12px; margin-right:4px;" title="Edit Address"><i class="fas fa-edit"></i></button>
                         
-                        <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this address?');">
+                        <!-- Delete Button -->
+                        <form method="POST" style="display:inline;" onsubmit="return confirm('Delete this address permanently?');">
                             <input type="hidden" name="action" value="delete"><input type="hidden" name="del_id" value="{{ a.id }}">
-                            <button type="submit" class="btn-danger" style="padding:3px 8px; font-size:11px;" title="Delete Address"><i class="fas fa-trash"></i></button>
+                            <button type="submit" class="btn-danger" style="padding:6px 12px; font-size:12px;" title="Delete Address"><i class="fas fa-trash"></i></button>
                         </form>
                     </td>
                 </tr>
                 {% endfor %}
                 </tbody>
             </table>
-            </div>
         </div>
     </div>
 
-    <!-- 🚀 NAYA: EDIT ADDRESS MODAL -->
+    <!-- 🌟 EDIT ADDRESS MODAL (Properly formatted) -->
     <div id="editAddrModal" class="modal">
-        <div class="modal-content" style="max-width: 500px;">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">✏️ Edit Address</h3>
-            <form method="POST" class="space-y-3">
+        <div class="modal-content" style="max-width: 600px;">
+            <div class="flex justify-between items-center mb-6 border-b border-slate-100 pb-3">
+                <h3 class="text-xl font-black text-slate-800">✏️ Edit Address</h3>
+                <button onclick="document.getElementById('editAddrModal').style.display='none'" class="text-slate-400 hover:text-red-500"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            
+            <form method="POST" class="space-y-4">
                 <input type="hidden" name="action" value="edit">
                 <input type="hidden" name="edit_id" id="ea_id">
-                <div><label class="label-modern">Receiver Name *</label><input type="text" name="name" id="ea_name" required class="input-modern"></div>
-                <div><label class="label-modern">Phone</label><input type="text" name="phone" id="ea_phone" class="input-modern"></div>
-                <div><label class="label-modern">Dest Station *</label><input type="text" name="station" id="ea_station" list="st_list" class="input-modern uppercase font-bold" required></div>
-                <div><label class="label-modern">State Code</label><input type="text" name="state_code" id="ea_state" class="input-modern" maxlength="2"></div>
-                <div><label class="label-modern">Full Address</label><textarea name="address" id="ea_addr" rows="3" class="input-modern"></textarea></div>
-                <div class="flex gap-3 mt-4">
-                    <button type="button" class="btn-danger flex-1" onclick="document.getElementById('editAddrModal').style.display='none'">Cancel</button>
-                    <button type="submit" class="btn-success flex-1"><i class="fas fa-save"></i> Update Address</button>
+                
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div><label class="label-modern">Receiver Name *</label><input type="text" name="name" id="ea_name" required class="input-modern font-bold text-slate-800"></div>
+                    <div><label class="label-modern">Phone</label><input type="text" name="phone" id="ea_phone" class="input-modern"></div>
+                </div>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div><label class="label-modern">Dest Station *</label><input type="text" name="station" id="ea_station" list="st_list" class="input-modern uppercase font-bold text-blue-600" required></div>
+                    <div><label class="label-modern">Pincode</label><input type="text" name="pincode" id="ea_pincode" class="input-modern" maxlength="6"></div>
+                    <div><label class="label-modern">State Code</label><input type="text" name="state_code" id="ea_state" class="input-modern uppercase" maxlength="2"></div>
+                </div>
+                
+                <div><label class="label-modern">Full Address</label><textarea name="address" id="ea_addr" rows="2" class="input-modern"></textarea></div>
+                
+                <div class="flex gap-3 pt-4 border-t border-slate-100">
+                    <button type="button" class="btn-danger flex-1 py-3" onclick="document.getElementById('editAddrModal').style.display='none'">Cancel</button>
+                    <button type="submit" class="btn-success flex-1 py-3"><i class="fas fa-save mr-2"></i> Update Details</button>
                 </div>
             </form>
         </div>
     </div>
 
     <script>
-    function openAddressEdit(id, name, phone, station, state, addr) {
+    function openAddressEdit(id, name, phone, station, pincode, state, addr) {
         document.getElementById('ea_id').value = id;
         document.getElementById('ea_name').value = name;
         document.getElementById('ea_phone').value = phone;
         document.getElementById('ea_station').value = station;
-        document.getElementById('ea_state').value = state;
-        document.getElementById('ea_addr').value = addr;
+        document.getElementById('ea_pincode').value = pincode === 'None' ? '' : pincode;
+        document.getElementById('ea_state').value = state === 'None' ? '' : state;
+        document.getElementById('ea_addr').value = addr === 'None' ? '' : addr;
         document.getElementById('editAddrModal').style.display = 'block';
     }
     </script>
     """
     return render_page("Address Book", render_template_string(html, addrs=addresses, stations=stations))
-
 # ==========================================
 # 💳 3.12 B2B PREPAID WALLET SYSTEM (SAAS FEATURE)
 # ==========================================
