@@ -111,7 +111,7 @@ def validate_csrf():
         return
         
     # 🚀 API FIX: Desktop app ki naye API routes ko CSRF check se azaad karein
-    if request.endpoint in ('login', 'track', 'sync_download', 'sync_smart', 'force_upload'):
+    if request.endpoint in ('login', 'track', 'sync_download', 'sync_smart', 'force_upload', 'api_calc_rate', 'ocr_pod'):
         return
         
     # Standard web pages par protection active rahegi
@@ -618,6 +618,9 @@ def fix_db():
             tables_to_fix = ['outward_register', 'inward_register', 'delivery_register', 'scan_events']
             for tbl in tables_to_fix:
                 try: c.execute(f"ALTER TABLE {tbl} ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP")
+                except Exception: pass
+
+                try: c.execute("ALTER TABLE users MODIFY COLUMN password_hash VARCHAR(255)")
                 except Exception: pass
 
         conn.commit()
@@ -4060,7 +4063,7 @@ def drs():
                 if c.fetchone():
                     flash(f"AWB {awb} already pending for delivery!", "error")
                 else:
-                    c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
+                    c.execute("SELECT id, status FROM shipments WHERE awb_no=%s", (awb,))
                     s = c.fetchone()
                     if s:
                         if s.get('status') in ('DELIVERED', 'CANCELLED'):
