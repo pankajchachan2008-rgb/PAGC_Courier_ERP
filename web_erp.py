@@ -121,38 +121,145 @@ def validate_csrf():
         abort(400, description='Invalid or missing CSRF token.')
 
 from dbutils.pooled_db import PooledDB
-import pymysql
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 # ==========================================
-# 🚀 DATABASE CONNECTION POOLING (HIGH PERFORMANCE)
+# 🚀 POSTGRESQL CONNECTION POOLING & SMART ADAPTER
 # ==========================================
 db_pool = None
+
+def _adapt_web_sql(sql):
+    """MySQL queries ko automatically PostgreSQL syntax me convert karta hai"""
+    pg_sql = sql.replace('`', '')
+    
+    # Foreign key checks (MySQL specific) ko ignore karna
+    if 'SET FOREIGN_KEY_CHECKS' in pg_sql.upper():
+        return "SELECT 1"
+        
+    # SHOW COLUMNS ko PostgreSQL information_schema me badalna
+    m_show = re.match(r"^\s*SHOW\s+COLUMNS\s+FROM\s+(\w+)", pg_sql, flags=re.I)
+    if m_show:
+        tbl = m_show.group(1)
+        return f"SELECT column_name AS \"Field\" FROM information_schema.columns WHERE table_schema='public' AND table_name='{tbl}'"
+
+    # TRUNCATE TABLE ko PostgreSQL safe banana
+    m_trunc = re.match(r"^\s*TRUNCATE\s+TABLE\s+(\w+)\s*$", pg_sql, flags=re.I)
+    if m_trunc:
+        return f"TRUNCATE TABLE {m_trunc.group(1)} RESTART IDENTITY CASCADE"
+
+    # CREATE TABLE / ALTER TABLE types convert karna
+    pg_sql = re.sub(r'\bINT\s+AUTO_INCREMENT\s+PRIMARY\s+KEY\b', 'SERIAL PRIMARY KEY', pg_sql, flags=re.I)
+    pg_sql = re.sub(r'\bINT\s+PRIMARY\s+KEY\s+AUTO_INCREMENT\b', 'SERIAL PRIMARY KEY', pg_sql, flags=re.I)
+    pg_sql = re.sub(r'\bDATETIME\b', 'TIMESTAMP', pg_sql, flags=re.I)
+    pg_sql = re.sub(r'\bDOUBLE\b(?!\s+PRECISION)', 'DOUBLE PRECISION', pg_sql, flags=re.I)
+    pg_sql = re.sub(r'\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP\b', '', pg_sql, flags=re.I)
+    pg_sql = re.sub(r'\s+AFTER\s+\w+\b', '', pg_sql, flags=re.I)
+    pg_sql = re.sub(r'\bMODIFY\s+COLUMN\s+(\w+)\s+', r'ALTER COLUMN \1 TYPE ', pg_sql, flags=re.I)
+
+    # INSERT IGNORE ko PostgreSQL ON CONFLICT DO NOTHING me badalna
+    if re.search(r'\bINSERT\s+IGNORE\s+INTO\b', pg_sql, flags=re.I):
+        pg_sql = re.sub(r'\bINSERT\s+IGNORE\s+INTO\b', 'INSERT INTO', pg_sql, flags=re.I)
+        if 'ON CONFLICT' not in pg_sql.upper():
+            pg_sql = pg_sql.rstrip().rstrip(';') + ' ON CONFLICT DO NOTHING'
+
+    # MySQL DATE_FORMAT ko PostgreSQL TO_CHAR me badalna
+    pg_sql = pg_sql.replace("DATE_FORMAT(created_at, '%%d-%%b-%%Y %%h:%%i %%p')", "TO_CHAR(created_at, 'DD-Mon-YYYY HH12:MI AM')")
+    pg_sql = pg_sql.replace("DATE_FORMAT(created_at, '%d-%b-%Y %h:%i %p')", "TO_CHAR(created_at, 'DD-Mon-YYYY HH12:MI AM')")
+
+    return pg_sql
+
+
+class SmartPGCursor:
+    """PyMySQL DictCursor jaisa wrapper jo lastrowid aur SQL conversion handle karta hai"""
+    def __init__(self, raw_cursor):
+        self._cursor = raw_cursor
+        self.lastrowid = None
+
+    def execute(self, sql, params=None):
+        pg_sql = _adapt_web_sql(sql)
+        is_insert = pg_sql.lstrip().upper().startswith("INSERT")
+        auto_returning = False
+
+        if is_insert and "ON CONFLICT" not in pg_sql.upper() and "RETURNING" not in pg_sql.upper():
+            if not any(t in pg_sql.lower() for t in ["into settings", "into sequences", "into stations", "into master_bag_items"]):
+                pg_sql = pg_sql.rstrip().rstrip(';') + " RETURNING id"
+                auto_returning = True
+
+        res = self._cursor.execute(pg_sql, params)
+        if auto_returning:
+            row = self._cursor.fetchone()
+            self.lastrowid = row['id'] if row and 'id' in row else None
+        return res
+
+    def executemany(self, sql, params_seq):
+        pg_sql = _adapt_web_sql(sql)
+        return self._cursor.executemany(pg_sql, params_seq)
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        return dict(row) if row is not None else None
+
+    def fetchall(self):
+        return [dict(r) for r in self._cursor.fetchall()]
+
+    def close(self):
+        return self._cursor.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+
+class SmartPGConnection:
+    def __init__(self, raw_conn):
+        self._conn = raw_conn
+
+    def cursor(self, *args, **kwargs):
+        return SmartPGCursor(self._conn.cursor(cursor_factory=RealDictCursor))
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+
+def _create_raw_pg_conn():
+    db_url = os.environ.get('DATABASE_URL')
+    if db_url:
+        conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+    elif config.has_section('CLOUD_DB'):
+        conn = psycopg2.connect(
+            host=config['CLOUD_DB']['host'].strip().strip('"').strip("'"),
+            port=int(config['CLOUD_DB']['port'].strip().strip('"').strip("'")),
+            user=config['CLOUD_DB']['user'].strip().strip('"').strip("'"),
+            password=config['CLOUD_DB']['password'].strip().strip('"').strip("'"),
+            dbname=config['CLOUD_DB']['database'].strip().strip('"').strip("'"),
+            sslmode='require',
+            cursor_factory=RealDictCursor
+        )
+    else:
+        raise RuntimeError("CLOUD_DB configuration or DATABASE_URL is missing!")
+    conn.autocommit = True
+    return conn
+
 
 def init_db_pool():
     global db_pool
     try:
-        if config.has_section('CLOUD_DB'):
-            db_pool = PooledDB(
-                creator=pymysql,
-                maxconnections=30,  # Max 30 concurrent connections allowed
-                mincached=2,        # Hamesha 2 connections ready rahenge
-                maxcached=10,
-                blocking=True,      # Agar limit cross hui, toh wait karega (crash nahi hoga)
-                host=config['CLOUD_DB']['host'].strip().strip('"').strip("'"),
-                port=int(config['CLOUD_DB']['port'].strip().strip('"').strip("'")),
-                user=config['CLOUD_DB']['user'].strip().strip('"').strip("'"),
-                password=config['CLOUD_DB']['password'].strip().strip('"').strip("'"),
-                database=config['CLOUD_DB']['database'].strip().strip('"').strip("'"),
-                cursorclass=pymysql.cursors.DictCursor,
-                ssl={'ssl': {}},
-                ping=1  # Hamesha ping karke check karega ki connection zinda hai ya nahi
-            )
-        else:
-            db_pool = PooledDB(
-                creator=pymysql, maxconnections=20, blocking=True, ping=1,
-                host='localhost', port=3306, user='root', password='', 
-                database='agc_erp', cursorclass=pymysql.cursors.DictCursor
-            )
+        db_pool = PooledDB(
+            creator=_create_raw_pg_conn,
+            maxconnections=20,
+            mincached=2,
+            maxcached=5,
+            blocking=True
+        )
     except Exception as e:
         logging.error(f"Pool Init Error: {e}")
         raise
@@ -161,83 +268,20 @@ def init_db_pool():
 init_db_pool()
 
 def get_db():
-    """Ab naya connection banne ki jagah, ye sidha Pool se fast connection dega"""
-    return db_pool.connection()
+    """Pool se connection lekar SmartPGConnection wrapper deta hai"""
+    return SmartPGConnection(db_pool.connection())
+
 
 def auto_heal_db():
     try:
         conn = get_db()
         with conn.cursor() as c:
-            c.execute("CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(50), password_hash VARCHAR(100), full_name VARCHAR(100), role VARCHAR(50), branch_name VARCHAR(100), customer_id INT, phone VARCHAR(50), active INT DEFAULT 1)")
-            c.execute("CREATE TABLE IF NOT EXISTS customers (id INT AUTO_INCREMENT PRIMARY KEY, code VARCHAR(50), name VARCHAR(255), gstin VARCHAR(50), phone VARCHAR(50), email VARCHAR(100), state VARCHAR(100), state_code VARCHAR(10), address TEXT, credit_limit DOUBLE DEFAULT 0, is_active INT DEFAULT 1)")
-            c.execute("CREATE TABLE IF NOT EXISTS rates (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, origin_state_code VARCHAR(10), dest_state_code VARCHAR(10), min_weight DOUBLE, max_weight DOUBLE, fixed_charge DOUBLE, per_kg_rate DOUBLE, gst_rate DOUBLE, active INT DEFAULT 1)")
             c.execute("CREATE TABLE IF NOT EXISTS settings (key_name VARCHAR(100) PRIMARY KEY, value TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS sequences (name VARCHAR(50) PRIMARY KEY, value INT)")
-            c.execute("CREATE TABLE IF NOT EXISTS stations (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) UNIQUE)")
-            c.execute("CREATE TABLE IF NOT EXISTS expenses (id INT AUTO_INCREMENT PRIMARY KEY, expense_date DATE, category VARCHAR(100), amount DOUBLE, paid_to VARCHAR(255), mode VARCHAR(50), notes TEXT)")
-            c.execute("CREATE TABLE IF NOT EXISTS ledger (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, entry_date DATE, voucher_type VARCHAR(50), reference VARCHAR(100), debit DOUBLE DEFAULT 0, credit DOUBLE DEFAULT 0, narration TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS payments (id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, invoice_id INT, payment_date DATE, amount DOUBLE, mode VARCHAR(50), reference VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS invoices (id INT AUTO_INCREMENT PRIMARY KEY, invoice_no VARCHAR(100), invoice_date DATE, customer_id INT, taxable_amount DOUBLE DEFAULT 0, cgst DOUBLE DEFAULT 0, sgst DOUBLE DEFAULT 0, igst DOUBLE DEFAULT 0, total DOUBLE DEFAULT 0, status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS invoice_lines (id INT AUTO_INCREMENT PRIMARY KEY, invoice_id INT, description TEXT, shipment_id INT, taxable_amount DOUBLE DEFAULT 0, cgst DOUBLE DEFAULT 0, sgst DOUBLE DEFAULT 0, igst DOUBLE DEFAULT 0, total DOUBLE DEFAULT 0)")
-            c.execute("CREATE TABLE IF NOT EXISTS shipments (id INT AUTO_INCREMENT PRIMARY KEY, awb_no VARCHAR(100) UNIQUE, customer_id INT, booking_date DATE, origin_name VARCHAR(100), origin_phone VARCHAR(50), origin_address TEXT, origin_state_code VARCHAR(10), dest_name VARCHAR(100), dest_phone VARCHAR(50), dest_address TEXT, dest_state_code VARCHAR(10), dest_station VARCHAR(100), weight_kg DOUBLE, quantity INT, cod_amount DOUBLE, declared_value DOUBLE, service_type VARCHAR(50), taxable_amount DOUBLE, tax_rate DOUBLE, cgst DOUBLE, sgst DOUBLE, igst DOUBLE, total_amount DOUBLE, status VARCHAR(50), current_location VARCHAR(100), info TEXT, pod_photo TEXT, is_synced INT DEFAULT 0)")
-            c.execute("CREATE TABLE IF NOT EXISTS scan_events (id INT AUTO_INCREMENT PRIMARY KEY, shipment_id INT, scan_type VARCHAR(50), location VARCHAR(100), remarks TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS outward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), out_station VARCHAR(100), destination VARCHAR(100), weight VARCHAR(50), network VARCHAR(100) DEFAULT 'SELF', network_awb VARCHAR(100), info TEXT, outward_no VARCHAR(100), manifest_no VARCHAR(100), finalized INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS inward_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, awb_no VARCHAR(100), origin_station VARCHAR(100), in_station VARCHAR(100), weight VARCHAR(50), info TEXT, finalized INT DEFAULT 0, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS manifests (id INT AUTO_INCREMENT PRIMARY KEY, manifest_no VARCHAR(100), manifest_type VARCHAR(50), from_location VARCHAR(100), to_location VARCHAR(100), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS manifest_items (id INT AUTO_INCREMENT PRIMARY KEY, manifest_id INT, shipment_id INT, received INT DEFAULT 0)")
-            c.execute("CREATE TABLE IF NOT EXISTS drs (id INT AUTO_INCREMENT PRIMARY KEY, drs_no VARCHAR(100), drs_date DATE, rider_name VARCHAR(100), rider_phone VARCHAR(50), vehicle_no VARCHAR(100), status VARCHAR(50), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            
-            # Auto-patch existing cloud database
-            try: c.execute("ALTER TABLE drs ADD COLUMN rider_phone VARCHAR(50) AFTER rider_name")
-            except: pass
-
-            c.execute("CREATE TABLE IF NOT EXISTS drs_items (id INT AUTO_INCREMENT PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50), receiver_name VARCHAR(100), remarks TEXT, pod_photo TEXT, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS master_bags (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100) UNIQUE, destination VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-            c.execute("CREATE TABLE IF NOT EXISTS master_bag_items (id INT AUTO_INCREMENT PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))")
-            c.execute("""CREATE TABLE IF NOT EXISTS customer_awb_series (
-                id INT AUTO_INCREMENT PRIMARY KEY, 
-                customer_id INT, 
-                prefix VARCHAR(20), 
-                start_no BIGINT, 
-                end_no BIGINT, 
-                current_no BIGINT, 
-                is_active INT DEFAULT 1,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-            )""")
-            
-            # ✅ FIX: Missing delivery_register table added for DRS
-            c.execute("CREATE TABLE IF NOT EXISTS delivery_register (id INT AUTO_INCREMENT PRIMARY KEY, entry_date DATE, delivery_boy VARCHAR(100), delivery_area VARCHAR(100), awb_no VARCHAR(100), receiver_name VARCHAR(100), info TEXT, finalized INT DEFAULT 0, drs_no VARCHAR(100), created_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
-
-            # 🚀 SYNC FIX: Add missing 'updated_at' to cloud shipments table for Smart Sync
-            try: c.execute("ALTER TABLE shipments ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP")
-            except: pass
-
-            # 🚀 OUTWARD SYNC FIX: Ensure Cloud has the same outward columns as Desktop to prevent Force Upload crash
-            try: c.execute("ALTER TABLE outward_register ADD COLUMN pcs INT DEFAULT 1")
-            except: pass
-            try: c.execute("ALTER TABLE outward_register ADD COLUMN bag_no VARCHAR(100)")
-            except: pass
-            
-            try: c.execute("ALTER TABLE settings CHANGE `key` key_name VARCHAR(100)")
-            except: pass
-
-            # 🚀 SYNC FIX: Add missing volumetric and network columns to Web DB
-            try: c.execute("ALTER TABLE shipments ADD COLUMN length_cm DOUBLE DEFAULT 0")
-            except: pass
-            try: c.execute("ALTER TABLE shipments ADD COLUMN width_cm DOUBLE DEFAULT 0")
-            except: pass
-            try: c.execute("ALTER TABLE shipments ADD COLUMN height_cm DOUBLE DEFAULT 0")
-            except: pass
-            try: c.execute("ALTER TABLE shipments ADD COLUMN vol_weight DOUBLE DEFAULT 0")
-            except: pass
-            try: c.execute("ALTER TABLE shipments ADD COLUMN applied_weight DOUBLE DEFAULT 0")
-            except: pass
-            try: c.execute("ALTER TABLE shipments ADD COLUMN network VARCHAR(100) DEFAULT 'SELF'")
-            except: pass
-            try: c.execute("ALTER TABLE shipments ADD COLUMN network_awb VARCHAR(100)")
-            except: pass
-            
-            # ✅ FIX: Trailing spaces removed from keys
+            c.execute("CREATE TABLE IF NOT EXISTS sequences (name VARCHAR(50) PRIMARY KEY, value INT DEFAULT 0)")
+            try:
+                c.execute("ALTER TABLE settings RENAME COLUMN key TO key_name")
+            except Exception:
+                pass
             defs = {
                 "company_name": "PANKAJ AGENCY COURIER",
                 "company_address": "Nohar, Rajasthan",
@@ -249,13 +293,12 @@ def auto_heal_db():
                 "terms_note": "Liability limited to declared value.",
                 "fuel_surcharge": "0"
             }
-            for k, v in defs.items(): 
-                c.execute("INSERT IGNORE INTO settings(key_name, value) VALUES(%s, %s)", (k, v))
-        
-        conn.commit()
+            for k, v in defs.items():
+                c.execute("INSERT INTO settings(key_name, value) VALUES(%s, %s) ON CONFLICT (key_name) DO NOTHING", (k, v))
         conn.close()
-    except Exception as e: 
+    except Exception as e:
         logging.error(f"Heal Error: {e}")
+
 
 def get_setting(key, default=""):
     try:
@@ -263,25 +306,24 @@ def get_setting(key, default=""):
         c.execute("SELECT value FROM settings WHERE key_name=%s", (key,))
         r = c.fetchone(); conn.close()
         return r['value'] if r else default
-    except: return default
+    except Exception:
+        return default
+
 
 def get_seq(name, prefix, length):
     conn = get_db(); c = conn.cursor()
     try:
-        # Atomic increment prevents duplicate document numbers under concurrent requests.
         c.execute(
-            "INSERT INTO sequences(name,value) VALUES(%s, LAST_INSERT_ID(1)) "
-            "ON DUPLICATE KEY UPDATE value=LAST_INSERT_ID(value+1)",
+            "INSERT INTO sequences(name, value) VALUES(%s, 1) "
+            "ON CONFLICT (name) DO UPDATE SET value = sequences.value + 1 RETURNING value",
             (name,)
         )
-        c.execute("SELECT LAST_INSERT_ID() AS value")
         val = c.fetchone()["value"]
         conn.commit()
     finally:
         c.close()
         conn.close()
     return f"{prefix}{val:0{length}d}"
-
 def get_customer_awb(customer_id):
     conn = get_db()
     awb_number = None
