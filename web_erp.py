@@ -4241,8 +4241,16 @@ def ocr_pod():
         
     return redirect('/drs')
 
+# ✅ FIX: Favicon 404 Error Hatane Ke Liye
+@app.route('/favicon.ico')
+def favicon():
+    if os.path.exists('logo.png'):
+        return send_file('logo.png', mimetype='image/png')
+    return '', 204
+
+
 # ==========================================
-# 🛵 4.1 D.R.S. (DELIVERY RUN SHEET) — FULL CRUD
+# 🛵 4.1 D.R.S. (DELIVERY RUN SHEET) — POSTGRESQL SAFE & FIXED
 # ==========================================
 @app.route('/drs', methods=['GET', 'POST'])
 @login_required
@@ -4253,6 +4261,26 @@ def drs():
     date_today = datetime.datetime.now().strftime('%Y-%m-%d')
     st = session.get('branch', 'HQ')
     
+    # 🚀 AUTO-HEAL: Ensure DRS tables & columns exist in PostgreSQL
+    try:
+        with conn.cursor() as c:
+            c.execute("""CREATE TABLE IF NOT EXISTS delivery_register (
+                id SERIAL PRIMARY KEY, entry_date VARCHAR(20), delivery_boy VARCHAR(100),
+                delivery_area VARCHAR(100), awb_no VARCHAR(100), receiver_name VARCHAR(100),
+                info TEXT, drs_no VARCHAR(100), finalized INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS drs (
+                id SERIAL PRIMARY KEY, drs_no VARCHAR(100), drs_date VARCHAR(20),
+                rider_name VARCHAR(100), rider_phone VARCHAR(50), vehicle_no VARCHAR(100),
+                status VARCHAR(50), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS drs_items (
+                id SERIAL PRIMARY KEY, drs_id INT, shipment_id INT, status VARCHAR(50),
+                receiver_name VARCHAR(100), remarks TEXT, pod_photo TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+        conn.commit()
+    except Exception:
+        pass
+
     if request.method == 'POST':
         action = request.form.get('action', '')
         with conn.cursor() as c:
@@ -4367,18 +4395,18 @@ def drs():
     with conn.cursor() as c:
         c.execute("SELECT * FROM delivery_register WHERE finalized=0 ORDER BY id DESC")
         pending = c.fetchall()
-        c.execute("SELECT drs_no, MIN(entry_date) as d, MIN(delivery_boy) as b, MIN(delivery_area) as a, COUNT(*) as cnt FROM delivery_register WHERE finalized=1 GROUP BY drs_no ORDER BY d DESC, drs_no DESC LIMIT 200")
+        c.execute("SELECT drs_no, MIN(entry_date) as d, MIN(delivery_boy) as b, MIN(delivery_area) as a, COUNT(*) as cnt FROM delivery_register WHERE finalized=1 AND drs_no IS NOT NULL GROUP BY drs_no ORDER BY d DESC, drs_no DESC LIMIT 200")
         sessions_list = c.fetchall()
         c.execute("SELECT full_name FROM users WHERE role='DELIVERY' AND active=1")
         boys = c.fetchall()
         c.execute("SELECT d.*, (SELECT COUNT(*) FROM drs_items WHERE drs_id=d.id) as total_items, (SELECT COUNT(*) FROM drs_items WHERE drs_id=d.id AND status='DELIVERED') as delivered FROM drs d ORDER BY d.id DESC LIMIT 50")
         active_drs = c.fetchall()
         
-        # 🔗 Fetch each DRS's parcels so Tab 3 can display & deliver them
+        # 🛠️ CRITICAL FIX: Used 'parcel_list' instead of 'items' so Jinja2 dict.items() never collides!
         for d_row in active_drs:
             c.execute("""SELECT di.id as item_id, di.status, di.receiver_name, di.remarks, s.awb_no, s.dest_name, s.dest_phone
                          FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s ORDER BY di.id""", (d_row['id'],))
-            d_row['items'] = c.fetchall()
+            d_row['parcel_list'] = c.fetchall()
     conn.close()
     
     html = """
@@ -4481,7 +4509,6 @@ def drs():
                         <span class="text-sm font-bold bg-white px-3 py-1 rounded-lg border">{{ d.delivered }} / {{ d.total_items }} Delivered</span>
                     </div>
                     
-                    <!-- 🚀 GPS MAP & AI POD BUTTONS -->
                     <div class="mt-3 flex flex-wrap gap-2 border-t border-slate-200 pt-3 mb-3">
                         <a href="/route_map/{{ d.drs_no }}" target="_blank" class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-200 transition shadow-sm border border-indigo-200">
                             <i class="fas fa-map-marked-alt text-indigo-500"></i> Optimize Route Map
@@ -4497,15 +4524,14 @@ def drs():
                         </form>
                     </div>
 
-                    <!-- 📦 DRS PARCELS LIST & MANUAL DELIVER BUTTON -->
-                    {% if d.items %}
+                    {% if d.parcel_list %}
                     <div class="bg-white rounded-lg border border-slate-200 overflow-hidden mt-2">
                         <table class="w-full text-xs text-left">
                             <thead class="bg-slate-100 text-slate-600 uppercase">
                                 <tr><th class="p-2">AWB No</th><th class="p-2">Consignee</th><th class="p-2">Receiver</th><th class="p-2">Status</th><th class="p-2">Action</th></tr>
                             </thead>
                             <tbody>
-                            {% for itm in d.items %}
+                            {% for itm in d.parcel_list %}
                                 <tr class="border-t">
                                     <td class="p-2 font-bold text-red-600">{{ itm.awb_no }}</td>
                                     <td class="p-2">{{ itm.dest_name or '-' }} ({{ itm.dest_phone or '-' }})</td>
@@ -4568,15 +4594,29 @@ def drs():
     """
     return render_page("D.R.S. Management", render_template_string(html, pending=pending, sessions_list=sessions_list, boys=boys, active_drs=active_drs))
 
+
 # ==========================================
-# 🎒 4.2 MASTER BAG / MANIFEST GENERATOR
+# 🎒 4.2 MASTER BAG / MANIFEST GENERATOR — POSTGRESQL SAFE & FIXED
 # ==========================================
 @app.route('/master_bag', methods=['GET', 'POST'])
 @login_required
 def master_bag():
-    if session.get('role') == 'CUSTOMER': return redirect('/')
+    if session.get('role') == 'CUSTOMER':
+        return redirect('/')
     conn = get_db()
     
+    # 🚀 AUTO-HEAL: Ensure Master Bag tables exist in PostgreSQL
+    try:
+        with conn.cursor() as c:
+            c.execute("""CREATE TABLE IF NOT EXISTS master_bags (
+                id SERIAL PRIMARY KEY, bag_no VARCHAR(100), destination VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+            c.execute("""CREATE TABLE IF NOT EXISTS master_bag_items (
+                id SERIAL PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))""")
+        conn.commit()
+    except Exception:
+        pass
+
     if request.method == 'POST':
         action = request.form.get('action', '')
         with conn.cursor() as c:
@@ -4603,10 +4643,15 @@ def master_bag():
                 c.execute("DELETE FROM master_bags WHERE bag_no=%s", (bag,))
                 flash(f"Bag {bag} deleted!", "success")
         conn.commit()
+        conn.close()
         return redirect('/master_bag')
     
     with conn.cursor() as c:
-        c.execute("SELECT mb.*, COUNT(mbi.awb_no) as item_count FROM master_bags mb LEFT JOIN master_bag_items mbi ON mb.bag_no=mbi.bag_no GROUP BY mb.id, mb.bag_no ORDER BY mb.id DESC LIMIT 100")
+        # 🛠️ CRITICAL POSTGRESQL FIX: Included all selected mb columns in GROUP BY
+        c.execute("""SELECT mb.id, mb.bag_no, mb.destination, mb.created_at, COUNT(mbi.awb_no) as item_count
+                     FROM master_bags mb LEFT JOIN master_bag_items mbi ON mb.bag_no=mbi.bag_no
+                     GROUP BY mb.id, mb.bag_no, mb.destination, mb.created_at
+                     ORDER BY mb.id DESC LIMIT 100""")
         bags = c.fetchall()
         c.execute("SELECT name FROM stations ORDER BY name")
         stations = c.fetchall()
