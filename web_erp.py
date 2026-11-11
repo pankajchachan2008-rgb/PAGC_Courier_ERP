@@ -28,32 +28,28 @@ from email.mime.multipart import MIMEMultipart
 def send_web_email_alert(subject, html_message):
     def email_task():
         try:
-            # 1. Database se SMTP Settings nikalna
             conn = get_db()
             with conn.cursor() as c:
                 c.execute("SELECT * FROM settings")
-                # Handle old vs new settings table structure
                 settings = {}
                 for r in c.fetchall():
-                    k = r.get('key') if 'key' in r else r.get('name')
+                    k = r.get('key_name') or r.get('key') or r.get('name')
                     if k: settings[k] = r.get('value')
             conn.close()
 
-            sender_email = settings.get("smtp_email", "").strip()
-            sender_pwd = settings.get("smtp_password", "").strip()
-            admin_email = settings.get("company_email", sender_email).strip()
+            sender_email = (settings.get("smtp_email") or "").strip()
+            sender_pwd = (settings.get("smtp_password") or "").strip()
+            admin_email = (settings.get("company_email") or sender_email).strip()
 
             if not sender_email or not sender_pwd or not admin_email:
-                return # Agar settings khali hain toh kuch mat karo
+                return
 
-            # 2. Email Tayar Karna
             msg = MIMEMultipart()
             msg['From'] = f"AGC Web Portal <{sender_email}>"
             msg['To'] = admin_email
             msg['Subject'] = subject
             msg.attach(MIMEText(html_message, 'html'))
 
-            # 3. Email Bhejna (Gmail Server ke zariye)
             server = smtplib.SMTP('smtp.gmail.com', 587)
             server.starttls()
             server.login(sender_email, sender_pwd)
@@ -62,7 +58,6 @@ def send_web_email_alert(subject, html_message):
         except Exception as e:
             print(f"Web Email Alert Failed: {str(e)}")
 
-    # App ko fast rakhne ke liye email background thread me bhejenge
     threading.Thread(target=email_task, daemon=True).start()
 
 # ==========================================
@@ -110,11 +105,10 @@ def validate_csrf():
     if request.method not in ('POST', 'PUT', 'PATCH', 'DELETE'):
         return
         
-    # 🚀 API FIX: Desktop app ki naye API routes ko CSRF check se azaad karein
-    if request.endpoint in ('login', 'track', 'sync_download', 'sync_smart', 'force_upload', 'api_calc_rate', 'ocr_pod'):
+    # 🚀 API FIX: Added 'sync_delete_awb' and 'api_v1_shipments' so API calls never fail with 400 CSRF Error
+    if request.endpoint in ('login', 'track', 'sync_download', 'sync_smart', 'sync_delete_awb', 'force_upload', 'api_calc_rate', 'ocr_pod', 'api_v1_shipments'):
         return
         
-    # Standard web pages par protection active rahegi
     supplied = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
     expected = session.get('_csrf_token')
     if not supplied or not expected or not hmac.compare_digest(supplied, expected):
@@ -2704,7 +2698,7 @@ def api_get_awb_info(awb):
     return jsonify({"success": False})
 
 # ==========================================
-# 📤 3.2 COUNTER BOOKING (ADD + AUTO-RATE)
+# 📤 3.2 COUNTER BOOKING (ADD + AUTO-RATE + FULL SYNC)
 # ==========================================
 @app.route('/booking', methods=['GET', 'POST'])
 @login_required
@@ -2722,22 +2716,35 @@ def booking():
         applied_weight = max(actual_wt, vol_weight)
         
         network = d.get('network', 'SELF')
-        network_awb = d.get('network_awb', '')
+        network_awb = d.get('network_awb', '').strip().upper()
         
-        fr = safe_float(d.get('fr')); tax = safe_float(d.get('tax', 18))
+        fr = safe_float(d.get('fr'))
+        tax = safe_float(d.get('tax', 18))
         fuel = safe_float(get_setting("fuel_surcharge", "0"))
-        taxable = fr * (1 + (fuel/100)); gst = taxable * (tax / 100); tot = taxable + gst
+        taxable = fr * (1 + (fuel / 100))
+        gst = taxable * (tax / 100)
+        tot = taxable + gst
         
         cgst = sgst = igst = 0
-        if str(d.get('ostate','')).strip().upper() == str(d.get('dstate','')).strip().upper():
+        if str(d.get('ostate', '')).strip().upper() == str(d.get('dstate', '')).strip().upper():
             cgst = sgst = gst / 2
         else:
             igst = gst
         
         with conn.cursor() as c:
             try:
-                c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d.get('dstat','').upper(),))
+                # Ensure payment_mode column exists
+                try:
+                    c.execute("ALTER TABLE shipments ADD COLUMN payment_mode VARCHAR(30) DEFAULT 'CASH'")
+                except Exception:
+                    pass
+
+                dstat_val = d.get('dstat', '').strip().upper()
+                if dstat_val:
+                    c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dstat_val,))
+                    
                 cid = session.get('customer_id') if session.get('role') == 'CUSTOMER' else (safe_int(d.get('cust_id')) if d.get('cust_id') else None)
+                pmode = d.get('payment_mode') or ('CREDIT' if cid else 'CASH')
                 
                 if session.get('role') == 'CUSTOMER':
                     awb = get_customer_awb(cid)
@@ -2745,58 +2752,117 @@ def booking():
                         flash("❌ Booking Failed: Your AWB Series is exhausted!", "error")
                         return redirect('/booking')
                 else:
-                    awb = d.get('awb','').upper()
+                    awb = d.get('awb', '').strip().upper()
+                    if not awb:
+                        flash("❌ AWB Number is required!", "error")
+                        return redirect('/booking')
+
+                    # 🔍 DUPLICATE & STATIONERY CHECK
+                    c.execute("SELECT id, status FROM shipments WHERE awb_no=%s", (awb,))
+                    existing_sh = c.fetchone()
+                    if existing_sh:
+                        if str(existing_sh.get('status') or '').upper() == 'STATIONERY':
+                            # Purani stationery placeholder row ko hata kar fresh booking banayein
+                            c.execute("DELETE FROM shipments WHERE id=%s", (existing_sh['id'],))
+                        else:
+                            flash(f"❌ Duplicate AWB! {awb} already exists (Status: {existing_sh.get('status')}).", "error")
+                            return redirect('/booking')
+
+                # 🔄 Agar yeh AWB pehle kabhi delete hua tha aur ab dobara book ho raha hai, toh deleted_awbs se hata dein
+                try:
+                    c.execute("DELETE FROM deleted_awbs WHERE awb_no=%s", (awb,))
+                except Exception:
+                    pass
                     
-                # 🚀 INSERT WITH VOLUMETRIC AND NETWORK COLUMNS
-                c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, 
-                    dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, length_cm, width_cm, height_cm, vol_weight, applied_weight, quantity, cod_amount, declared_value, 
-                    service_type, taxable_amount, tax_rate, cgst, sgst, igst, total_amount, info, network, network_awb, status, current_location, is_synced)
-                    VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s, 0)""",
-                    (awb, cid, d.get('date',''), d.get('oname',''), d.get('ophone',''), d.get('oaddr',''), d.get('ostate',''),
-                     d.get('dname',''), d.get('dphone',''), d.get('daddr',''), d.get('dstate',''), d.get('dstat','').upper(),
-                     actual_wt, l_cm, w_cm, h_cm, vol_weight, applied_weight, safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')), d.get('srv','SURFACE'),
-                     taxable, tax, cgst, sgst, igst, tot, d.get('info',''), network, network_awb, session.get('branch','HQ')))
+                # 🚀 INSERT WITH VOLUMETRIC, NETWORK & PAYMENT_MODE COLUMNS
+                c.execute("""INSERT INTO shipments(
+                    awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code, 
+                    dest_name, dest_phone, dest_address, dest_state_code, dest_station, 
+                    weight_kg, length_cm, width_cm, height_cm, vol_weight, applied_weight, 
+                    quantity, cod_amount, declared_value, service_type, 
+                    taxable_amount, tax_rate, cgst, sgst, igst, total_amount, 
+                    info, network, network_awb, payment_mode, status, current_location, is_synced
+                ) VALUES (
+                    %s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,'BOOKED',%s,0
+                )""", (
+                    awb, cid, d.get('date', ''), d.get('oname', ''), d.get('ophone', ''), d.get('oaddr', ''), d.get('ostate', '').strip().upper(),
+                    d.get('dname', ''), d.get('dphone', ''), d.get('daddr', ''), d.get('dstate', '').strip().upper(), dstat_val,
+                    actual_wt, l_cm, w_cm, h_cm, vol_weight, applied_weight,
+                    safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')), d.get('srv', 'SURFACE'),
+                    taxable, tax, cgst, sgst, igst, tot,
+                    d.get('info', ''), network, network_awb, pmode, session.get('branch', 'HQ')
+                ))
                      
                 sid = c.lastrowid
-                c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,'Booked at counter')", (sid, session.get('branch','HQ')))
-                if cid:
-                    c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)", (cid, d.get('date',''), awb, tot, f"Booking {awb}"))
-# 🚀 SMART HELPER: Auto-Save Receiver to Address Book
+                c.execute(
+                    "INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,%s)",
+                    (sid, session.get('branch', 'HQ'), f"Booked ({pmode}) via {network}")
+                )
+                
+                # 💰 AUTO-SYNC TO CASH/BANK BOOK OR PARTY LEDGER
+                if pmode in ('CASH', 'UPI') and tot > 0:
+                    c.execute(
+                        "INSERT INTO payments(customer_id, payment_date, amount, mode, reference) VALUES(%s,%s,%s,%s,%s)",
+                        (cid, d.get('date', ''), tot, pmode, f"Booking AWB: {awb} ({d.get('oname', 'Walk-in')})")
+                    )
+                elif cid and pmode == 'CREDIT' and tot > 0:
+                    c.execute(
+                        "INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)",
+                        (cid, d.get('date', ''), awb, tot, f"Credit Booking {awb}")
+                    )
+
+                # 🚀 SMART HELPER: Auto-Save Receiver to Address Book
                 if d.get('save_address') == '1' and cid and d.get('dname'):
-                    # Check if this address already exists to avoid duplicates
-                    c.execute("SELECT id FROM address_book WHERE customer_id=%s AND (phone=%s OR name=%s) LIMIT 1", 
-                              (cid, d.get('dphone', ''), d.get('dname', '')))
+                    c.execute(
+                        "SELECT id FROM address_book WHERE customer_id=%s AND (phone=%s OR name=%s) LIMIT 1", 
+                        (cid, d.get('dphone', ''), d.get('dname', ''))
+                    )
                     if not c.fetchone():
-                        c.execute("""INSERT INTO address_book (customer_id, name, phone, address, station, state_code) 
-                                     VALUES (%s,%s,%s,%s,%s,%s)""",
-                                  (cid, d.get('dname', ''), d.get('dphone', ''), d.get('daddr', ''), 
-                                   d.get('dstat', '').upper(), d.get('dstate', '')))
+                        c.execute(
+                            """INSERT INTO address_book (customer_id, name, phone, address, station, state_code) 
+                               VALUES (%s,%s,%s,%s,%s,%s)""",
+                            (cid, d.get('dname', ''), d.get('dphone', ''), d.get('daddr', ''), dstat_val, d.get('dstate', '').strip().upper())
+                        )
                 conn.commit()
-                flash(f"✅ AWB {awb} Booked! Total: ₹{tot:,.2f}", "success")
+                flash(f"✅ AWB {awb} Booked ({pmode})! Total: ₹{tot:,.2f}", "success")
             except Exception as e:
                 flash(f"❌ Booking Error: {e}", "error")
+        conn.close()
         return redirect('/booking')
     
     with conn.cursor() as c:
-        c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1"); custs = c.fetchall()
-        c.execute("SELECT name FROM stations ORDER BY name"); stations = c.fetchall()
-        my_cust = None; addr_book = []
+        c.execute("SELECT id, name, phone, state_code FROM customers WHERE is_active=1 ORDER BY name")
+        custs = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name")
+        stations = c.fetchall()
+        my_cust = None
+        addr_book = []
         if session.get('role') == 'CUSTOMER':
             c.execute("SELECT id, name, phone, state_code, address FROM customers WHERE id=%s", (session.get('customer_id'),))
             my_cust = c.fetchone()
             try:
                 c.execute("SELECT * FROM address_book WHERE customer_id=%s", (session.get('customer_id'),))
                 addr_book = c.fetchall()
-            except: pass
+            except Exception:
+                pass
         q_recent = """SELECT s.id, s.awb_no, COALESCE(c.name,'CASH') as customer_name, COALESCE(s.dest_station,'') as dest_station,
-            s.weight_kg, s.quantity, s.total_amount, s.status, s.booking_date FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id"""
+            s.weight_kg, s.quantity, s.total_amount, COALESCE(s.payment_mode,'CASH') as payment_mode, s.status, s.booking_date 
+            FROM shipments s LEFT JOIN customers c ON c.id=s.customer_id"""
         params_recent = []
         if session.get('role') == 'CUSTOMER':
-            q_recent += " WHERE s.customer_id = %s"; params_recent.append(session.get('customer_id'))
+            q_recent += " WHERE s.customer_id = %s"
+            params_recent.append(session.get('customer_id'))
         elif session.get('role') != 'ADMIN':
-            q_recent += " WHERE s.origin_name = %s"; params_recent.append(session.get('branch', 'HQ'))
+            q_recent += " WHERE s.origin_name = %s"
+            params_recent.append(session.get('branch', 'HQ'))
         q_recent += " ORDER BY s.id DESC LIMIT 50"
-        c.execute(q_recent, tuple(params_recent)); recent = c.fetchall()
+        c.execute(q_recent, tuple(params_recent))
+        recent = c.fetchall()
     conn.close()
     
     html = """
@@ -2805,25 +2871,36 @@ def booking():
         <form method="POST" id="bkForm" class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div><label class="label-modern">Booking Date *</label><input type="date" name="date" id="bdt" required class="input-modern"></div>
-                <div><label class="label-modern">AWB / C.Note No *</label><input name="awb" required class="input-modern font-bold text-red-600 uppercase"></div>
+                <div>
+                    <label class="label-modern">AWB / C.Note No {% if session.get('role') != 'CUSTOMER' %}*{% endif %}</label>
+                    {% if session.get('role') == 'CUSTOMER' %}
+                    <input name="awb" placeholder="Auto-generated from series" readonly class="input-modern bg-slate-100 font-bold text-blue-600 uppercase">
+                    {% else %}
+                    <input name="awb" required class="input-modern font-bold text-red-600 uppercase" placeholder="Scan or type AWB...">
+                    {% endif %}
+                </div>
                 <div><label class="label-modern">Customer A/c</label>
                     {% if session.get('role') == 'CUSTOMER' %}
                     <input type="hidden" name="cust_id" id="cid" value="{{ my_cust.id }}" data-state="{{ my_cust.state_code }}">
                     <input value="{{ my_cust.name }}" readonly class="input-modern bg-slate-100 font-bold">
                     {% else %}
-                    <select name="cust_id" id="cid" onchange="fetchRate()" class="input-modern"><option value="">-- Cash Booking --</option>{% for c in custs %}<option value="{{ c.id }}" data-state="{{ c.state_code }}">{{ c.name }}</option>{% endfor %}</select>
+                    <select name="cust_id" id="cid" onchange="onCustomerChange()" class="input-modern">
+                        <option value="">-- Cash Booking --</option>
+                        {% for c in custs %}<option value="{{ c.id }}" data-state="{{ c.state_code }}">{{ c.name }}</option>{% endfor %}
+                    </select>
                     {% endif %}
                 </div>
-                <div><label class="label-modern">Service</label><select name="srv" class="input-modern"><option>SURFACE</option><option>AIR</option></select></div>
+                <div><label class="label-modern">Service</label><select name="srv" class="input-modern"><option>SURFACE</option><option>AIR</option><option>EXPRESS</option></select></div>
             </div>
+            
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="border border-amber-200 rounded-lg p-4 bg-amber-50">
                     <h4 class="font-bold text-amber-700 mb-3 text-sm">📤 CONSIGNOR (Sender)</h4>
                     <div class="space-y-2">
-                        <input name="oname" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.name }}{% else %}{{ session.get('branch', 'HQ') }}{% endif %}" class="input-modern" placeholder="Name" required>
-                        <input name="ophone" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.phone }}{% endif %}" class="input-modern" placeholder="Phone">
-                        <input name="ostate" id="ost" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.state_code }}{% else %}RJ{% endif %}" onchange="fetchRate()" class="input-modern" placeholder="State Code">
-                        <input name="oaddr" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.address }}{% endif %}" class="input-modern" placeholder="Address">
+                        <input name="oname" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.name }}{% else %}{{ session.get('branch', 'HQ') }}{% endif %}" class="input-modern" placeholder="Sender Name" required>
+                        <input name="ophone" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.phone }}{% endif %}" class="input-modern" placeholder="Sender Phone">
+                        <input name="ostate" id="ost" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.state_code }}{% else %}RJ{% endif %}" onchange="fetchRate()" class="input-modern uppercase" placeholder="Origin State Code (e.g. RJ)">
+                        <input name="oaddr" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.address }}{% endif %}" class="input-modern" placeholder="Sender Address">
                     </div>
                 </div>
                 <div class="border border-blue-200 rounded-lg p-4 bg-blue-50">
@@ -2839,13 +2916,13 @@ def booking():
                         {% endif %}
                     </div>
                     <div class="space-y-2">
-                        <input name="dname" id="dname" class="input-modern" placeholder="Name" required>
-                        <input name="dphone" id="dphone" class="input-modern" placeholder="Phone" required>
-                        <input name="dstat" id="dstat" list="stations" class="input-modern uppercase font-bold" placeholder="Destination Station" required><datalist id="stations">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
-                        <input name="dstate" id="dst" onchange="fetchRate()" class="input-modern" placeholder="State Code">
-                        <input name="daddr" id="daddr" class="input-modern" placeholder="Address">
+                        <input name="dname" id="dname" class="input-modern" placeholder="Receiver Name" required>
+                        <input name="dphone" id="dphone" class="input-modern" placeholder="Receiver Phone" required>
+                        <input name="dstat" id="dstat" list="stations" class="input-modern uppercase font-bold" placeholder="Destination Station" required>
+                        <datalist id="stations">{% for s in stations %}<option value="{{ s.name }}">{% endfor %}</datalist>
+                        <input name="dstate" id="dst" onchange="fetchRate()" class="input-modern uppercase" placeholder="Dest State Code (e.g. DL, MH)">
+                        <input name="daddr" id="daddr" class="input-modern" placeholder="Full Delivery Address & Pincode">
                         
-                        <!-- 🚀 NAYA: Smart Auto-Save Checkbox -->
                         {% if session.get('role') == 'CUSTOMER' %}
                         <div class="flex items-center gap-2 mt-3 pt-2 border-t border-blue-200/50">
                             <input type="checkbox" name="save_address" id="save_address" value="1" checked class="w-4 h-4 text-blue-600 rounded border-slate-300 cursor-pointer">
@@ -2857,47 +2934,68 @@ def booking():
             </div>
             
             <div class="border border-green-200 rounded-lg p-4 bg-green-50">
-                <h4 class="font-bold text-green-700 mb-3 text-sm">💰 CHARGE & VOLUMETRIC DETAILS</h4>
+                <h4 class="font-bold text-green-700 mb-3 text-sm">💰 CHARGE, NETWORK & VOLUMETRIC DETAILS</h4>
                 
-                <!-- 🚀 NEW: VOLUMETRIC & NETWORK INPUTS -->
+                <!-- VOLUMETRIC INPUTS -->
                 <div class="grid grid-cols-2 md:grid-cols-5 gap-3 items-end mb-3">
-                    <div><label class="label-modern">L (cm)</label><input type="number" id="l_cm" name="l_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
-                    <div><label class="label-modern">W (cm)</label><input type="number" id="w_cm" name="w_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
-                    <div><label class="label-modern">H (cm)</label><input type="number" id="h_cm" name="h_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
-                    <div><label class="label-modern">Volumetric (KG)</label><input type="text" id="vol_wt" readonly class="input-modern bg-slate-100 text-blue-600 font-bold"></div>
-                    <div><label class="label-modern">Applied Wt (KG)</label><input type="text" id="app_wt" readonly class="input-modern bg-slate-100 text-red-600 font-bold"></div>
+                    <div><label class="label-modern">L (cm)</label><input type="number" step="0.01" id="l_cm" name="l_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
+                    <div><label class="label-modern">W (cm)</label><input type="number" step="0.01" id="w_cm" name="w_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
+                    <div><label class="label-modern">H (cm)</label><input type="number" step="0.01" id="h_cm" name="h_cm" value="0" oninput="manualCalc()" class="input-modern"></div>
+                    <div><label class="label-modern">Volumetric (KG)</label><input type="text" id="vol_wt" readonly class="input-modern bg-slate-100 text-blue-600 font-bold" value="0.00"></div>
+                    <div><label class="label-modern">Applied Wt (KG)</label><input type="text" id="app_wt" readonly class="input-modern bg-slate-100 text-red-600 font-bold" value="1.00"></div>
                 </div>
                 
-<div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end mb-3 border-b border-green-200 pb-3">
+                <!-- NETWORK, DECLARED VALUE, PAY MODE & REMARKS -->
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end mb-3 border-b border-green-200 pb-3">
                     <div class="col-span-2">
                         <label class="label-modern">Forwarding Network</label>
-                        <select name="network" class="input-modern">
+                        <select name="network" class="input-modern font-bold">
                             <option value="SELF">SELF (AGC)</option>
                             <option value="TRACKON">TRACKON</option>
                             <option value="DELHIVERY">DELHIVERY</option>
+                            <option value="SHREE MARUTI">SHREE MARUTI</option>
+                            <option value="TIRUPATI">TIRUPATI</option>
                             <option value="DTDC">DTDC</option>
-                            <option value="INDIA POST">INDIA POST</option>
+                            <option value="BLUEDART">BLUEDART</option>
                             <option value="PROFESSIONAL COURIER">PROFESSIONAL COURIER</option>
-                            <option value="TIRUPATI COURIER">TIRUPATI COURIER</option>
+                            <option value="INDIA POST">INDIA POST</option>
                         </select>
                     </div>
-                    <div class="col-span-2">
+                    <div>
                         <label class="label-modern">Network AWB</label>
-                        <input type="text" name="network_awb" class="input-modern" placeholder="If known...">
+                        <input type="text" name="network_awb" class="input-modern uppercase" placeholder="Fwd AWB...">
+                    </div>
+                    <div>
+                        <label class="label-modern">Declared Val (₹)</label>
+                        <input type="number" step="0.01" name="dec" value="0" class="input-modern">
+                    </div>
+                    <div>
+                        <label class="label-modern">Pay Mode</label>
+                        <select name="payment_mode" id="pmode" class="input-modern font-bold text-green-700">
+                            <option value="CASH">CASH</option>
+                            <option value="UPI">UPI</option>
+                            <option value="CREDIT" {% if session.get('role') == 'CUSTOMER' %}selected{% endif %}>CREDIT</option>
+                            <option value="TO-PAY">TO-PAY</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="label-modern">Remarks / Info</label>
+                        <input type="text" name="info" class="input-modern" placeholder="Optional notes...">
                     </div>
                 </div>
                 
+                <!-- WEIGHT & FREIGHT TOTALS -->
                 <div class="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
                     <div>
-                        <label class="label-modern">Weight (KG)</label>
+                        <label class="label-modern">Actual Wt (KG)</label>
                         <input type="number" step="0.01" name="wt" id="wt" value="1.0" required oninput="manualCalc(); fetchRate();" class="input-modern font-bold">
                     </div>
                     <div>
                         <label class="label-modern">Pieces</label>
-                        <input type="number" name="pcs" value="1" required class="input-modern">
+                        <input type="number" name="pcs" value="1" min="1" required class="input-modern">
                     </div>
                     <div>
-                        <label class="label-modern">COD Amt</label>
+                        <label class="label-modern">COD Amt (₹)</label>
                         <input type="number" step="0.01" name="cod" value="0" class="input-modern">
                     </div>
                     <div>
@@ -2906,7 +3004,7 @@ def booking():
                     </div>
                     <div>
                         <label class="label-modern">Tax %</label>
-                        <input type="number" name="tax" id="tax" value="18" oninput="manualCalc()" required class="input-modern text-right">
+                        <input type="number" step="0.01" name="tax" id="tax" value="18" oninput="manualCalc()" required class="input-modern text-right">
                     </div>
                     <div>
                         <label class="label-modern">Grand Total (₹)</label>
@@ -2931,7 +3029,7 @@ def booking():
     <div class="card mt-4">
         <h3 class="text-lg font-bold text-slate-800 mb-4">📋 Recent Bookings</h3>
         <table class="datatable">
-            <thead><tr><th>AWB</th><th>Party</th><th>Station</th><th>Weight</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
+            <thead><tr><th>AWB</th><th>Party</th><th>Station</th><th>Weight</th><th>Mode</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
             <tbody>
             {% for r in recent %}
             <tr>
@@ -2939,6 +3037,7 @@ def booking():
                 <td>{{ r.customer_name }}</td>
                 <td>{{ r.dest_station }}</td>
                 <td>{{ r.weight_kg }} KG</td>
+                <td><span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-xs font-bold">{{ r.payment_mode }}</span></td>
                 <td class="font-bold">₹{{ r.total_amount }}</td>
                 <td><span class="px-2 py-1 rounded-full text-xs font-bold {% if r.status=='BOOKED' %}bg-blue-100 text-blue-700{% else %}bg-slate-100 text-slate-700{% endif %}">{{ r.status }}</span></td>
                 <td style="white-space:nowrap;">
@@ -2957,6 +3056,15 @@ def booking():
     <script>
     document.getElementById('bdt').valueAsDate = new Date();
     
+    function onCustomerChange() {
+        let cidEl = document.getElementById('cid');
+        let pmodeEl = document.getElementById('pmode');
+        if (cidEl && pmodeEl) {
+            pmodeEl.value = cidEl.value ? 'CREDIT' : 'CASH';
+        }
+        fetchRate();
+    }
+
     function fillAddress() {
         let val = document.getElementById('addr_selector').value;
         if(!val) return;
@@ -2970,10 +3078,13 @@ def booking():
     }
     
     function fetchRate() {
-        let cid = document.getElementById('cid').value;
-        if(cid && document.getElementById('cid').tagName === 'SELECT') {
-            let opt = document.getElementById('cid').options[document.getElementById('cid').selectedIndex];
-            if(opt) document.getElementById('ost').value = opt.getAttribute('data-state');
+        let cidEl = document.getElementById('cid');
+        let cid = cidEl ? cidEl.value : '';
+        if(cid && cidEl.tagName === 'SELECT') {
+            let opt = cidEl.options[cidEl.selectedIndex];
+            if(opt && opt.getAttribute('data-state')) {
+                document.getElementById('ost').value = opt.getAttribute('data-state');
+            }
         }
         
         let act_wt = parseFloat(document.getElementById('wt').value) || 1.0;
@@ -2989,7 +3100,7 @@ def booking():
             document.getElementById('fr').value = res.freight;
             document.getElementById('tax').value = res.tax_rate;
             document.getElementById('amt').value = res.total;
-            document.getElementById('calc_hint').innerHTML = `✅ Taxable: ₹${res.taxable} | GST: ₹${res.gst} (Applied Wt: ${applied_wt} KG)`;
+            document.getElementById('calc_hint').innerHTML = `✅ Taxable: ₹${res.taxable} | GST: ₹${res.gst} (Applied Wt: ${applied_wt.toFixed(2)} KG)`;
         });
     }
     
@@ -3011,7 +3122,7 @@ def booking():
         document.getElementById('calc_hint').innerHTML = "✏️ Volumetric & Manual Override Applied";
     }
     
-    if(document.getElementById('cid').tagName === 'INPUT') fetchRate();
+    if(document.getElementById('cid') && document.getElementById('cid').tagName === 'INPUT') fetchRate();
     </script>
     """
     return render_page("Counter Booking", render_template_string(html, custs=custs, stations=stations, recent=recent, my_cust=my_cust, addr_book=addr_book))
@@ -3134,25 +3245,53 @@ def edit_shipment(sid):
     return render_page(f"Edit AWB: {s['awb_no']}", render_template_string(html, s=s, stations=stations))
 
 # ==========================================
-# 📋 3.4 SHIPMENTS REGISTER (LIST + DELETE)
+# 📋 3.4 SHIPMENTS REGISTER (LIST + PERMANENT DELETE)
 # ==========================================
 @app.route('/shipments', methods=['GET', 'POST'])
 @login_required
 def shipments():
     conn = get_db()
-    # 🗑️ DELETE
+    
+    # 🗑️ PERMANENT DELETE FROM ALL TABLES
     if request.args.get('delete'):
-        with conn.cursor() as c:
-            c.execute("SELECT customer_id, status FROM shipments WHERE id=%s", (request.args.get('delete'),))
-            ship = c.fetchone()
-            if ship:
-                if session.get('role') == 'CUSTOMER' and (ship['customer_id'] != session.get('customer_id') or ship['status'] != 'BOOKED'):
-                    flash("Cannot delete this shipment!", "error")
-                else:
-                    c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (request.args.get('delete'),))
-                    c.execute("DELETE FROM shipments WHERE id=%s", (request.args.get('delete'),))
-                    conn.commit()
-                    flash("Shipment Deleted!", "success")
+        del_id = request.args.get('delete')
+        try:
+            with conn.cursor() as c:
+                c.execute("SELECT id, awb_no, customer_id, status FROM shipments WHERE id=%s", (del_id,))
+                ship = c.fetchone()
+                if ship:
+                    if session.get('role') == 'CUSTOMER' and (ship['customer_id'] != session.get('customer_id') or ship['status'] != 'BOOKED'):
+                        flash("Cannot delete this shipment!", "error")
+                    else:
+                        awb_del = ship['awb_no']
+                        
+                        # 1. Child tables (shipment_id based) se delete karein
+                        c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (del_id,))
+                        c.execute("DELETE FROM manifest_items WHERE shipment_id=%s", (del_id,))
+                        c.execute("DELETE FROM drs_items WHERE shipment_id=%s", (del_id,))
+                        c.execute("DELETE FROM invoice_lines WHERE shipment_id=%s", (del_id,))
+                        
+                        # 2. Operational registers aur accounts (awb_no based) se delete karein
+                        c.execute("DELETE FROM outward_register WHERE awb_no=%s", (awb_del,))
+                        c.execute("DELETE FROM inward_register WHERE awb_no=%s", (awb_del,))
+                        c.execute("DELETE FROM delivery_register WHERE awb_no=%s", (awb_del,))
+                        c.execute("DELETE FROM master_bag_items WHERE awb_no=%s", (awb_del,))
+                        c.execute("DELETE FROM ledger WHERE reference=%s", (awb_del,))
+                        c.execute("DELETE FROM payments WHERE reference LIKE %s", (f"%{awb_del}%",))
+                        
+                        # 3. Main shipments table se delete karein
+                        c.execute("DELETE FROM shipments WHERE id=%s", (del_id,))
+                        
+                        # 4. Deleted AWBs log me record karein taaki sync se wapas na aaye
+                        c.execute("CREATE TABLE IF NOT EXISTS deleted_awbs (awb_no VARCHAR(100) PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+                        c.execute("INSERT INTO deleted_awbs(awb_no) VALUES(%s) ON CONFLICT (awb_no) DO UPDATE SET deleted_at=CURRENT_TIMESTAMP", (awb_del,))
+                        
+                        conn.commit()
+                        flash(f"✅ Shipment {awb_del} permanently deleted from all records!", "success")
+        except Exception as e:
+            flash(f"❌ Delete Error: {e}", "error")
+        finally:
+            conn.close()
         return redirect('/shipments')
     
     with conn.cursor() as c:
@@ -3160,11 +3299,14 @@ def shipments():
             FROM shipments s LEFT JOIN customers c ON s.customer_id = c.id WHERE 1=1"""
         params = []
         if session.get('role') == 'CUSTOMER':
-            q += " AND s.customer_id=%s"; params.append(session.get('customer_id'))
+            q += " AND s.customer_id=%s"
+            params.append(session.get('customer_id'))
         elif session.get('role') != 'ADMIN':
-            q += " AND s.origin_name=%s"; params.append(session.get('branch', 'HQ'))
+            q += " AND s.origin_name=%s"
+            params.append(session.get('branch', 'HQ'))
         q += " ORDER BY s.id DESC LIMIT 500"
-        c.execute(q, tuple(params)); rows = c.fetchall()
+        c.execute(q, tuple(params))
+        rows = c.fetchall()
     conn.close()
     
     html = """
@@ -3198,7 +3340,7 @@ def shipments():
                     <a href="/print/multi_piece/{{ r.awb_no }}" target="_blank" class="btn-danger" style="background:#8b5cf6; padding:3px 8px; font-size:11px;" title="Multi-Piece Child Barcodes"><i class="fas fa-cubes"></i></a>
 
                     {% if session.get('role') != 'CUSTOMER' or r.status == 'BOOKED' %}
-                    <a href="/shipments?delete={{ r.id }}" class="btn-danger" style="padding:3px 8px; font-size:11px;" onclick="return confirm('Delete?');" title="Delete"><i class="fas fa-trash"></i></a>
+                    <a href="/shipments?delete={{ r.id }}" class="btn-danger" style="padding:3px 8px; font-size:11px;" onclick="return confirm('Permanently delete AWB {{ r.awb_no }} from all registers?');" title="Permanent Delete"><i class="fas fa-trash"></i></a>
                     {% endif %}
                 </td>
             </tr>
@@ -3383,9 +3525,14 @@ def inward():
                     conn.commit()
                     flash(f"✅ AWB {awb} Inward Saved!", "success")
             elif action == 'delete':
-                c.execute("DELETE FROM inward_register WHERE id=%s", (request.form.get('del_id'),))
+                del_id = request.form.get('del_id')
+                c.execute("SELECT awb_no FROM inward_register WHERE id=%s", (del_id,))
+                ir = c.fetchone()
+                if ir:
+                    c.execute("UPDATE shipments SET status='OUTWARD' WHERE awb_no=%s AND status='INWARD'", (ir['awb_no'],))
+                c.execute("DELETE FROM inward_register WHERE id=%s", (del_id,))
                 conn.commit()
-                flash("Entry removed from inward pending!", "success")
+                flash("Entry removed from inward pending & status reverted!", "success")
         return redirect('/inward')
     
     with conn.cursor() as c:
@@ -3501,10 +3648,24 @@ def outward():
                     c.execute("UPDATE outward_register SET awb_no=%s, destination=%s, weight=%s, info=%s WHERE id=%s", (awb, dest, wt, info, oid))
                     c.execute("UPDATE shipments SET awb_no=%s, dest_station=%s, weight_kg=%s, info=%s WHERE awb_no=%s", (awb, dest, wt, info, old['awb_no']))
                     flash("Entry updated & synced!", "success")
-            # DELETE
+            # DELETE IN /outward
             elif action == 'delete':
-                c.execute("DELETE FROM outward_register WHERE id=%s", (request.form.get('del_id'),))
-                flash("Entry deleted!", "success")
+                del_id = request.form.get('del_id')
+                c.execute("SELECT awb_no FROM outward_register WHERE id=%s", (del_id,))
+                orow = c.fetchone()
+                c.execute("DELETE FROM outward_register WHERE id=%s", (del_id,))
+                if orow:
+                    awb_del = orow['awb_no']
+                    c.execute("SELECT id, total_amount FROM shipments WHERE awb_no=%s", (awb_del,))
+                    sh = c.fetchone()
+                    if sh:
+                        if safe_float(sh.get('total_amount')) == 0:
+                            c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (sh['id'],))
+                            c.execute("DELETE FROM manifest_items WHERE shipment_id=%s", (sh['id'],))
+                            c.execute("DELETE FROM shipments WHERE id=%s", (sh['id'],))
+                        else:
+                            c.execute("UPDATE shipments SET status='BOOKED' WHERE id=%s", (sh['id'],))
+                flash("Entry deleted & shipment synced!", "success")
             # FINALIZE
             elif action == 'finalize':
                 entry_date = request.form.get('date', date_today)
@@ -4086,7 +4247,8 @@ def ocr_pod():
 @app.route('/drs', methods=['GET', 'POST'])
 @login_required
 def drs():
-    if session.get('role') == 'CUSTOMER': return redirect('/')
+    if session.get('role') == 'CUSTOMER':
+        return redirect('/')
     conn = get_db()
     date_today = datetime.datetime.now().strftime('%Y-%m-%d')
     st = session.get('branch', 'HQ')
@@ -4109,12 +4271,15 @@ def drs():
                     s = c.fetchone()
                     if s:
                         if s.get('status') in ('DELIVERED', 'CANCELLED'):
-                            flash(f"AWB {awb} cannot be assigned in its current status.", "error")
+                            flash(f"AWB {awb} cannot be assigned in its current status ({s.get('status')}).", "error")
                             conn.rollback()
+                            conn.close()
                             return redirect('/drs')
-                        c.execute("INSERT INTO delivery_register(entry_date, delivery_boy, delivery_area, awb_no, receiver_name, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, 0)",
-                            (date_today, boy, area, awb, rec, info))
-                        c.execute("UPDATE shipments SET status='ON_DRS', current_location=%s WHERE id=%s", (area, s['id']))
+                        c.execute(
+                            "INSERT INTO delivery_register(entry_date, delivery_boy, delivery_area, awb_no, receiver_name, info, finalized) VALUES(%s, %s, %s, %s, %s, %s, 0)",
+                            (date_today, boy, area, awb, rec, info)
+                        )
+                        c.execute("UPDATE shipments SET status='ON_DRS', current_location=%s, is_synced=0 WHERE id=%s", (area, s['id']))
                         c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'ON_DRS', %s, %s)", (s['id'], area, f"Assigned to {boy}"))
                         flash(f"✅ {awb} added to delivery queue for {boy}.", "success")
                     else:
@@ -4126,7 +4291,7 @@ def drs():
                 c.execute("SELECT awb_no FROM delivery_register WHERE id=%s", (did,))
                 dr = c.fetchone()
                 if dr:
-                    c.execute("UPDATE shipments SET status='INWARD', current_location='Hub' WHERE awb_no=%s AND status='ON_DRS'", (dr['awb_no'],))
+                    c.execute("UPDATE shipments SET status='INWARD', current_location='Hub', is_synced=0 WHERE awb_no=%s AND status='ON_DRS'", (dr['awb_no'],))
                 c.execute("DELETE FROM delivery_register WHERE id=%s", (did,))
                 flash("Entry removed from pending delivery.", "success")
             
@@ -4139,20 +4304,26 @@ def drs():
                 else:
                     generated = []
                     for grp in groups:
-                        boy = grp['delivery_boy']; area = grp['delivery_area']
+                        boy = grp['delivery_boy']
+                        area = grp['delivery_area']
                         c.execute("SELECT * FROM delivery_register WHERE finalized=0 AND delivery_boy=%s AND delivery_area=%s", (boy, area))
                         rows = c.fetchall()
                         if rows:
                             drs_no = get_seq("drs", "DRS", 6)
-                            # ✅ FIX: rider_phone column removed (not in table)
-                            c.execute("INSERT INTO drs(drs_no, drs_date, rider_name, vehicle_no, status) VALUES(%s, %s, %s, %s, 'OPEN')", (drs_no, date_today, boy, area))
+                            c.execute(
+                                "INSERT INTO drs(drs_no, drs_date, rider_name, vehicle_no, status) VALUES(%s, %s, %s, %s, 'OPEN')",
+                                (drs_no, date_today, boy, area)
+                            )
                             drs_id = c.lastrowid
                             for r in rows:
                                 c.execute("UPDATE delivery_register SET finalized=1, drs_no=%s WHERE id=%s", (drs_no, r['id']))
                                 c.execute("SELECT id FROM shipments WHERE awb_no=%s", (r['awb_no'],))
                                 s = c.fetchone()
                                 if s:
-                                    c.execute("INSERT INTO drs_items(drs_id, shipment_id, status, receiver_name) VALUES(%s, %s, 'ASSIGNED', %s)", (drs_id, s['id'], r['receiver_name']))
+                                    c.execute(
+                                        "INSERT INTO drs_items(drs_id, shipment_id, status, receiver_name) VALUES(%s, %s, 'ASSIGNED', %s)",
+                                        (drs_id, s['id'], r['receiver_name'])
+                                    )
                             generated.append(f"{drs_no} ({boy})")
                     flash(f"✅ DRS Generated: {', '.join(generated)}", "success")
             
@@ -4166,7 +4337,7 @@ def drs():
                     c.execute("SELECT shipment_id FROM drs_items WHERE drs_id=%s", (did,))
                     s_items = c.fetchall()
                     for s_item in s_items:
-                        c.execute("UPDATE shipments SET status='INWARD', current_location='Hub' WHERE id=%s AND status IN ('ON_DRS','DELIVERED')", (s_item['shipment_id'],))
+                        c.execute("UPDATE shipments SET status='INWARD', current_location='Hub', is_synced=0 WHERE id=%s AND status IN ('ON_DRS','DELIVERED')", (s_item['shipment_id'],))
                     c.execute("DELETE FROM drs_items WHERE drs_id=%s", (did,))
                     c.execute("DELETE FROM drs WHERE id=%s", (did,))
                     c.execute("UPDATE delivery_register SET finalized=0, drs_no=NULL WHERE drs_no=%s", (dno,))
@@ -4175,23 +4346,24 @@ def drs():
             # ✅ DELIVER SINGLE ITEM
             elif action == 'deliver':
                 item_id = request.form.get('item_id')
-                receiver = request.form.get('receiver', '')
-                remarks = request.form.get('remarks', '')
+                receiver = request.form.get('receiver', '').strip()
+                remarks = request.form.get('remarks', '').strip()
                 c.execute("UPDATE drs_items SET status='DELIVERED', receiver_name=%s, remarks=%s WHERE id=%s", (receiver, remarks, item_id))
                 c.execute("SELECT shipment_id, drs_id FROM drs_items WHERE id=%s", (item_id,))
                 itm = c.fetchone()
                 if itm:
-                    c.execute("UPDATE shipments SET status='DELIVERED' WHERE id=%s", (itm['shipment_id'],))
-                    c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'DELIVERED', %s, %s)", (itm['shipment_id'], st, f"Receiver: {receiver}"))
+                    c.execute("UPDATE shipments SET status='DELIVERED', is_synced=0 WHERE id=%s", (itm['shipment_id'],))
+                    c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'DELIVERED', %s, %s)", (itm['shipment_id'], st, f"Receiver: {receiver} | {remarks}"))
                     c.execute("SELECT COUNT(*) as cnt FROM drs_items WHERE drs_id=%s AND status != 'DELIVERED'", (itm['drs_id'],))
                     remaining = c.fetchone()
                     if remaining['cnt'] == 0:
                         c.execute("UPDATE drs SET status='COMPLETED' WHERE id=%s", (itm['drs_id'],))
                     flash("✅ Delivered successfully!", "success")
         conn.commit()
+        conn.close()
         return redirect('/drs')
     
-    # Fetch data
+    # Fetch data for UI
     with conn.cursor() as c:
         c.execute("SELECT * FROM delivery_register WHERE finalized=0 ORDER BY id DESC")
         pending = c.fetchall()
@@ -4201,6 +4373,12 @@ def drs():
         boys = c.fetchall()
         c.execute("SELECT d.*, (SELECT COUNT(*) FROM drs_items WHERE drs_id=d.id) as total_items, (SELECT COUNT(*) FROM drs_items WHERE drs_id=d.id AND status='DELIVERED') as delivered FROM drs d ORDER BY d.id DESC LIMIT 50")
         active_drs = c.fetchall()
+        
+        # 🔗 Fetch each DRS's parcels so Tab 3 can display & deliver them
+        for d_row in active_drs:
+            c.execute("""SELECT di.id as item_id, di.status, di.receiver_name, di.remarks, s.awb_no, s.dest_name, s.dest_phone
+                         FROM drs_items di JOIN shipments s ON s.id=di.shipment_id WHERE di.drs_id=%s ORDER BY di.id""", (d_row['id'],))
+            d_row['items'] = c.fetchall()
     conn.close()
     
     html = """
@@ -4214,7 +4392,7 @@ def drs():
     <div id="tab1" class="tab-content active">
         <div class="card" style="border-top:4px solid #f59e0b;">
             <h3 class="text-lg font-bold text-slate-800 mb-4">🛵 Scan Parcels For Delivery</h3>
-            <form method="POST" class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <form method="POST" class="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
                 <input type="hidden" name="action" value="add">
                 <div><label class="label-modern">Delivery Boy *</label>
                     <input type="text" name="boy" list="boy_list" required class="input-modern uppercase">
@@ -4223,6 +4401,7 @@ def drs():
                 <div><label class="label-modern">Route / Area</label><input type="text" name="area" class="input-modern"></div>
                 <div><label class="label-modern text-red-600">AWB No *</label><input type="text" name="awb" required autofocus class="input-modern font-bold text-red-600 uppercase"></div>
                 <div><label class="label-modern">Receiver Name</label><input type="text" name="rec" class="input-modern"></div>
+                <div><label class="label-modern">Address / Info</label><input type="text" name="info" class="input-modern"></div>
                 <div><button type="submit" class="btn-warning w-full"><i class="fas fa-plus"></i> Add Entry</button></div>
             </form>
         </div>
@@ -4273,10 +4452,10 @@ def drs():
                     <td>{{ s.a }}</td>
                     <td class="font-bold text-blue-600">{{ s.cnt }} Docs</td>
                     <td>
-                        <form method="POST" style="display:inline;" onsubmit="return confirm('#⚠ Unfinalize this DRS? Parcels will go back to pending.');">
+                        <form method="POST" style="display:inline;" onsubmit="return confirm('Unfinalize this DRS? Parcels will go back to pending.');">
                             <input type="hidden" name="action" value="unfinalize">
                             <input type="hidden" name="drs_no" value="{{ s.drs_no }}">
-                            <button type="submit" class="btn-warning" style="padding:3px 8px; font-size:11px;"><i class="fas fa-undo"></i></button>
+                            <button type="submit" class="btn-warning" style="padding:3px 8px; font-size:11px;"><i class="fas fa-undo"></i> Unfinalize</button>
                         </form>
                     </td>
                 </tr>
@@ -4302,8 +4481,8 @@ def drs():
                         <span class="text-sm font-bold bg-white px-3 py-1 rounded-lg border">{{ d.delivered }} / {{ d.total_items }} Delivered</span>
                     </div>
                     
-                    <!-- 🚀 NEW: GPS MAP & AI POD BUTTONS -->
-                    <div class="mt-3 flex flex-wrap gap-2 border-t border-slate-200 pt-3">
+                    <!-- 🚀 GPS MAP & AI POD BUTTONS -->
+                    <div class="mt-3 flex flex-wrap gap-2 border-t border-slate-200 pt-3 mb-3">
                         <a href="/route_map/{{ d.drs_no }}" target="_blank" class="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-lg text-xs font-bold hover:bg-indigo-200 transition shadow-sm border border-indigo-200">
                             <i class="fas fa-map-marked-alt text-indigo-500"></i> Optimize Route Map
                         </a>
@@ -4317,12 +4496,58 @@ def drs():
                             </label>
                         </form>
                     </div>
+
+                    <!-- 📦 DRS PARCELS LIST & MANUAL DELIVER BUTTON -->
+                    {% if d.items %}
+                    <div class="bg-white rounded-lg border border-slate-200 overflow-hidden mt-2">
+                        <table class="w-full text-xs text-left">
+                            <thead class="bg-slate-100 text-slate-600 uppercase">
+                                <tr><th class="p-2">AWB No</th><th class="p-2">Consignee</th><th class="p-2">Receiver</th><th class="p-2">Status</th><th class="p-2">Action</th></tr>
+                            </thead>
+                            <tbody>
+                            {% for itm in d.items %}
+                                <tr class="border-t">
+                                    <td class="p-2 font-bold text-red-600">{{ itm.awb_no }}</td>
+                                    <td class="p-2">{{ itm.dest_name or '-' }} ({{ itm.dest_phone or '-' }})</td>
+                                    <td class="p-2 font-semibold">{{ itm.receiver_name or '-' }}</td>
+                                    <td class="p-2"><span class="px-2 py-0.5 rounded font-bold {% if itm.status=='DELIVERED' %}bg-green-100 text-green-700{% else %}bg-amber-100 text-amber-700{% endif %}">{{ itm.status }}</span></td>
+                                    <td class="p-2">
+                                        {% if itm.status != 'DELIVERED' %}
+                                        <button type="button" onclick="openDeliverModal('{{ itm.item_id }}', '{{ itm.awb_no }}', '{{ itm.receiver_name or itm.dest_name or '' }}')" class="btn-success" style="padding:3px 10px; font-size:11px;"><i class="fas fa-check"></i> Deliver</button>
+                                        {% else %}
+                                        <span class="text-green-600 font-bold"><i class="fas fa-check-circle"></i> Delivered</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
                 </div>
             {% endfor %}
             {% if not active_drs %}
                 <div class="text-center py-8 text-slate-400"><i class="fas fa-inbox text-4xl mb-3"></i><p>No active DRS. Create one first.</p></div>
             {% endif %}
             </div>
+        </div>
+    </div>
+
+    <!-- MODAL: DELIVER SINGLE ITEM -->
+    <div id="deliverModal" class="modal">
+        <div class="modal-content" style="max-width:450px;">
+            <h3 class="text-lg font-bold text-slate-800 mb-3">✅ Mark Parcel Delivered</h3>
+            <p class="text-sm text-slate-500 mb-3">AWB: <b id="deliv_awb_lbl" class="text-red-600"></b></p>
+            <form method="POST" class="space-y-3">
+                <input type="hidden" name="action" value="deliver">
+                <input type="hidden" name="item_id" id="deliv_item_id">
+                <div><label class="label-modern">Receiver Name *</label><input type="text" name="receiver" id="deliv_receiver" class="input-modern font-bold" required></div>
+                <div><label class="label-modern">Delivery Remarks</label><input type="text" name="remarks" placeholder="Delivered to consignee" class="input-modern"></div>
+                <div class="flex gap-3 mt-4">
+                    <button type="button" class="btn-danger flex-1" onclick="document.getElementById('deliverModal').style.display='none'">Cancel</button>
+                    <button type="submit" class="btn-success flex-1"><i class="fas fa-check"></i> Confirm Delivery</button>
+                </div>
+            </form>
         </div>
     </div>
     
@@ -4332,6 +4557,12 @@ def drs():
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.getElementById(tabName).style.display = 'block';
         evt.currentTarget.classList.add('active');
+    }
+    function openDeliverModal(itemId, awbNo, recName) {
+        document.getElementById('deliv_item_id').value = itemId;
+        document.getElementById('deliv_awb_lbl').innerText = awbNo;
+        document.getElementById('deliv_receiver').value = recName;
+        document.getElementById('deliverModal').style.display = 'block';
     }
     </script>
     """
@@ -4375,7 +4606,7 @@ def master_bag():
         return redirect('/master_bag')
     
     with conn.cursor() as c:
-        c.execute("SELECT mb.*, COUNT(mbi.awb_no) as item_count FROM master_bags mb LEFT JOIN master_bag_items mbi ON mb.bag_no=mbi.bag_no GROUP BY mb.bag_no ORDER BY mb.id DESC LIMIT 100")
+        c.execute("SELECT mb.*, COUNT(mbi.awb_no) as item_count FROM master_bags mb LEFT JOIN master_bag_items mbi ON mb.bag_no=mbi.bag_no GROUP BY mb.id, mb.bag_no ORDER BY mb.id DESC LIMIT 100")
         bags = c.fetchall()
         c.execute("SELECT name FROM stations ORDER BY name")
         stations = c.fetchall()
@@ -5800,7 +6031,7 @@ def dynamic_module(category, action):
             'bulk_print': ("SELECT id, awb_no, booking_date, dest_station FROM shipments WHERE booking_date BETWEEN %s AND %s ORDER BY id DESC LIMIT 500", ["ID", "AWB", "Date", "Dest", "Actions"]),
             'data_manager': ("SELECT id, awb_no, booking_date, status FROM shipments WHERE booking_date BETWEEN %s AND %s ORDER BY id DESC LIMIT 200", ["ID", "AWB", "Date", "Status", "Actions"]),
             'franchisee_summary': ("SELECT id, name, code, credit_limit FROM customers WHERE is_active=1 ORDER BY name LIMIT 500", ["ID", "Name", "Code", "Limit", "Actions"]),
-            'duplicate_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM outward_register GROUP BY awb_no HAVING cnt > 1 LIMIT 500", ["AWB", "Count", "Actions"]),
+            'duplicate_cnote': ("SELECT awb_no, COUNT(*) as cnt FROM outward_register GROUP BY awb_no HAVING COUNT(*) > 1 LIMIT 500", ["AWB", "Count", "Actions"]),
         }
         
         # Fallback Query
@@ -5953,27 +6184,33 @@ def sync_download():
 
 @app.route('/api/sync/smart', methods=['POST'])
 def sync_smart():
-    """Receives local unsynced shipments, merges them securely, and returns cloud updates."""
-    # 🛡️ SECURITY: Verify the desktop app using a secret token, not a database password.
+    """Receives local unsynced shipments, outward, inward, and payments, merges them securely, and returns cloud updates."""
     client_token = request.headers.get('X-Sync-Token')
     server_token = os.environ.get('SYNC_API_KEY', 'agc-super-secret-sync-key-2026')
     if client_token != server_token:
         return jsonify({"success": False, "error": "Unauthorized Sync API Access"}), 403
 
-    payload = request.get_json()
+    payload = request.get_json(silent=True) or {}
     local_shipments = payload.get('shipments', [])
+    local_outward = payload.get('outward_register', [])
+    local_inward = payload.get('inward_register', [])
+    local_payments = payload.get('payments', [])
     
     conn = get_db()
     try:
         with conn.cursor() as c:
+            c.execute("CREATE TABLE IF NOT EXISTS deleted_awbs (awb_no VARCHAR(100) PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("SELECT awb_no FROM deleted_awbs")
+            deleted_set = {r['awb_no'] for r in c.fetchall()}
+
             cols = ["customer_id","booking_date","origin_name","origin_phone","origin_address","origin_state_code",
                     "dest_name","dest_phone","dest_address","dest_state_code","dest_station","weight_kg",
                     "length_cm", "width_cm", "height_cm", "vol_weight", "applied_weight",
                     "quantity","cod_amount","declared_value","service_type","taxable_amount","tax_rate",
                     "cgst","sgst","igst","total_amount","status","current_location","info",
-                    "network", "network_awb", "updated_at"]
+                    "network", "network_awb", "payment_mode", "updated_at"]
             
-            RANK = {"STATIONERY":0,"BOOKED":1,"OUTWARD":2,"INWARD":3,"ON_DRS":4,"DELIVERED":5,"UNDELIVERED":5,"CANCELLED":6}
+            RANK = {"STATIONERY":0,"BOOKED":1,"OUTWARD":2,"INWARD":3,"ON_DRS":4,"DELIVERED":5,"UNDELIVERED":5,"RETURNED":6,"CANCELLED":6}
 
             def is_empty(v, col):
                 return v is None or str(v).strip() == ""
@@ -5997,25 +6234,61 @@ def sync_smart():
                 m["status"] = pri.get("status") if ra >= rb else fb.get("status")
                 return m
 
-            # 1. Merge Incoming Desktop Data to Cloud
+            # 1. Merge Incoming Desktop Shipments
             for lrow in local_shipments:
-                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (lrow['awb_no'],))
+                awb_val = str(lrow.get('awb_no') or '').strip().upper()
+                if not awb_val or awb_val in deleted_set:
+                    continue
+                c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb_val,))
                 crow = c.fetchone()
                 if crow:
                     merged = merge_logic(lrow, crow)
                     sets = ", ".join([f"`{col}`=%s" for col in cols])
                     vals = [merged.get(col) for col in cols]
-                    c.execute(f"UPDATE shipments SET {sets} WHERE awb_no=%s", tuple(vals + [lrow['awb_no']]))
+                    c.execute(f"UPDATE shipments SET {sets} WHERE awb_no=%s", tuple(vals + [awb_val]))
                 else:
                     placeholders = ", ".join(["%s"] * len(cols))
                     vals = [lrow.get(col) for col in cols]
-                    c.execute(f"INSERT INTO shipments (awb_no, {', '.join(['`'+col+'`' for col in cols])}) VALUES (%s, {placeholders})", tuple([lrow['awb_no']] + vals))
+                    c.execute(f"INSERT INTO shipments (awb_no, {', '.join(['`'+col+'`' for col in cols])}) VALUES (%s, {placeholders})", tuple([awb_val] + vals))
 
-            # 2. Fetch Latest Cloud Data to send back to Desktop
+            # 2. Sync Incoming Outward Register Rows
+            for orow in local_outward:
+                awb_val = str(orow.get('awb_no') or '').strip().upper()
+                if not awb_val or awb_val in deleted_set:
+                    continue
+                c.execute("SELECT id FROM outward_register WHERE awb_no=%s AND entry_date=%s", (awb_val, orow.get('entry_date')))
+                if not c.fetchone():
+                    c.execute("""INSERT INTO outward_register(entry_date, awb_no, origin_station, out_station, destination, weight, info, outward_no, manifest_no, finalized)
+                                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                              (orow.get('entry_date'), awb_val, orow.get('origin_station', 'NOHAR'), orow.get('out_station', ''),
+                               orow.get('destination', ''), orow.get('weight', 1), orow.get('info', ''),
+                               orow.get('outward_no'), orow.get('manifest_no'), safe_int(orow.get('finalized', 0))))
+
+            # 3. Sync Incoming Inward Register Rows
+            for irow in local_inward:
+                awb_val = str(irow.get('awb_no') or '').strip().upper()
+                if not awb_val or awb_val in deleted_set:
+                    continue
+                c.execute("SELECT id FROM inward_register WHERE awb_no=%s AND entry_date=%s", (awb_val, irow.get('entry_date')))
+                if not c.fetchone():
+                    c.execute("""INSERT INTO inward_register(entry_date, awb_no, origin_station, in_station, weight, info, inward_no, finalized)
+                                 VALUES(%s,%s,%s,%s,%s,%s,%s,%s)""",
+                              (irow.get('entry_date'), awb_val, irow.get('origin_station', ''), irow.get('in_station', ''),
+                               irow.get('weight', 1), irow.get('info', ''), irow.get('inward_no'), safe_int(irow.get('finalized', 0))))
+
+            # 4. Sync Incoming Payments
+            for prow in local_payments:
+                ref_val = str(prow.get('reference') or '').strip()
+                c.execute("SELECT id FROM payments WHERE payment_date=%s AND amount=%s AND reference=%s",
+                          (prow.get('payment_date'), prow.get('amount'), ref_val))
+                if not c.fetchone():
+                    c.execute("INSERT INTO payments(customer_id, payment_date, amount, mode, reference) VALUES(%s,%s,%s,%s,%s)",
+                              (prow.get('customer_id'), prow.get('payment_date'), prow.get('amount', 0), prow.get('mode', 'CASH'), ref_val))
+
+            # 5. Fetch Latest Cloud Data to send back to Desktop (Excluding deleted AWBs)
             c.execute(f"SELECT awb_no, {', '.join(['`'+col+'`' for col in cols])} FROM shipments ORDER BY id DESC LIMIT 500")
-            cloud_latest = c.fetchall()
+            cloud_latest = [r for r in c.fetchall() if r.get('awb_no') not in deleted_set]
             
-            # Serialize dates for JSON
             for r in cloud_latest:
                 for k, v in r.items():
                     if isinstance(v, (datetime.date, datetime.datetime)): r[k] = str(v)
@@ -6024,6 +6297,65 @@ def sync_smart():
         return jsonify({"success": True, "cloud_shipments": cloud_latest})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
+    finally:
+        conn.close()
+
+# ==========================================
+# 🗑️ PERMANENT DELETE AWB API (CLOUD + ALL TABLES)
+# ==========================================
+@app.route('/api/sync/delete_awb', methods=['POST'])
+def sync_delete_awb():
+    client_token = request.headers.get('X-Sync-Token')
+    server_token = os.environ.get('SYNC_API_KEY', 'agc-super-secret-sync-key-2026')
+    if client_token != server_token:
+        return jsonify({"success": False, "error": "Unauthorized"}), 403
+
+    data = request.get_json(silent=True) or {}
+    awb = str(data.get('awb_no', '')).strip().upper()
+    target_only = data.get('target_only', 'ALL')  # 'ALL', 'OUTWARD', 'INWARD', 'DELIVERY'
+    if not awb:
+        return jsonify({"success": False, "error": "Missing AWB"}), 400
+
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            c.execute("CREATE TABLE IF NOT EXISTS deleted_awbs (awb_no VARCHAR(100) PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            
+            if target_only == 'OUTWARD':
+                c.execute("DELETE FROM outward_register WHERE awb_no=%s", (awb,))
+                # Agar shipment auto-created thi (total_amount = 0), toh shipments se bhi hatao, warna status wapas BOOKED karo
+                c.execute("SELECT id, total_amount FROM shipments WHERE awb_no=%s", (awb,))
+                sh = c.fetchone()
+                if sh:
+                    if float(sh.get('total_amount') or 0) == 0:
+                        c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (sh['id'],))
+                        c.execute("DELETE FROM manifest_items WHERE shipment_id=%s", (sh['id'],))
+                        c.execute("DELETE FROM shipments WHERE id=%s", (sh['id'],))
+                        c.execute("INSERT INTO deleted_awbs(awb_no) VALUES(%s) ON CONFLICT (awb_no) DO UPDATE SET deleted_at=CURRENT_TIMESTAMP", (awb,))
+                    else:
+                        c.execute("UPDATE shipments SET status='BOOKED' WHERE id=%s", (sh['id'],))
+            else:
+                # COMPLETE PERMANENT DELETE FROM ALL TABLES
+                c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
+                for sh in c.fetchall():
+                    sid = sh['id']
+                    c.execute("DELETE FROM scan_events WHERE shipment_id=%s", (sid,))
+                    c.execute("DELETE FROM manifest_items WHERE shipment_id=%s", (sid,))
+                    c.execute("DELETE FROM drs_items WHERE shipment_id=%s", (sid,))
+                    c.execute("DELETE FROM invoice_lines WHERE shipment_id=%s", (sid,))
+                
+                c.execute("DELETE FROM outward_register WHERE awb_no=%s", (awb,))
+                c.execute("DELETE FROM inward_register WHERE awb_no=%s", (awb,))
+                c.execute("DELETE FROM delivery_register WHERE awb_no=%s", (awb,))
+                c.execute("DELETE FROM master_bag_items WHERE awb_no=%s", (awb,))
+                c.execute("DELETE FROM ledger WHERE reference=%s", (awb,))
+                c.execute("DELETE FROM payments WHERE reference LIKE %s", (f"%{awb}%",))
+                c.execute("DELETE FROM shipments WHERE awb_no=%s", (awb,))
+                c.execute("INSERT INTO deleted_awbs(awb_no) VALUES(%s) ON CONFLICT (awb_no) DO UPDATE SET deleted_at=CURRENT_TIMESTAMP", (awb,))
+        conn.commit()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
     finally:
         conn.close()
 
@@ -6449,6 +6781,7 @@ def address_book():
     </script>
     """
     return render_page("Address Book", render_template_string(html, addrs=addresses, stations=stations))
+
 # ==========================================
 # 💳 3.12 B2B PREPAID WALLET SYSTEM (SAAS FEATURE)
 # ==========================================
@@ -6459,7 +6792,6 @@ def wallet():
     conn = get_db()
     cid = session.get('customer_id')
 
-    # Auto-Heal: Create Wallet Table
     with conn.cursor() as c:
         c.execute("""CREATE TABLE IF NOT EXISTS wallet_transactions (
             id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, txn_date DATETIME DEFAULT CURRENT_TIMESTAMP, 
@@ -6472,13 +6804,13 @@ def wallet():
             with conn.cursor() as c:
                 c.execute("INSERT INTO wallet_transactions (customer_id, txn_type, amount, description, status, reference) VALUES (%s, 'CREDIT', %s, 'Wallet Recharge Request', 'PENDING', %s)", (cid, amt, ref))
             conn.commit()
+            send_web_email_alert("New Wallet Recharge Request", f"<p>Customer ID <b>{cid}</b> requested a wallet recharge of <b>Rs {amt:,.2f}</b> (Ref: {escape(ref)}).</p>")
             flash("✅ Recharge request submitted! Balance will reflect once approved by Admin.", "success")
         else:
             flash("❌ Invalid amount.", "error")
         return redirect('/wallet')
 
     with conn.cursor() as c:
-        # Calculate Current Wallet Balance
         c.execute("SELECT COALESCE(SUM(CASE WHEN txn_type='CREDIT' AND status='APPROVED' THEN amount ELSE 0 END),0) - COALESCE(SUM(CASE WHEN txn_type='DEBIT' AND status='APPROVED' THEN amount ELSE 0 END),0) as bal FROM wallet_transactions WHERE customer_id=%s", (cid,))
         bal_row = c.fetchone()
         wallet_balance = safe_float(bal_row['bal']) if bal_row else 0.0
@@ -6542,13 +6874,13 @@ def wallet():
     """
     return render_page("My Wallet", render_template_string(html, wallet_balance=wallet_balance, txns=txns))
 
+
 @app.route('/manage_wallets', methods=['GET', 'POST'])
 @login_required
 def manage_wallets():
     if session.get('role') not in ['ADMIN', 'ACCOUNTS']: return redirect('/')
     conn = get_db()
     
-    # Auto-Heal Check
     with conn.cursor() as c:
         c.execute("""CREATE TABLE IF NOT EXISTS wallet_transactions (
             id INT AUTO_INCREMENT PRIMARY KEY, customer_id INT, txn_date DATETIME DEFAULT CURRENT_TIMESTAMP, 
@@ -6560,8 +6892,6 @@ def manage_wallets():
             if action == 'approve':
                 tid = request.form.get('txn_id')
                 c.execute("UPDATE wallet_transactions SET status='APPROVED' WHERE id=%s", (tid,))
-                
-                # Payment Register aur Ledger me entry add karein taaki Accounting match ho
                 c.execute("SELECT * FROM wallet_transactions WHERE id=%s", (tid,))
                 txn = c.fetchone()
                 if txn:
@@ -6622,19 +6952,21 @@ def manage_wallets():
         </div>
         
         <div class="card lg:col-span-2">
-            <h3 class="text-lg font-bold text-slate-800 mb-4">🏦 Master Wallet Register & Requests</h3>
+            <h3 class="text-lg font-bold text-slate-800 mb-4">💳 Customer Wallet Requests & History</h3>
             <div class="table-responsive">
                 <table class="datatable">
-                    <thead><tr><th>Txn ID</th><th>Customer</th><th>Amount</th><th>Ref/Desc</th><th>Status</th><th>Actions</th></tr></thead>
+                    <thead><tr><th>ID</th><th>Date</th><th>Customer</th><th>Description</th><th>UTR / Ref</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody>
                     {% for t in txns %}
                     <tr>
-                        <td class="font-bold text-slate-500">WTX-{{ t.id }}</td>
+                        <td class="font-bold">WTX-{{ t.id }}</td>
+                        <td class="text-xs">{{ t.txn_date }}</td>
                         <td class="font-bold text-blue-600">{{ t.cust_name }}</td>
+                        <td>{{ t.description }}</td>
+                        <td class="font-mono text-xs">{{ t.reference or '-' }}</td>
                         <td class="font-bold {% if t.txn_type == 'CREDIT' %}text-green-600{% else %}text-red-600{% endif %}">
                             {% if t.txn_type == 'CREDIT' %}+{% else %}-{% endif %} ₹{{ t.amount }}
                         </td>
-                        <td class="text-xs">{{ t.reference or t.description }}</td>
                         <td>
                             <span class="px-2 py-1 rounded-full text-xs font-bold 
                             {% if t.status == 'APPROVED' %}bg-green-100 text-green-700
@@ -6643,10 +6975,18 @@ def manage_wallets():
                             {{ t.status }}
                             </span>
                         </td>
-                        <td>
+                        <td style="white-space:nowrap;">
                             {% if t.status == 'PENDING' %}
-                            <form method="POST" style="display:inline;" onsubmit="return confirm('Approve this recharge?');"><input type="hidden" name="action" value="approve"><input type="hidden" name="txn_id" value="{{ t.id }}"><button type="submit" class="btn-success" style="padding:2px 8px; font-size:11px;"><i class="fas fa-check"></i></button></form>
-                            <form method="POST" style="display:inline;" onsubmit="return confirm('Reject this recharge?');"><input type="hidden" name="action" value="reject"><input type="hidden" name="txn_id" value="{{ t.id }}"><button type="submit" class="btn-danger" style="padding:2px 8px; font-size:11px;"><i class="fas fa-times"></i></button></form>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('Approve this recharge?');">
+                                <input type="hidden" name="action" value="approve">
+                                <input type="hidden" name="txn_id" value="{{ t.id }}">
+                                <button type="submit" class="btn-success" style="padding:3px 8px; font-size:11px;"><i class="fas fa-check"></i></button>
+                            </form>
+                            <form method="POST" style="display:inline;" onsubmit="return confirm('Reject this recharge?');">
+                                <input type="hidden" name="action" value="reject">
+                                <input type="hidden" name="txn_id" value="{{ t.id }}">
+                                <button type="submit" class="btn-danger" style="padding:3px 8px; font-size:11px;"><i class="fas fa-times"></i></button>
+                            </form>
                             {% else %}
                             <span class="text-xs text-slate-400">Processed</span>
                             {% endif %}
@@ -6660,6 +7000,58 @@ def manage_wallets():
     </div>
     """
     return render_page("Manage Wallets", render_template_string(html, custs=custs, txns=txns))
+
+# ==========================================
+# 🔌 3.13 B2B EXTERNAL REST API (/v1/shipments)
+# ==========================================
+@app.route('/v1/shipments', methods=['POST'])
+@app.route('/api/v1/shipments', methods=['POST'])
+def api_v1_shipments():
+    """Links the Developer API Key documentation to an actual working shipment creation endpoint."""
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return jsonify({"success": False, "error": "Missing or invalid Bearer token"}), 401
+    token = auth_header.split('Bearer ')[1].strip()
+
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT customer_id FROM api_keys WHERE api_key=%s", (token,))
+            key_row = c.fetchone()
+            if not key_row:
+                return jsonify({"success": False, "error": "Invalid API Key"}), 403
+            cid = key_row['customer_id']
+            c.execute("SELECT * FROM customers WHERE id=%s AND is_active=1", (cid,))
+            cust = c.fetchone()
+            if not cust:
+                return jsonify({"success": False, "error": "Customer account inactive"}), 403
+
+            data = request.get_json(silent=True) or {}
+            awb = get_customer_awb(cid)
+            if not awb:
+                return jsonify({"success": False, "error": "AWB series exhausted. Contact admin."}), 400
+
+            d_today = datetime.datetime.now().strftime("%Y-%m-%d")
+            wt = safe_float(data.get("weight_kg", 1.0))
+            pcs = safe_int(data.get("pieces", 1))
+            cod = safe_float(data.get("cod_amount", 0.0))
+            dest_station = str(data.get("station", "")).strip().upper()
+            dest_state = str(data.get("state_code", "")).strip().upper()
+
+            c.execute("""INSERT INTO shipments(awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address, origin_state_code,
+                         dest_name, dest_phone, dest_address, dest_state_code, dest_station, weight_kg, quantity, cod_amount,
+                         service_type, status, current_location, is_synced)
+                         VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'SURFACE','BOOKED','Origin',0)""",
+                      (awb, cid, d_today, cust['name'], cust.get('phone',''), cust.get('address',''), cust.get('state_code',''),
+                       data.get("consignee_name",""), data.get("phone",""), data.get("address",""), dest_state, dest_station, wt, pcs, cod))
+            sid = c.lastrowid
+            c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s, 'BOOKED', 'API', 'Booked via B2B REST API')", (sid,))
+        conn.commit()
+        return jsonify({"success": True, "awb_no": awb, "status": "BOOKED"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+    finally:
+        conn.close()
 
 # ==========================================
 # 🔄 1-CLICK OLD DATA TO ADDRESS BOOK SYNC
