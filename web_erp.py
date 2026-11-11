@@ -5560,7 +5560,8 @@ def get_web_shipper_details(s, cust):
 # ==========================================
 # 🧾 WEB ERP: PRINT RECEIPT (DYNAMIC UPI QR + LIVE TRACK QR)
 # ==========================================
-@app.route('/print/receipt/<awb>')@login_required
+@app.route('/print/receipt/<awb>')
+@login_required
 def print_receipt(awb):
     from urllib.parse import quote
     try:
