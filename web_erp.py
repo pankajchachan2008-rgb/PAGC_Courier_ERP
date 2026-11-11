@@ -272,10 +272,35 @@ def auto_heal_db():
         with conn.cursor() as c:
             c.execute("CREATE TABLE IF NOT EXISTS settings (key_name VARCHAR(100) PRIMARY KEY, value TEXT)")
             c.execute("CREATE TABLE IF NOT EXISTS sequences (name VARCHAR(50) PRIMARY KEY, value INT DEFAULT 0)")
-            try:
-                c.execute("ALTER TABLE settings RENAME COLUMN key TO key_name")
-            except Exception:
-                pass
+            c.execute("CREATE TABLE IF NOT EXISTS deleted_awbs (awb_no VARCHAR(100) PRIMARY KEY, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS master_bags (id SERIAL PRIMARY KEY, bag_no VARCHAR(100), destination VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS master_bag_items (id SERIAL PRIMARY KEY, bag_no VARCHAR(100), awb_no VARCHAR(100))")
+            c.execute("CREATE TABLE IF NOT EXISTS stationery_batches (id SERIAL PRIMARY KEY, customer_id INT, prefix VARCHAR(20), start_no BIGINT, end_no BIGINT, qty INT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS customer_awb_series (id SERIAL PRIMARY KEY, customer_id INT, prefix VARCHAR(20), start_no BIGINT, end_no BIGINT, current_no BIGINT, is_active INT DEFAULT 1, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS pickup_requests (id SERIAL PRIMARY KEY, customer_id INT, request_date DATE, ready_time VARCHAR(50), total_boxes INT, approx_weight DOUBLE PRECISION, pickup_address TEXT, status VARCHAR(50) DEFAULT 'PENDING', assigned_rider VARCHAR(100), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS address_book (id SERIAL PRIMARY KEY, customer_id INT, name VARCHAR(100), phone VARCHAR(50), address TEXT, station VARCHAR(100), state_code VARCHAR(10), pincode VARCHAR(20), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+            c.execute("CREATE TABLE IF NOT EXISTS wallet_transactions (id SERIAL PRIMARY KEY, customer_id INT, txn_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, txn_type VARCHAR(20), amount DOUBLE PRECISION, description TEXT, status VARCHAR(20) DEFAULT 'APPROVED', reference VARCHAR(100))")
+            c.execute("CREATE TABLE IF NOT EXISTS api_keys (id SERIAL PRIMARY KEY, customer_id INT, api_key VARCHAR(100), webhook_url VARCHAR(255), created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+
+            for col_sql in [
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS payment_mode VARCHAR(30) DEFAULT 'CASH'",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS length_cm DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS width_cm DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS height_cm DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS vol_weight DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS applied_weight DOUBLE PRECISION DEFAULT 0",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS network VARCHAR(100) DEFAULT 'SELF'",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS network_awb VARCHAR(100)",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS is_synced INT DEFAULT 0",
+                "ALTER TABLE shipments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "ALTER TABLE drs_items ADD COLUMN IF NOT EXISTS pod_photo TEXT",
+                "ALTER TABLE address_book ADD COLUMN IF NOT EXISTS pincode VARCHAR(20)"
+            ]:
+                try:
+                    c.execute(col_sql)
+                except Exception:
+                    pass
+
             defs = {
                 "company_name": "PANKAJ AGENCY COURIER",
                 "company_address": "Nohar, Rajasthan",
@@ -285,14 +310,15 @@ def auto_heal_db():
                 "company_email": "PANKAJNOHAR@YAHOO.CO.IN",
                 "bank_details": "SBI Bank | A/C: 31069139910 | IFSC: SBIN011303",
                 "terms_note": "Liability limited to declared value.",
-                "fuel_surcharge": "0"
+                "fuel_surcharge": "0",
+                "upi_id": "7357073316@sbi"
             }
             for k, v in defs.items():
                 c.execute("INSERT INTO settings(key_name, value) VALUES(%s, %s) ON CONFLICT (key_name) DO NOTHING", (k, v))
+        conn.commit()
         conn.close()
     except Exception as e:
         logging.error(f"Heal Error: {e}")
-
 
 def get_setting(key, default=""):
     try:
@@ -5337,7 +5363,8 @@ def print_label(awb):
             c.execute("SELECT * FROM settings")
             settings = {r.get('key_name') or r.get('key') or r.get('name'): r.get('value') for r in c.fetchall()}
         conn.close()
-    except Exception as e: return f"Database Error: {str(e)}", 500
+    except Exception as e:
+        return f"Database Error: {str(e)}", 500
 
     try:
         _org = outward.get('origin_station') or "NOHAR"
@@ -5346,12 +5373,10 @@ def print_label(awb):
         _net = outward.get('network') if outward.get('network') else (s.get('network') or 'SELF')
         _n_awb = outward.get('network_awb') if outward.get('network_awb') else (s.get('network_awb') or '')
         is_self = not _net or str(_net).upper() in ["SELF", "AGC", "AKASH GANGA", "AKASHGANGA"]
+        pay_mode = str(s.get("payment_mode") or "CASH").upper()
 
-        # 🧠 SMART PINCODE EXTRACTION LOGIC
-        import re
         def extract_pin(station, address):
-            match = re.search(r'\b\d{6}\b', str(station))
-            if not match: match = re.search(r'\b\d{6}\b', str(address))
+            match = re.search(r'\b\d{6}\b', str(station)) or re.search(r'\b\d{6}\b', str(address))
             pin = match.group(0) if match else ""
             clean_station = re.sub(r'\s*-?\s*\b\d{6}\b\s*', '', str(station)).strip()
             return clean_station, pin
@@ -5360,9 +5385,11 @@ def print_label(awb):
         _dst_clean, dst_pin = extract_pin(_dst, s.get("dest_address", ""))
 
         stype = s.get("service_type") or "SURFACE"
-        if stype in ["BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"]: stype = "SURFACE"
+        if stype in ["BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"]:
+            stype = "SURFACE"
 
-        buf = io.BytesIO(); w, h = 4 * inch, 6 * inch
+        buf = io.BytesIO()
+        w, h = 4 * inch, 6 * inch
         cv = canvas.Canvas(buf, pagesize=(w, h))
         cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
         cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
@@ -5370,11 +5397,9 @@ def print_label(awb):
         safe_awb = str(s.get("awb_no") or "")
         x = 14
         
-        # 🚀 DYNAMIC BOX CALCULATION (Top Right Box)
         cv.setFont("Helvetica-Bold", 6.5)
-        box_text = "PREMIUM EXPRESS" if is_self else "NETWORK DISPATCH"
-        box_text_width = cv.stringWidth(box_text, "Helvetica-Bold", 6.5)
-        box_w = box_text_width + 16 
+        box_text = f"TO-PAY: Rs {safe_float(s.get('total_amount')):.0f}" if pay_mode == "TO-PAY" else ("PREMIUM EXPRESS" if is_self else "NETWORK DISPATCH")
+        box_w = cv.stringWidth(box_text, "Helvetica-Bold", 6.5) + 16 
         box_x = w - box_w - 14 
         max_w = box_x - x - 10 
         
@@ -5390,7 +5415,8 @@ def print_label(awb):
                 cv.drawString(x, yy, ln); yy -= 8
             cv.drawString(x, yy - 1, fit_text(cv, f"GSTIN: {settings.get('company_gstin','')} | Ph: {settings.get('company_phone','')}", "Helvetica", 6.2, max_w))
             
-            track_url = f"https://agcgroup.in/track-now/?awb={safe_awb}"
+            # 🔗 LIVE PORTAL TRACKING URL
+            track_url = f"https://pagcerp.cgsmart.in/track?awb={safe_awb}"
             draw_qr_web(cv, track_url, w - 74, h - 138, 58)
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawCentredString(w - 45, h - 148, "SCAN & TRACK")
         else:
@@ -5399,34 +5425,26 @@ def print_label(awb):
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 9)
             cv.drawString(14, h - 42, fit_text(cv, f"SYSTEM AWB: {safe_awb}", "Helvetica-Bold", 9, max_w))
                 
-        # Draw Dynamic Premium Box
-        cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.2); cv.rect(box_x, h - 42, box_w, 16)
-        cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5)
+        badge_hex = "#E04F5F" if pay_mode == "TO-PAY" else "#B08A47"
+        cv.setStrokeColorRGB(*hex_rgb(badge_hex)); cv.setLineWidth(1.2); cv.rect(box_x, h - 42, box_w, 16)
+        cv.setFillColorRGB(*hex_rgb(badge_hex)); cv.setFont("Helvetica-Bold", 6.5)
         cv.drawCentredString(box_x + (box_w / 2), h - 37, box_text)
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(10, h - 62, w - 10, h - 62)
         
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6.5)
         cv.drawString(14, h - 74, "AWB NUMBER" if is_self else "FORWARDING AWB NUMBER")
         
-        display_awb = safe_awb if is_self else _n_awb
-        if display_awb:
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, display_awb)
-            try: code128.Code128(display_awb, barHeight=0.40*inch, barWidth=0.011*inch).drawOn(cv, 18, h - 128)
-            except: pass
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, display_awb)
-        else:
-            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 12)
-            cv.drawString(14, h - 90, "PENDING FWD AWB")
-            cv.setFont("Helvetica", 8)
-            cv.drawString(14, h - 105, "This parcel will be dispatched")
-            cv.drawString(14, h - 115, "with the partner network soon.")
+        display_awb = safe_awb if is_self else (_n_awb or safe_awb)
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, display_awb)
+        try: code128.Code128(display_awb, barHeight=0.40*inch, barWidth=0.011*inch).drawOn(cv, 18, h - 128)
+        except: pass
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, display_awb)
         
         cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA"))
         cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6)
         cv.drawString(20, h - 158, "ORIGIN"); cv.drawCentredString(w / 2, h - 158, "SERVICE"); cv.drawRightString(w - 20, h - 158, "DESTINATION")
         
-        # 🚀 DYNAMIC SERVICE BOX CALCULATION
         cv.setFont("Helvetica-Bold", 7.5)
         stype_text_w = cv.stringWidth(str(stype), "Helvetica-Bold", 7.5)
         stype_box_w = max(80, stype_text_w + 16) 
@@ -5435,7 +5453,8 @@ def print_label(awb):
 
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
         cv.drawString(20, h - 169, fit_text(cv, _org_clean.upper(), "Helvetica-Bold", 11, safe_station_w))
-        cv.drawRightString(w - 20, h - 169, fit_text(cv, _dst_clean.upper(), "Helvetica-Bold", 11, safe_station_w))
+        cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.setFont("Helvetica-Bold", 12)
+        cv.drawRightString(w - 20, h - 169, fit_text(cv, _dst_clean.upper(), "Helvetica-Bold", 12, safe_station_w))
         
         if org_pin:
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 8)
@@ -5443,28 +5462,28 @@ def print_label(awb):
         if dst_pin:
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 8)
             cv.drawRightString(w - 20, h - 178, f"PIN: {dst_pin}")
-        else:
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 6)
-            cv.drawRightString(w - 20, h - 178, fit_text(cv, s.get("dest_name") or "", "Helvetica", 6, safe_station_w))
 
         cv.setStrokeColorRGB(*hex_rgb("#0E8A6D")); cv.setLineWidth(1.2); cv.rect(stype_box_x, h - 175, stype_box_w, 18)
         cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.setFont("Helvetica-Bold", 7.5); cv.drawCentredString(w / 2, h - 169, str(stype))
         
         cv.setFillColorRGB(1, 1, 1); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, h - 254, w - 24, 70, fill=1, stroke=1)
         cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.rect(12, h - 254, 4, 70, fill=1, stroke=0)
-        cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, h - 194, "DELIVER TO")
+        cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, h - 194, "DELIVER TO (CONSIGNEE)")
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 10)
         
         yy = h - 206
         for line in wrap_lines(cv, s.get("dest_name") or "", "Helvetica-Bold", 10, w - 50)[:2]:
             cv.drawString(22, yy, line); yy -= 12
         cv.setFont("Helvetica", 7.5)
-        for line in wrap_lines(cv, s.get("dest_address") or "", "Helvetica", 7.5, w - 50)[:2]:
+        for line in wrap_lines(cv, s.get("dest_address") or "", "Helvetica", 7.5, w - 50)[:3]:
             cv.drawString(22, yy, line); yy -= 10
         cv.setFont("Helvetica-Bold", 7.5); cv.drawString(22, yy, f"Ph: {s.get('dest_phone') or '-'}")
         
-        cells = [("WEIGHT", f"{s.get('weight_kg') or '0'} KG"), ("PIECES", str(s.get("quantity") or "1")), 
-                 ("COD", f"Rs {s.get('cod_amount') or 0}"), ("DECLARED", f"Rs {s.get('declared_value') or 0}"), 
+        wt_val = s.get("applied_weight") if safe_float(s.get("applied_weight")) > safe_float(s.get("weight_kg")) else s.get("weight_kg", 1)
+        cod_or_topay = f"Rs {safe_float(s.get('total_amount')):.0f}" if pay_mode == "TO-PAY" else f"Rs {safe_float(s.get('cod_amount')):.0f}"
+
+        cells = [("WEIGHT", f"{wt_val} KG"), ("PIECES", str(s.get("quantity") or "1")), 
+                 ("COLLECT" if pay_mode == "TO-PAY" else "COD", cod_or_topay), ("PAY MODE", pay_mode), 
                  ("DATE", str(s.get("booking_date") or "")[:10]), ("MODE", str(stype)),
                  ("DEST CITY", str(_dst_clean)[:14]), ("BRANCH", str(settings.get("branch_name", "HQ")) if is_self else "HUB")]
         
@@ -5478,38 +5497,72 @@ def print_label(awb):
             cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, cy + 4, str(value))
             
         st = y0 - 2 * chh - 6
-        cv.setFillColorRGB(1, 1, 1); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, st - 40, w - 24, 40, fill=1, stroke=1)
-        cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(20, st - 10, "SHIPPER")
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 6.8)
-        yy = st - 20
+        cv.setFillColorRGB(1, 1, 1); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, st - 44, w - 24, 44, fill=1, stroke=1)
+        cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(20, st - 10, "SHIPPER / SENDER DETAILS")
         
-        shipper_name = cust.get('name') or s.get('origin_name') or ""
-        shipper_addr = cust.get('address') or ""
-        if str(shipper_addr).lower() == 'none': shipper_addr = ''
-        shipper_info = str(shipper_name)
-        if shipper_addr: shipper_info += f" | {shipper_addr}"
-        shipper_info += f" | GSTIN: {cust.get('gstin') or '-'}"
-        for line in wrap_lines(cv, shipper_info, "Helvetica", 6.8, w - 44)[:2]:
-            cv.drawString(20, yy, line); yy -= 9
+        sh_name, sh_addr, sh_phone, sh_gst = get_web_shipper_details(s, cust)
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawString(20, st - 21, fit_text(cv, f"{sh_name}   |   Ph: {sh_phone or '-'}", "Helvetica-Bold", 7.5, w - 44))
+        cv.setFont("Helvetica", 6.8)
+        addr_line = f"{sh_addr}" + (f" | GSTIN: {sh_gst}" if sh_gst and sh_gst != '-' else "")
+        for line in wrap_lines(cv, addr_line, "Helvetica", 6.8, w - 44)[:2]:
+            cv.drawString(20, st - 31, line)
             
-        history_text = f"AWB:{safe_awb}|DT:{s.get('booking_date')}|ORG:{_org_clean}|DST:{_dst_clean}|WT:{s.get('weight_kg')}|STAT:{s.get('status')}"
-        draw_qr_web(cv, history_text, 14, 42, 45)
+        history_text = f"AWB:{safe_awb}|DT:{str(s.get('booking_date',''))[:10]}|ORG:{_org_clean}|DST:{_dst_clean}|WT:{wt_val}|MODE:{pay_mode}"
+        draw_qr_web(cv, history_text, 14, 42, 42)
+        draw_qr_web(cv, f"NEXUS-VERIFIED|AWB:{safe_awb}|SECURE", w - 56, 42, 42)
+        cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.setFont("Helvetica-Bold", 5.5); cv.drawCentredString(w - 35, 36, "NEXUS SEAL")
 
-        cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(10, 10, w - 20, 28, fill=1, stroke=0)
+        cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(10, 10, w - 20, 25, fill=1, stroke=0)
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 5.8)
-        cv.drawCentredString(w / 2, 26, fit_text(cv, settings.get("terms_note", ""), "Helvetica", 5.8, w - 40))
-        if is_self: cv.drawCentredString(w / 2, 17, "Computer Generated Label | AGC ERP")
-        else: cv.drawCentredString(w / 2, 17, "Computer Generated Label | Neutral Routing Partner")
+        cv.drawCentredString(w / 2, 24, fit_text(cv, settings.get("terms_note", ""), "Helvetica", 5.8, w - 40))
+        cv.drawCentredString(w / 2, 15, "Computer Generated Label | https://pagcerp.cgsmart.in" if is_self else "Neutral Routing Partner")
         
         cv.showPage(); cv.save()
         buf.seek(0)
         return send_file(buf, as_attachment=False, download_name=f"Label_{awb}.pdf", mimetype='application/pdf')
-    except Exception as e: return f"PDF Generator Error: {str(e)}", 500
+    except Exception as e:
+        return f"PDF Generator Error: {str(e)}", 500
 
-# ----- RECEIPT PRINT ROUTE -----
-@app.route('/print/receipt/<awb>')
-@login_required
+# ==========================================
+# 🧠 SMART SHIPPER DETAILS EXTRACTOR (WEB PDF)
+# ==========================================
+def get_web_shipper_details(s, cust):
+    c_name = (cust.get('name') or '').strip() if cust else ''
+    c_addr = (cust.get('address') or '').strip() if cust else ''
+    c_phone = (cust.get('phone') or '').strip() if cust else ''
+    c_gst = (cust.get('gstin') or '-').strip() if cust else '-'
+    if c_addr.lower() == 'none': c_addr = ''
+    if c_phone.lower() == 'none': c_phone = ''
+
+    o_name = (s.get('origin_name') or '').strip()
+    o_addr = (s.get('origin_address') or '').strip()
+    o_phone = (s.get('origin_phone') or '').strip()
+    if o_addr.lower() == 'none': o_addr = ''
+    if o_phone.lower() == 'none': o_phone = ''
+
+    info_txt = str(s.get('info') or '')
+    if "Shipper: " in info_txt and (not o_name or o_name.upper() in ["NOHAR", "HQ", "SYSTEM"]):
+        o_name = info_txt.split("Shipper: ")[1].split("|")[0].strip()
+
+    is_cash = (not c_name) or ("CASH" in c_name.upper()) or ("WALK" in c_name.upper())
+    if is_cash:
+        final_name = o_name if (o_name and o_name.upper() not in ["NOHAR", "HQ", "SYSTEM"]) else (c_name or "CASH BOOKING")
+        final_addr = o_addr or c_addr
+        final_phone = o_phone or c_phone
+    else:
+        final_name = o_name if (o_name and o_name.upper() not in ["NOHAR", "HQ", "SYSTEM", c_name.upper()]) else c_name
+        final_addr = o_addr or c_addr
+        final_phone = o_phone or c_phone
+
+    return final_name, final_addr, final_phone, c_gst
+
+# ==========================================
+# 🧾 WEB ERP: PRINT RECEIPT (DYNAMIC UPI QR + LIVE TRACK QR)
+# ==========================================
+@app.route('/print/receipt/<awb>')@login_required
 def print_receipt(awb):
+    from urllib.parse import quote
     try:
         conn = get_db()
         with conn.cursor() as c:
@@ -5525,17 +5578,16 @@ def print_receipt(awb):
             c.execute("SELECT * FROM settings")
             settings = {r.get('key_name') or r.get('key') or r.get('name'): r.get('value') for r in c.fetchall()}
         conn.close()
-    except Exception as e: return f"Database Error: {str(e)}", 500
+    except Exception as e:
+        return f"Database Error: {str(e)}", 500
 
     try:
         _org = outward.get('origin_station') or "NOHAR"
         _dst = outward.get('out_station') or s.get('dest_station') or s.get('dest_name') or "-"
+        pay_mode = str(s.get("payment_mode") or "CASH").upper()
         
-        # 🧠 SMART PINCODE EXTRACTION LOGIC FOR RECEIPT
-        import re
         def extract_pin(station, address):
-            match = re.search(r'\b\d{6}\b', str(station))
-            if not match: match = re.search(r'\b\d{6}\b', str(address))
+            match = re.search(r'\b\d{6}\b', str(station)) or re.search(r'\b\d{6}\b', str(address))
             pin = match.group(0) if match else ""
             clean_station = re.sub(r'\s*-?\s*\b\d{6}\b\s*', '', str(station)).strip()
             return clean_station, pin
@@ -5543,26 +5595,25 @@ def print_receipt(awb):
         _org_clean, org_pin = extract_pin(_org, s.get("origin_address", ""))
         _dst_clean, dst_pin = extract_pin(_dst, s.get("dest_address", ""))
 
-        stype = s.get("service_type") or "SURFACE"
-        if stype in ["BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"]: stype = "SURFACE"
-
         buf = io.BytesIO()
-        w, h = 595, 421 # A5 Size for Receipt
+        w, h = 595, 421  # A5 Landscape Receipt
         cv = canvas.Canvas(buf, pagesize=(w, h))
 
         x = 30
-        if draw_logo_web(cv, x, h - 60, 90, 45): x = 130
+        if draw_logo_web(cv, x, h - 60, 90, 45):
+            x = 130
             
+        comp_name = settings.get("company_name", "PANKAJ AGENCY")
         cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 13)
-        cv.drawString(x, h - 35, settings.get("company_name", "PANKAJ AGENCY"))
+        cv.drawString(x, h - 35, comp_name)
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.5)
         cv.drawString(x, h - 46, settings.get("company_address", ""))
         cv.drawString(x, h - 55, f"GSTIN: {settings.get('company_gstin', '')} | Ph: {settings.get('company_phone', '')}")
 
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5)
-        cv.roundRect(w - 175, h - 52, 145, 30, 8, fill=0, stroke=1)
-        cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 11)
-        cv.drawCentredString(w - 102, h - 41, "COURIER SLIP / RECEIPT")
+        cv.roundRect(w - 185, h - 52, 155, 30, 8, fill=0, stroke=1)
+        cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 10)
+        cv.drawCentredString(w - 107, h - 41, f"COURIER RECEIPT ({pay_mode})")
         cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 7)
         cv.drawRightString(w - 30, h - 62, f"Date: {str(s.get('booking_date', ''))[:10]}")
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(20, h - 70, w - 20, h - 70)
@@ -5574,10 +5625,21 @@ def print_receipt(awb):
         except: pass
         cv.setFont("Courier-Bold", 8); cv.drawString(34, h - 135, safe_awb)
         
-        track_url = f"https://agcgroup.in/track-now/?awb={safe_awb}"
-        draw_qr_web(cv, track_url, w - 95, h - 135, 60)
+        # 📱 1. Live Tracking QR Code
+        track_url = f"https://pagcerp.cgsmart.in/track?awb={safe_awb}"
+        draw_qr_web(cv, track_url, w - 90, h - 135, 55)
+        cv.setFont("Helvetica-Bold", 5.5); cv.setFillColorRGB(*hex_rgb("#6B7280"))
+        cv.drawCentredString(w - 62.5, h - 142, "SCAN TO TRACK")
 
-        # 🚀 ADDING CLEAN STATIONS & PINCODES
+        # 💰 2. Dynamic UPI Payment QR Code (If Total > 0)
+        tot_val = safe_float(s.get("total_amount"))
+        upi_id = (settings.get("upi_id") or "7357073316@sbi").strip()
+        if tot_val > 0 and upi_id:
+            upi_url = f"upi://pay?pa={upi_id}&pn={quote(comp_name[:20])}&am={tot_val:.2f}&cu=INR&tn=AWB-{safe_awb}"
+            draw_qr_web(cv, upi_url, w - 160, h - 135, 55)
+            cv.setFillColorRGB(*hex_rgb("#0B6B55"))
+            cv.drawCentredString(w - 132.5, h - 142, f"UPI PAY Rs {tot_val:.0f}")
+
         cv.setFillColorRGB(*hex_rgb("#0B6B55")); cv.setFont("Helvetica-Bold", 10)
         org_text = f"{_org_clean.upper()} {org_pin}".strip()
         dst_text = f"{_dst_clean.upper()} {dst_pin}".strip()
@@ -5589,26 +5651,31 @@ def print_receipt(awb):
         cv.roundRect(30, yb, bw, 90, 6, fill=1, stroke=1)
         cv.roundRect(40 + bw, yb, bw, 90, 6, fill=1, stroke=1)
         cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 7)
-        cv.drawString(38, yb + 80, "SHIPPER"); cv.drawString(48 + bw, yb + 80, "CONSIGNEE")
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica", 7.5)
+        cv.drawString(38, yb + 80, "SHIPPER (SENDER)"); cv.drawString(48 + bw, yb + 80, "CONSIGNEE (RECEIVER)")
         
-        yy = yb + 68
-        shipper_name = cust.get('name') or s.get('origin_name') or ""
-        shipper_addr = cust.get('address') or ""
-        if str(shipper_addr).lower() == 'none': shipper_addr = ''
-        for ln in wrap_lines(cv, f"{shipper_name} {shipper_addr}", "Helvetica", 7.5, bw - 16)[:3]:
+        sh_name, sh_addr, sh_phone, sh_gst = get_web_shipper_details(s, cust)
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8.5)
+        cv.drawString(38, yb + 67, fit_text(cv, sh_name, "Helvetica-Bold", 8.5, bw - 16))
+        cv.setFont("Helvetica", 7.5)
+        yy = yb + 55
+        for ln in wrap_lines(cv, sh_addr or "-", "Helvetica", 7.5, bw - 16)[:2]:
             cv.drawString(38, yy, ln); yy -= 9
-        cv.drawString(38, yy - 2, f"GSTIN: {cust.get('gstin', '-')}")
+        cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawString(38, yb + 8, f"Ph: {sh_phone or '-'}  |  GSTIN: {sh_gst}")
         
-        yy = yb + 68
-        for ln in wrap_lines(cv, f"{s.get('dest_name', '')} {s.get('dest_address', '')}", "Helvetica", 7.5, bw - 16)[:3]:
+        cv.setFont("Helvetica-Bold", 8.5)
+        cv.drawString(48 + bw, yb + 67, fit_text(cv, s.get('dest_name') or '-', "Helvetica-Bold", 8.5, bw - 16))
+        cv.setFont("Helvetica", 7.5)
+        yy = yb + 55
+        for ln in wrap_lines(cv, s.get('dest_address') or '-', "Helvetica", 7.5, bw - 16)[:2]:
             cv.drawString(48 + bw, yy, ln); yy -= 9
-        cv.drawString(48 + bw, yy - 2, f"Ph: {s.get('dest_phone', '-')} | State: {s.get('dest_state_code', '-')}")
+        cv.setFont("Helvetica-Bold", 7.5)
+        cv.drawString(48 + bw, yb + 8, f"Ph: {s.get('dest_phone') or '-'}  |  Dest: {_dst_clean.upper()}")
 
-        vals = [("WEIGHT", f"{s.get('weight_kg', 0)} KG"), ("PIECES", str(s.get('quantity', 1))), ("SERVICE", stype),
-                ("COD", f"Rs {s.get('cod_amount', 0)}"), ("TAXABLE", f"{s.get('taxable_amount', 0)}"),
-                ("GST", f"{(s.get('cgst') or 0) + (s.get('sgst') or 0) + (s.get('igst') or 0)}"),
-                ("TOTAL", f"Rs {s.get('total_amount', 0)}")]
+        gst_sum = safe_float(s.get('cgst')) + safe_float(s.get('sgst')) + safe_float(s.get('igst'))
+        vals = [("WEIGHT", f"{s.get('weight_kg', 0)} KG"), ("PIECES", str(s.get('quantity', 1))), ("MODE", pay_mode),
+                ("COD", f"Rs {safe_float(s.get('cod_amount')):.2f}"), ("TAXABLE", f"{safe_float(s.get('taxable_amount')):.2f}"),
+                ("GST", f"{gst_sum:.2f}"), ("TOTAL", f"Rs {tot_val:.2f}")]
                 
         cw2 = (w - 60) / len(vals)
         yc = yb - 18
@@ -5619,18 +5686,18 @@ def print_receipt(awb):
             cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, yc - 19, str(vl))
 
         cv.setFont("Helvetica", 6.5); cv.setFillColorRGB(*hex_rgb("#6B7280"))
-        tot_amt = str(s.get('total_amount', 0))
-        cv.drawString(30, yc - 38, f"Grand Total: Rs {tot_amt}")
+        cv.drawString(30, yc - 38, f"Grand Total: Rs {tot_val:,.2f} ({pay_mode})")
         cv.line(w - 170, yc - 30, w - 30, yc - 30)
-        cv.drawString(w - 170, yc - 40, f"For {settings.get('company_name', 'AGC')}")
+        cv.drawString(w - 170, yc - 40, f"For {comp_name}")
         cv.setFont("Helvetica", 6)
         cv.drawString(30, 20, str(settings.get("terms_note", "")))
-        cv.drawRightString(w - 30, 20, str(settings.get("company_website", "")))
+        cv.drawRightString(w - 30, 20, "https://pagcerp.cgsmart.in")
         
         cv.showPage(); cv.save()
         buf.seek(0)
         return send_file(buf, as_attachment=False, download_name=f"Receipt_{awb}.pdf", mimetype='application/pdf')
-    except Exception as e: return f"PDF Generator Error: {str(e)}", 500
+    except Exception as e:
+        return f"PDF Generator Error: {str(e)}", 500
 
 # ==========================================
 # 🔑 DEVELOPER API & WEBHOOKS PANEL
@@ -6248,7 +6315,7 @@ def sync_download():
 
 @app.route('/api/sync/smart', methods=['POST'])
 def sync_smart():
-    """Receives local unsynced shipments, outward, inward, and payments, merges them securely, and returns cloud updates."""
+    """2-Way Smart Sync: Syncs shipments, outward, inward, payments & propagates Web deletions to Desktop."""
     client_token = request.headers.get('X-Sync-Token')
     server_token = os.environ.get('SYNC_API_KEY', 'agc-super-secret-sync-key-2026')
     if client_token != server_token:
@@ -6285,24 +6352,26 @@ def sync_smart():
                 if pri.get('updated_at') and fb.get('updated_at'):
                     if str(fb['updated_at']) > str(pri['updated_at']):
                         pri_newer = False
-                
                 primary = pri if pri_newer else fb
                 fallback = fb if pri_newer else pri
-
                 for col in cols:
                     if col == "status": continue
                     m[col] = primary.get(col) if not is_empty(primary.get(col), col) else fallback.get(col)
-                
                 ra = RANK.get(str(pri.get("status") or "").upper(), 1)
                 rb = RANK.get(str(fb.get("status") or "").upper(), 1)
                 m["status"] = pri.get("status") if ra >= rb else fb.get("status")
                 return m
 
-            # 1. Merge Incoming Desktop Shipments
+            # 1. Merge Incoming Desktop Shipments (is_synced=0 means fresh/updated on Desktop)
             for lrow in local_shipments:
                 awb_val = str(lrow.get('awb_no') or '').strip().upper()
-                if not awb_val or awb_val in deleted_set:
+                if not awb_val:
                     continue
+                # 🔄 If user re-booked a previously deleted AWB on Desktop, un-delete it!
+                if awb_val in deleted_set:
+                    c.execute("DELETE FROM deleted_awbs WHERE awb_no=%s", (awb_val,))
+                    deleted_set.discard(awb_val)
+
                 c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb_val,))
                 crow = c.fetchone()
                 if crow:
@@ -6349,16 +6418,21 @@ def sync_smart():
                     c.execute("INSERT INTO payments(customer_id, payment_date, amount, mode, reference) VALUES(%s,%s,%s,%s,%s)",
                               (prow.get('customer_id'), prow.get('payment_date'), prow.get('amount', 0), prow.get('mode', 'CASH'), ref_val))
 
-            # 5. Fetch Latest Cloud Data to send back to Desktop (Excluding deleted AWBs)
+            # 5. Fetch Latest Cloud Data to send back to Desktop
             c.execute(f"SELECT awb_no, {', '.join(['`'+col+'`' for col in cols])} FROM shipments ORDER BY id DESC LIMIT 500")
             cloud_latest = [r for r in c.fetchall() if r.get('awb_no') not in deleted_set]
             
             for r in cloud_latest:
                 for k, v in r.items():
-                    if isinstance(v, (datetime.date, datetime.datetime)): r[k] = str(v)
+                    if isinstance(v, (datetime.date, datetime.datetime)):
+                        r[k] = str(v)
 
         conn.commit()
-        return jsonify({"success": True, "cloud_shipments": cloud_latest})
+        return jsonify({
+            "success": True,
+            "cloud_shipments": cloud_latest,
+            "deleted_awbs": list(deleted_set)
+        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
     finally:
