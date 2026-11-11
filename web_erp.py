@@ -2698,12 +2698,35 @@ def api_get_awb_info(awb):
     return jsonify({"success": False})
 
 # ==========================================
-# 📤 3.2 COUNTER BOOKING (ADD + AUTO-RATE + FULL SYNC)
+# 📤 3.2 COUNTER BOOKING (POSTGRESQL SAFE + AUTO-HEAL + AUTO-RATE)
 # ==========================================
 @app.route('/booking', methods=['GET', 'POST'])
 @login_required
 def booking():
     conn = get_db()
+    
+    # 🚀 AUTO-HEAL: Ensure all required columns exist in PostgreSQL BEFORE GET or POST queries run
+    try:
+        with conn.cursor() as c:
+            for col_def in [
+                "payment_mode VARCHAR(30) DEFAULT 'CASH'",
+                "length_cm DOUBLE PRECISION DEFAULT 0",
+                "width_cm DOUBLE PRECISION DEFAULT 0",
+                "height_cm DOUBLE PRECISION DEFAULT 0",
+                "vol_weight DOUBLE PRECISION DEFAULT 0",
+                "applied_weight DOUBLE PRECISION DEFAULT 0",
+                "network VARCHAR(100) DEFAULT 'SELF'",
+                "network_awb VARCHAR(100)",
+                "is_synced INT DEFAULT 0"
+            ]:
+                try:
+                    c.execute(f"ALTER TABLE shipments ADD COLUMN IF NOT EXISTS {col_def}")
+                except Exception:
+                    pass
+        conn.commit()
+    except Exception:
+        pass
+
     if request.method == 'POST':
         d = request.form
         
@@ -2733,12 +2756,6 @@ def booking():
         
         with conn.cursor() as c:
             try:
-                # Ensure payment_mode column exists
-                try:
-                    c.execute("ALTER TABLE shipments ADD COLUMN payment_mode VARCHAR(30) DEFAULT 'CASH'")
-                except Exception:
-                    pass
-
                 dstat_val = d.get('dstat', '').strip().upper()
                 if dstat_val:
                     c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dstat_val,))
@@ -2750,11 +2767,13 @@ def booking():
                     awb = get_customer_awb(cid)
                     if not awb:
                         flash("❌ Booking Failed: Your AWB Series is exhausted!", "error")
+                        conn.close()
                         return redirect('/booking')
                 else:
                     awb = d.get('awb', '').strip().upper()
                     if not awb:
                         flash("❌ AWB Number is required!", "error")
+                        conn.close()
                         return redirect('/booking')
 
                     # 🔍 DUPLICATE & STATIONERY CHECK
@@ -2762,13 +2781,13 @@ def booking():
                     existing_sh = c.fetchone()
                     if existing_sh:
                         if str(existing_sh.get('status') or '').upper() == 'STATIONERY':
-                            # Purani stationery placeholder row ko hata kar fresh booking banayein
                             c.execute("DELETE FROM shipments WHERE id=%s", (existing_sh['id'],))
                         else:
                             flash(f"❌ Duplicate AWB! {awb} already exists (Status: {existing_sh.get('status')}).", "error")
+                            conn.close()
                             return redirect('/booking')
 
-                # 🔄 Agar yeh AWB pehle kabhi delete hua tha aur ab dobara book ho raha hai, toh deleted_awbs se hata dein
+                # 🔄 Remove from deleted_awbs if re-booking a previously deleted AWB
                 try:
                     c.execute("DELETE FROM deleted_awbs WHERE awb_no=%s", (awb,))
                 except Exception:
@@ -2840,11 +2859,11 @@ def booking():
         custs = c.fetchall()
         c.execute("SELECT name FROM stations ORDER BY name")
         stations = c.fetchall()
-        my_cust = None
+        my_cust = {}
         addr_book = []
-        if session.get('role') == 'CUSTOMER':
+        if session.get('role') == 'CUSTOMER' and session.get('customer_id'):
             c.execute("SELECT id, name, phone, state_code, address FROM customers WHERE id=%s", (session.get('customer_id'),))
-            my_cust = c.fetchone()
+            my_cust = c.fetchone() or {}
             try:
                 c.execute("SELECT * FROM address_book WHERE customer_id=%s", (session.get('customer_id'),))
                 addr_book = c.fetchall()
@@ -2881,8 +2900,8 @@ def booking():
                 </div>
                 <div><label class="label-modern">Customer A/c</label>
                     {% if session.get('role') == 'CUSTOMER' %}
-                    <input type="hidden" name="cust_id" id="cid" value="{{ my_cust.id }}" data-state="{{ my_cust.state_code }}">
-                    <input value="{{ my_cust.name }}" readonly class="input-modern bg-slate-100 font-bold">
+                    <input type="hidden" name="cust_id" id="cid" value="{{ my_cust.get('id', '') }}" data-state="{{ my_cust.get('state_code', '') }}">
+                    <input value="{{ my_cust.get('name', 'Customer') }}" readonly class="input-modern bg-slate-100 font-bold">
                     {% else %}
                     <select name="cust_id" id="cid" onchange="onCustomerChange()" class="input-modern">
                         <option value="">-- Cash Booking --</option>
@@ -2897,10 +2916,10 @@ def booking():
                 <div class="border border-amber-200 rounded-lg p-4 bg-amber-50">
                     <h4 class="font-bold text-amber-700 mb-3 text-sm">📤 CONSIGNOR (Sender)</h4>
                     <div class="space-y-2">
-                        <input name="oname" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.name }}{% else %}{{ session.get('branch', 'HQ') }}{% endif %}" class="input-modern" placeholder="Sender Name" required>
-                        <input name="ophone" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.phone }}{% endif %}" class="input-modern" placeholder="Sender Phone">
-                        <input name="ostate" id="ost" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.state_code }}{% else %}RJ{% endif %}" onchange="fetchRate()" class="input-modern uppercase" placeholder="Origin State Code (e.g. RJ)">
-                        <input name="oaddr" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.address }}{% endif %}" class="input-modern" placeholder="Sender Address">
+                        <input name="oname" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.get('name', '') }}{% else %}{{ session.get('branch', 'HQ') }}{% endif %}" class="input-modern" placeholder="Sender Name" required>
+                        <input name="ophone" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.get('phone', '') }}{% endif %}" class="input-modern" placeholder="Sender Phone">
+                        <input name="ostate" id="ost" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.get('state_code', 'RJ') }}{% else %}RJ{% endif %}" onchange="fetchRate()" class="input-modern uppercase" placeholder="Origin State Code (e.g. RJ)">
+                        <input name="oaddr" value="{% if session.get('role') == 'CUSTOMER' %}{{ my_cust.get('address', '') }}{% endif %}" class="input-modern" placeholder="Sender Address">
                     </div>
                 </div>
                 <div class="border border-blue-200 rounded-lg p-4 bg-blue-50">
@@ -3044,7 +3063,7 @@ def booking():
                     <a href="/edit_shipment/{{ r.id }}" class="btn-primary" style="padding:4px 8px; font-size:11px;" title="Edit"><i class="fas fa-edit"></i></a>
                     <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:4px 8px; font-size:11px;" title="Print Label"><i class="fas fa-tag"></i></a>
                     <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn-success" style="padding:4px 8px; font-size:11px;" title="Print Receipt"><i class="fas fa-receipt"></i></a>
-                    {% if r.quantity > 1 %}
+                    {% if r.quantity and r.quantity > 1 %}
                     <a href="/print/multi_piece/{{ r.awb_no }}" target="_blank" class="btn-danger" style="padding:4px 8px; font-size:11px;" title="Multi-Piece Barcodes"><i class="fas fa-cubes"></i></a>
                     {% endif %}
                 </td>
