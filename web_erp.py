@@ -3173,7 +3173,7 @@ def booking():
     return render_page("Counter Booking", render_template_string(html, custs=custs, stations=stations, recent=recent, my_cust=my_cust, addr_book=addr_book))
 
 # ==========================================
-# ✏️ 3.3 EDIT SHIPMENT (FULL UPDATE + STATUS)
+# ✏️ 3.3 EDIT SHIPMENT (FULL UPDATE + NETWORK + AWB RENAME + STATUS)
 # ==========================================
 @app.route('/edit_shipment/<int:sid>', methods=['GET', 'POST'])
 @login_required
@@ -3182,17 +3182,25 @@ def edit_shipment(sid):
     with conn.cursor() as c:
         c.execute("SELECT * FROM shipments WHERE id=%s", (sid,))
         s = c.fetchone()
-        if not s: flash("Shipment not found!", "error"); return redirect('/shipments')
+        if not s:
+            conn.close()
+            flash("Shipment not found!", "error")
+            return redirect('/shipments')
         
-        # Customer can only edit their own BOOKED shipments
         if session.get('role') == 'CUSTOMER':
             if s['customer_id'] != session.get('customer_id'):
-                flash("Unauthorized access!", "error"); return redirect('/shipments')
+                conn.close()
+                flash("Unauthorized access!", "error")
+                return redirect('/shipments')
             if s['status'] != 'BOOKED':
-                flash("Cannot edit dispatched shipment!", "error"); return redirect('/shipments')
+                conn.close()
+                flash("Cannot edit dispatched shipment!", "error")
+                return redirect('/shipments')
         
         if request.method == 'POST':
             d = request.form
+            new_awb = d.get('awb', '').strip().upper()
+            old_awb = s['awb_no']
             fr = safe_float(d.get('fr')); tax = safe_float(d.get('tax', 18)); wt = safe_float(d.get('wt', 1))
             fuel = safe_float(get_setting("fuel_surcharge", "0"))
             taxable = fr * (1 + (fuel/100)); gst = taxable * (tax / 100); tot = taxable + gst
@@ -3201,27 +3209,59 @@ def edit_shipment(sid):
                 cgst = sgst = gst / 2
             else:
                 igst = gst
+                
+            net_val = d.get('network', s.get('network') or 'SELF')
+            net_awb_val = d.get('network_awb', '').strip().upper()
+            pmode_val = d.get('payment_mode', s.get('payment_mode') or 'CASH')
+
             try:
+                if new_awb != old_awb:
+                    c.execute("SELECT id, status FROM shipments WHERE awb_no=%s AND id!=%s", (new_awb, sid))
+                    dup = c.fetchone()
+                    if dup:
+                        if str(dup.get('status') or '').upper() == 'STATIONERY':
+                            c.execute("DELETE FROM shipments WHERE id=%s", (dup['id'],))
+                        else:
+                            flash(f"❌ Duplicate AWB! {new_awb} already exists.", "error")
+                            conn.close()
+                            return redirect(f'/edit_shipment/{sid}')
+
+                    c.execute("UPDATE outward_register SET awb_no=%s WHERE awb_no=%s", (new_awb, old_awb))
+                    c.execute("UPDATE inward_register SET awb_no=%s WHERE awb_no=%s", (new_awb, old_awb))
+                    c.execute("UPDATE delivery_register SET awb_no=%s WHERE awb_no=%s", (new_awb, old_awb))
+                    c.execute("UPDATE master_bag_items SET awb_no=%s WHERE awb_no=%s", (new_awb, old_awb))
+                    c.execute("UPDATE ledger SET reference=%s WHERE reference=%s", (new_awb, old_awb))
+                    c.execute("DELETE FROM deleted_awbs WHERE awb_no=%s", (new_awb,))
+                    c.execute("INSERT INTO deleted_awbs(awb_no) VALUES(%s) ON CONFLICT (awb_no) DO UPDATE SET deleted_at=CURRENT_TIMESTAMP", (old_awb,))
+
                 c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (d.get('dstat','').upper(),))
                 new_status = d.get('status', 'BOOKED') if session.get('role') != 'CUSTOMER' else 'BOOKED'
                 new_loc = d.get('location', '') if session.get('role') != 'CUSTOMER' else s['current_location']
+                
                 c.execute("""UPDATE shipments SET awb_no=%s, booking_date=%s, origin_name=%s, origin_phone=%s, origin_address=%s, 
                     origin_state_code=%s, dest_name=%s, dest_phone=%s, dest_address=%s, dest_state_code=%s, dest_station=%s, 
                     weight_kg=%s, quantity=%s, cod_amount=%s, declared_value=%s, service_type=%s, taxable_amount=%s, tax_rate=%s, 
-                    cgst=%s, sgst=%s, igst=%s, total_amount=%s, info=%s, status=%s, current_location=%s WHERE id=%s""",
-                    (d.get('awb','').upper(), d.get('date',''), d.get('oname',''), d.get('ophone',''), d.get('oaddr',''),
+                    cgst=%s, sgst=%s, igst=%s, total_amount=%s, info=%s, network=%s, network_awb=%s, payment_mode=%s,
+                    status=%s, current_location=%s, is_synced=0, updated_at=CURRENT_TIMESTAMP WHERE id=%s""",
+                    (new_awb, d.get('date',''), d.get('oname',''), d.get('ophone',''), d.get('oaddr',''),
                      d.get('ostate',''), d.get('dname',''), d.get('dphone',''), d.get('daddr',''), d.get('dstate',''),
                      d.get('dstat','').upper(), wt, safe_int(d.get('pcs', 1)), safe_float(d.get('cod')), safe_float(d.get('dec')),
-                     d.get('srv','SURFACE'), taxable, tax, cgst, sgst, igst, tot, d.get('info',''), new_status, new_loc, sid))
-                # Log status change
+                     d.get('srv','SURFACE'), taxable, tax, cgst, sgst, igst, tot, d.get('info',''), net_val, net_awb_val, pmode_val,
+                     new_status, new_loc, sid))
+                     
+                # Sync network details to outward_register if present
+                c.execute("UPDATE outward_register SET network=%s, network_awb=%s WHERE awb_no=%s", (net_val, net_awb_val, new_awb))
+
                 if s['status'] != new_status or s['current_location'] != new_loc:
                     c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,%s,%s,'Updated via Edit Panel')", (sid, new_status, new_loc))
                 conn.commit()
-                flash(f"✅ AWB {d.get('awb','').upper()} Updated Successfully!", "success")
+                conn.close()
+                flash(f"✅ AWB {new_awb} Updated Successfully!", "success")
                 return redirect('/shipments')
             except Exception as e:
                 flash(f"❌ Update Error: {e}", "error")
-        c.execute("SELECT name FROM stations ORDER BY name"); stations = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name")
+        stations = c.fetchall()
     conn.close()
     
     html = """
@@ -3232,7 +3272,7 @@ def edit_shipment(sid):
         </div>
         <form method="POST" class="space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div><label class="label-modern">Date</label><input type="date" name="date" value="{{ s.booking_date }}" required class="input-modern"></div>
+                <div><label class="label-modern">Date</label><input type="date" name="date" value="{{ (s.booking_date|string)[:10] }}" required class="input-modern"></div>
                 <div><label class="label-modern">AWB No</label><input name="awb" value="{{ s.awb_no }}" required class="input-modern font-bold text-red-600 uppercase"></div>
                 {% if session.get('role') != 'CUSTOMER' %}
                 <div><label class="label-modern">Status</label>
@@ -3242,6 +3282,8 @@ def edit_shipment(sid):
                         <option {% if s.status == 'INWARD' %}selected{% endif %}>INWARD</option>
                         <option {% if s.status == 'ON_DRS' %}selected{% endif %}>ON_DRS</option>
                         <option {% if s.status == 'DELIVERED' %}selected{% endif %}>DELIVERED</option>
+                        <option {% if s.status == 'RETURNED' %}selected{% endif %}>RETURNED</option>
+                        <option {% if s.status == 'CANCELLED' %}selected{% endif %}>CANCELLED</option>
                     </select>
                 </div>
                 <div><label class="label-modern">Location</label><input name="location" value="{{ s.current_location or '' }}" class="input-modern"></div>
@@ -3251,33 +3293,60 @@ def edit_shipment(sid):
                 <div class="border border-amber-200 rounded-lg p-4 bg-amber-50">
                     <h4 class="font-bold text-amber-700 mb-3 text-sm">📤 CONSIGNOR</h4>
                     <div class="space-y-2">
-                        <input name="oname" value="{{ s.origin_name or '' }}" class="input-modern" required>
-                        <input name="ophone" value="{{ s.origin_phone or '' }}" class="input-modern">
-                        <input name="ostate" id="ost" value="{{ s.origin_state_code or '' }}" onchange="manualCalc()" class="input-modern">
-                        <input name="oaddr" value="{{ s.origin_address or '' }}" class="input-modern">
+                        <input name="oname" value="{{ s.origin_name or '' }}" class="input-modern" placeholder="Sender Name" required>
+                        <input name="ophone" value="{{ s.origin_phone or '' }}" class="input-modern" placeholder="Sender Phone">
+                        <input name="ostate" id="ost" value="{{ s.origin_state_code or '' }}" onchange="manualCalc()" class="input-modern uppercase" placeholder="Origin State">
+                        <input name="oaddr" value="{{ s.origin_address or '' }}" class="input-modern" placeholder="Sender Address">
                     </div>
                 </div>
                 <div class="border border-blue-200 rounded-lg p-4 bg-blue-50">
                     <h4 class="font-bold text-blue-700 mb-3 text-sm">📥 CONSIGNEE</h4>
                     <div class="space-y-2">
-                        <input name="dname" value="{{ s.dest_name or '' }}" class="input-modern" required>
-                        <input name="dphone" value="{{ s.dest_phone or '' }}" class="input-modern">
-                        <input name="dstat" list="stations" value="{{ s.dest_station or '' }}" class="input-modern uppercase font-bold" required>
+                        <input name="dname" value="{{ s.dest_name or '' }}" class="input-modern" placeholder="Receiver Name" required>
+                        <input name="dphone" value="{{ s.dest_phone or '' }}" class="input-modern" placeholder="Receiver Phone">
+                        <input name="dstat" list="stations" value="{{ s.dest_station or '' }}" class="input-modern uppercase font-bold" placeholder="Dest Station" required>
                         <datalist id="stations">{% for st in stations %}<option value="{{ st.name }}">{% endfor %}</datalist>
-                        <input name="dstate" id="dst" value="{{ s.dest_state_code or '' }}" onchange="manualCalc()" class="input-modern">
-                        <input name="daddr" value="{{ s.dest_address or '' }}" class="input-modern">
+                        <input name="dstate" id="dst" value="{{ s.dest_state_code or '' }}" onchange="manualCalc()" class="input-modern uppercase" placeholder="Dest State">
+                        <input name="daddr" value="{{ s.dest_address or '' }}" class="input-modern" placeholder="Receiver Address">
                     </div>
                 </div>
             </div>
-            <div class="border border-green-200 rounded-lg p-4 bg-green-50">
-                <h4 class="font-bold text-green-700 mb-3 text-sm">💰 CHARGES</h4>
+            <div class="border border-green-200 rounded-lg p-4 bg-green-50 space-y-3">
+                <h4 class="font-bold text-green-700 text-sm">💰 CHARGES & PARTNER NETWORK</h4>
                 <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    <div><label class="label-modern">Weight</label><input type="number" step="0.01" name="wt" id="wt" value="{{ s.weight_kg or 1 }}" oninput="manualCalc()" required class="input-modern font-bold"></div>
-                    <div><label class="label-modern">Pieces</label><input type="number" name="pcs" value="{{ s.quantity or 1 }}" required class="input-modern"></div>
-                    <div><label class="label-modern">Freight</label><input type="number" step="0.01" name="fr" id="fr" value="{{ s.taxable_amount or 0 }}" oninput="manualCalc()" required class="input-modern text-right"></div>
-                    <div><label class="label-modern">Tax %</label><input type="number" name="tax" id="tax" value="{{ s.tax_rate or 18 }}" oninput="manualCalc()" class="input-modern text-right"></div>
-                    <div><label class="label-modern">Total</label><input type="number" step="0.01" name="amt" id="amt" value="{{ s.total_amount or 0 }}" readonly class="input-modern font-bold text-red-600 text-right"></div>
+                    <div><label class="label-modern">Network</label>
+                        <select name="network" class="input-modern font-bold">
+                            {% for net_opt in ['SELF', 'TRACKON', 'DELHIVERY', 'SHREE MARUTI', 'TIRUPATI', 'DTDC', 'BLUEDART', 'PROFESSIONAL COURIER', 'INDIA POST'] %}
+                            <option value="{{ net_opt }}" {% if (s.network or 'SELF') == net_opt %}selected{% endif %}>{{ net_opt }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div><label class="label-modern">Partner Fwd AWB</label><input name="network_awb" value="{{ s.network_awb or '' }}" class="input-modern uppercase font-bold text-blue-700" placeholder="Partner AWB..."></div>
+                    <div><label class="label-modern">Pay Mode</label>
+                        <select name="payment_mode" class="input-modern font-bold">
+                            {% for pm in ['CASH', 'UPI', 'CREDIT', 'TO-PAY'] %}
+                            <option value="{{ pm }}" {% if (s.payment_mode or 'CASH') == pm %}selected{% endif %}>{{ pm }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div><label class="label-modern">COD Amt (₹)</label><input type="number" step="0.01" name="cod" value="{{ s.cod_amount or 0 }}" class="input-modern"></div>
+                    <div><label class="label-modern">Declared Val (₹)</label><input type="number" step="0.01" name="dec" value="{{ s.declared_value or 0 }}" class="input-modern"></div>
                 </div>
+                <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+                    <div><label class="label-modern">Weight (KG)</label><input type="number" step="0.01" name="wt" id="wt" value="{{ s.weight_kg or 1 }}" oninput="manualCalc()" required class="input-modern font-bold"></div>
+                    <div><label class="label-modern">Pieces</label><input type="number" name="pcs" value="{{ s.quantity or 1 }}" required class="input-modern"></div>
+                    <div><label class="label-modern">Service</label>
+                        <select name="srv" class="input-modern">
+                            {% for sv in ['SURFACE', 'AIR', 'EXPRESS'] %}
+                            <option value="{{ sv }}" {% if (s.service_type or 'SURFACE') == sv %}selected{% endif %}>{{ sv }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div><label class="label-modern">Freight (₹)</label><input type="number" step="0.01" name="fr" id="fr" value="{{ s.taxable_amount or 0 }}" oninput="manualCalc()" required class="input-modern text-right"></div>
+                    <div><label class="label-modern">Tax %</label><input type="number" step="0.01" name="tax" id="tax" value="{{ s.tax_rate or 18 }}" oninput="manualCalc()" class="input-modern text-right"></div>
+                    <div><label class="label-modern">Total (₹)</label><input type="number" step="0.01" name="amt" id="amt" value="{{ s.total_amount or 0 }}" readonly class="input-modern font-bold text-red-600 text-right"></div>
+                </div>
+                <div><label class="label-modern">Remarks / Info</label><input name="info" value="{{ s.info or '' }}" class="input-modern"></div>
             </div>
             <div class="flex gap-3 justify-end">
                 <a href="/shipments" class="btn-danger" style="text-align:center;"><i class="fas fa-times"></i> Cancel</a>
@@ -5558,7 +5627,41 @@ def get_web_shipper_details(s, cust):
     return final_name, final_addr, final_phone, c_gst
 
 # ==========================================
-# 🧾 WEB ERP: PRINT RECEIPT (DYNAMIC UPI QR + LIVE TRACK QR)
+# 🌐 WEB ERP: PARTNER NETWORK TRACKING RESOLVER
+# ==========================================
+def get_web_network_tracking_info(s, outward):
+    from urllib.parse import quote
+    net = (outward.get('network') if outward and outward.get('network') else s.get('network')) or 'SELF'
+    net = str(net).strip().upper()
+    net_awb = (outward.get('network_awb') if outward and outward.get('network_awb') else s.get('network_awb')) or ''
+    net_awb = str(net_awb).strip().upper()
+
+    is_self = net in ["", "SELF", "AGC", "AKASH GANGA", "AKASHGANGA"]
+    track_no = net_awb if net_awb else str(s.get("awb_no") or "").strip()
+
+    NETWORK_MAP = {
+        "TRACKON": ("www.trackon.in", f"https://trackon.in/TrackonTracking?awb={track_no}"),
+        "DELHIVERY": ("www.delhivery.com", f"https://www.delhivery.com/track/package/{track_no}"),
+        "SHREE MARUTI": ("www.shreemaruticourier.com", f"https://www.shreemaruticourier.com/track-your-shipment/?docket_id={track_no}"),
+        "TIRUPATI": ("www.shreetirupaticourier.net", f"http://www.shreetirupaticourier.net/Frm_DocTrack.aspx?docno={track_no}"),
+        "TIRUPATI COURIER": ("www.shreetirupaticourier.net", f"http://www.shreetirupaticourier.net/Frm_DocTrack.aspx?docno={track_no}"),
+        "DTDC": ("www.dtdc.in", f"https://www.dtdc.in/trace.asp?strCnno={track_no}"),
+        "BLUEDART": ("www.bluedart.com", f"https://www.bluedart.com/tracking?tracknumbers={track_no}"),
+        "PROFESSIONAL COURIER": ("www.tpcindia.com", f"https://www.tpcindia.com/track-result.aspx?id={track_no}"),
+        "INDIA POST": ("www.indiapost.gov.in", f"https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx")
+    }
+
+    if is_self:
+        site = "pagcerp.cgsmart.in"
+        url = f"https://pagcerp.cgsmart.in/track?awb={s.get('awb_no', '')}"
+    else:
+        site, url = NETWORK_MAP.get(net, (f"www.{net.lower().replace(' ', '')}.com", f"https://www.google.com/search?q={quote(net + ' tracking ' + track_no)}"))
+
+    return is_self, net, net_awb, site, url
+
+
+# ==========================================
+# 🧾 WEB ERP: PRINT RECEIPT (PARTNER NETWORK + TRACKING QR + UPI QR)
 # ==========================================
 @app.route('/print/receipt/<awb>')
 @login_required
@@ -5574,7 +5677,7 @@ def print_receipt(awb):
             if s.get('customer_id'):
                 c.execute("SELECT * FROM customers WHERE id=%s", (s['customer_id'],))
                 cust = c.fetchone() or {}
-            c.execute("SELECT origin_station, out_station FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
+            c.execute("SELECT origin_station, out_station, network, network_awb FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
             outward = c.fetchone() or {}
             c.execute("SELECT * FROM settings")
             settings = {r.get('key_name') or r.get('key') or r.get('name'): r.get('value') for r in c.fetchall()}
@@ -5583,6 +5686,8 @@ def print_receipt(awb):
         return f"Database Error: {str(e)}", 500
 
     try:
+        is_self, net_name, net_awb, track_site, track_url = get_web_network_tracking_info(s, outward)
+
         _org = outward.get('origin_station') or "NOHAR"
         _dst = outward.get('out_station') or s.get('dest_station') or s.get('dest_name') or "-"
         pay_mode = str(s.get("payment_mode") or "CASH").upper()
@@ -5620,19 +5725,33 @@ def print_receipt(awb):
         cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(20, h - 70, w - 20, h - 70)
 
         safe_awb = str(s.get("awb_no", ""))
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 16)
-        cv.drawString(30, h - 90, safe_awb)
-        try: code128.Code128(safe_awb, barHeight=0.30*inch, barWidth=0.011*inch).drawOn(cv, 34, h - 125)
+        bc_val = net_awb if (not is_self and net_awb) else safe_awb
+        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 15)
+        cv.drawString(30, h - 88, f"AWB: {safe_awb}")
+        try: code128.Code128(bc_val, barHeight=0.28*inch, barWidth=0.011*inch).drawOn(cv, 34, h - 122)
         except: pass
-        cv.setFont("Courier-Bold", 8); cv.drawString(34, h - 135, safe_awb)
+        cv.setFont("Courier-Bold", 8); cv.drawString(34, h - 132, f"Barcode: {bc_val}")
+
+        # 🌐 Partner Network Box on Receipt (When booked with Other Network)
+        if not is_self:
+            cv.setFillColorRGB(*hex_rgb("#FFF7EA")); cv.setStrokeColorRGB(*hex_rgb("#B08A47"))
+            cv.roundRect(195, h - 134, 215, 52, 6, fill=1, stroke=1)
+            cv.setFillColorRGB(*hex_rgb("#0B6B55")); cv.setFont("Helvetica-Bold", 9)
+            cv.drawString(203, h - 95, fit_text(cv, f"NETWORK: {net_name}", "Helvetica-Bold", 9, 200))
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8)
+            cv.drawString(203, h - 108, f"Partner AWB: {net_awb or safe_awb}")
+            cv.setFillColorRGB(*hex_rgb("#2563EB")); cv.setFont("Helvetica-Bold", 7.5)
+            cv.drawString(203, h - 120, fit_text(cv, f"Track Web: {track_site}", "Helvetica-Bold", 7.5, 200))
+            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2)
+            cv.drawString(203, h - 130, "Scan QR on right to track on partner site ->")
         
-        # 📱 1. Live Tracking QR Code
-        track_url = f"https://pagcerp.cgsmart.in/track?awb={safe_awb}"
+        # 📱 1. Live Tracking QR Code (Points to Partner URL if Other Network)
         draw_qr_web(cv, track_url, w - 90, h - 135, 55)
         cv.setFont("Helvetica-Bold", 5.5); cv.setFillColorRGB(*hex_rgb("#6B7280"))
-        cv.drawCentredString(w - 62.5, h - 142, "SCAN TO TRACK")
+        qr_lbl = "SCAN TO TRACK" if is_self else f"TRACK: {net_name[:12]}"
+        cv.drawCentredString(w - 62.5, h - 142, qr_lbl)
 
-        # 💰 2. Dynamic UPI Payment QR Code (If Total > 0)
+        # 💰 2. Dynamic UPI Payment QR Code
         tot_val = safe_float(s.get("total_amount"))
         upi_id = (settings.get("upi_id") or "7357073316@sbi").strip()
         if tot_val > 0 and upi_id:
@@ -5641,10 +5760,13 @@ def print_receipt(awb):
             cv.setFillColorRGB(*hex_rgb("#0B6B55"))
             cv.drawCentredString(w - 132.5, h - 142, f"UPI PAY Rs {tot_val:.0f}")
 
-        cv.setFillColorRGB(*hex_rgb("#0B6B55")); cv.setFont("Helvetica-Bold", 10)
+        cv.setFillColorRGB(*hex_rgb("#0B6B55")); cv.setFont("Helvetica-Bold", 9.5)
         org_text = f"{_org_clean.upper()} {org_pin}".strip()
         dst_text = f"{_dst_clean.upper()} {dst_pin}".strip()
-        cv.drawString(30, h - 150, f"Origin: {org_text}    ➔    Destination: {dst_text}")
+        route_str = f"Origin: {org_text}   ➔   Destination: {dst_text}   |   Network: {net_name}"
+        if not is_self:
+            route_str += f" ({track_site})"
+        cv.drawString(30, h - 152, fit_text(cv, route_str, "Helvetica-Bold", 9.5, w - 60))
 
         bw = (w - 70) / 2
         yb = h - 250
@@ -5674,7 +5796,7 @@ def print_receipt(awb):
         cv.drawString(48 + bw, yb + 8, f"Ph: {s.get('dest_phone') or '-'}  |  Dest: {_dst_clean.upper()}")
 
         gst_sum = safe_float(s.get('cgst')) + safe_float(s.get('sgst')) + safe_float(s.get('igst'))
-        vals = [("WEIGHT", f"{s.get('weight_kg', 0)} KG"), ("PIECES", str(s.get('quantity', 1))), ("MODE", pay_mode),
+        vals = [("WEIGHT", f"{s.get('weight_kg', 0)} KG"), ("PIECES", str(s.get('quantity', 1))), ("NETWORK", net_name[:12]),
                 ("COD", f"Rs {safe_float(s.get('cod_amount')):.2f}"), ("TAXABLE", f"{safe_float(s.get('taxable_amount')):.2f}"),
                 ("GST", f"{gst_sum:.2f}"), ("TOTAL", f"Rs {tot_val:.2f}")]
                 
@@ -5684,15 +5806,17 @@ def print_receipt(awb):
             cx = 30 + i * cw2
             cv.setFillColorRGB(*hex_rgb("#EEF1F4")); cv.rect(cx, yc - 26, cw2 - 4, 26, fill=1, stroke=0)
             cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 5.5); cv.drawString(cx + 4, yc - 8, lb)
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, yc - 19, str(vl))
+            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 7.5); cv.drawString(cx + 4, yc - 19, fit_text(cv, str(vl), "Helvetica-Bold", 7.5, cw2 - 8))
 
         cv.setFont("Helvetica", 6.5); cv.setFillColorRGB(*hex_rgb("#6B7280"))
         cv.drawString(30, yc - 38, f"Grand Total: Rs {tot_val:,.2f} ({pay_mode})")
         cv.line(w - 170, yc - 30, w - 30, yc - 30)
         cv.drawString(w - 170, yc - 40, f"For {comp_name}")
-        cv.setFont("Helvetica", 6)
-        cv.drawString(30, 20, str(settings.get("terms_note", "")))
-        cv.drawRightString(w - 30, 20, "https://pagcerp.cgsmart.in")
+        cv.setFont("Helvetica-Bold", 6.5); cv.setFillColorRGB(*hex_rgb("#2563EB"))
+        cv.drawString(30, 30, f"Track Shipment Online ({net_name}): {track_url}")
+        cv.setFont("Helvetica", 6); cv.setFillColorRGB(*hex_rgb("#6B7280"))
+        cv.drawString(30, 18, str(settings.get("terms_note", "")))
+        cv.drawRightString(w - 30, 18, track_site if not is_self else "https://pagcerp.cgsmart.in")
         
         cv.showPage(); cv.save()
         buf.seek(0)
