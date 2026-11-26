@@ -564,7 +564,13 @@ AGCS_BASE_HTML = """
             <h2 class="text-2xl font-bold text-slate-800 tracking-tight">{{ title }}</h2>
         </div>
         
-        <div class="flex items-center gap-6">
+        <div class="flex items-center gap-4">
+            {% if session.get('role') != 'CUSTOMER' %}
+            <a href="/quick_print" class="btn-warning flex items-center gap-1.5" style="padding:8px 14px; font-size:12px; white-space:nowrap;">
+                <i class="fas fa-bolt"></i> Quick Print
+            </a>
+            {% endif %}
+
             <form action="/track_doc" method="POST" target="_blank" class="hidden sm:flex items-center bg-white border border-slate-200 rounded-full px-4 py-2 shadow-sm focus-within:ring-2 focus-within:ring-blue-100 transition-all">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <i class="fas fa-search text-slate-400 mr-2 text-sm"></i>
@@ -1976,23 +1982,18 @@ def print_stationery_barcodes(bid):
         cv.setLineWidth(0.3)
         cv.line(1*mm, 19.5*mm, 49*mm, 19.5*mm)
         
-        # 3. 🚀 Auto-Scaling Barcode (Kabhi border ke bahar nahi jayega)
+        # 3. Auto-Scaling Barcode (Direct Flowable — No getBounds / Drawing error)
         try:
-            # 🛠️ FIX: Decreased barWidth slightly to ensure long AWBs don't force aggressive downscaling
-            bc = code128.Code128(awb, barHeight=8.5*mm, barWidth=0.25*mm) 
-            bc_w = bc.getBounds()[2] - bc.getBounds()[0]
-            
-            scale = 1.0
-            max_bc_w = 46 * mm
-            if bc_w > max_bc_w:
-                scale = max_bc_w / bc_w
-                
-            d = Drawing(max_bc_w, 10*mm, transform=[scale, 0, 0, 1, 0, 0])
-            d.add(bc)
-            
-            final_w = bc_w * scale
-            x_pos = (50*mm - final_w) / 2
-            renderPDF.draw(d, cv, x_pos, 8*mm)
+            max_bc_w = 45 * mm
+            bw = 0.25 * mm
+            bc = code128.Code128(awb, barHeight=8.5 * mm, barWidth=bw)
+            if bc.width > max_bc_w and bc.width > 0:
+                bw = max(0.14 * mm, bw * (max_bc_w / bc.width))
+                bc = code128.Code128(awb, barHeight=8.5 * mm, barWidth=bw)
+
+            x_pos = (50 * mm - bc.width) / 2.0
+            cv.setFillColorRGB(0, 0, 0)
+            bc.drawOn(cv, x_pos, 8 * mm)
         except Exception as e:
             print("Barcode Error:", e)
         
@@ -3172,6 +3173,293 @@ def booking():
     """
     return render_page("Counter Booking", render_template_string(html, custs=custs, stations=stations, recent=recent, my_cust=my_cust, addr_book=addr_book))
 
+@app.route('/api/quick_fetch/<awb>')
+@login_required
+def api_quick_fetch(awb):
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb.strip().upper(),))
+            s = c.fetchone()
+            if not s:
+                return jsonify({"found": False})
+            out = {k: (str(v) if isinstance(v, (datetime.date, datetime.datetime)) else v) for k, v in s.items()}
+            return jsonify({"found": True, "data": out})
+    finally:
+        conn.close()
+
+
+@app.route('/quick_print', methods=['GET', 'POST'])
+@login_required
+def quick_print():
+    if session.get('role') == 'CUSTOMER':
+        return redirect('/booking')
+
+    conn = get_db()
+    if request.method == 'POST':
+        d = request.form
+        action = d.get("qp_action", "save")
+        awb = d.get("awb", "").strip().upper()
+        if not awb:
+            awb = get_seq("awb", "AWB", 8)
+
+        cid = safe_int(d.get("cust_id")) if d.get("cust_id") else None
+        bdate = d.get("date") or datetime.datetime.now().strftime("%Y-%m-%d")
+        orig_hub = d.get("orig_hub", session.get("branch", "NOHAR")).strip().upper() or "NOHAR"
+        dstat = d.get("dstat", "").strip().upper()
+        s_name = d.get("s_name", "").strip().upper() or "CASH SENDER"
+        s_ph = d.get("s_ph", "").strip()
+        s_addr = d.get("s_addr", "").strip().upper()
+        c_name = d.get("c_name", "").strip().upper() or "RECEIVER"
+        c_ph = d.get("c_ph", "").strip()
+        c_addr = d.get("c_addr", "").strip().upper()
+        wt = safe_float(d.get("wt", 1.0))
+        pcs = max(1, safe_int(d.get("pcs", 1)))
+        cod = safe_float(d.get("cod", 0))
+        dec = safe_float(d.get("dec", 0))
+        srv = d.get("srv", "SURFACE")
+        net = d.get("network", "SELF")
+        n_awb = d.get("network_awb", "").strip().upper()
+        pmode = d.get("payment_mode", "CASH")
+        fr = safe_float(d.get("fr", 0))
+        tax_rate = safe_float(d.get("tax", 0))
+        tot = safe_float(d.get("tot", 0))
+
+        if fr > 0:
+            taxable = fr
+            gst_amt = round(taxable * tax_rate / 100.0, 2)
+            tot = round(taxable + gst_amt, 2)
+        else:
+            taxable = round(tot / (1 + tax_rate / 100.0), 2) if tax_rate > 0 else tot
+            gst_amt = round(tot - taxable, 2)
+        cgst = round(gst_amt / 2.0, 2)
+        sgst = round(gst_amt - cgst, 2)
+        igst = 0.0
+        info_txt = f"Shipper: {s_name} | Mode: {pmode}"
+
+        try:
+            with conn.cursor() as c:
+                if dstat:
+                    c.execute("INSERT IGNORE INTO stations(name) VALUES(%s)", (dstat,))
+                c.execute("SELECT id FROM shipments WHERE awb_no=%s", (awb,))
+                ex_row = c.fetchone()
+                if ex_row:
+                    c.execute("""UPDATE shipments SET customer_id=%s, booking_date=%s, origin_name=%s, origin_phone=%s, origin_address=%s,
+                        dest_name=%s, dest_phone=%s, dest_address=%s, dest_station=%s, weight_kg=%s, quantity=%s,
+                        cod_amount=%s, declared_value=%s, service_type=%s, taxable_amount=%s, tax_rate=%s,
+                        cgst=%s, sgst=%s, igst=%s, total_amount=%s, network=%s, network_awb=%s, payment_mode=%s,
+                        info=%s, is_synced=0, updated_at=CURRENT_TIMESTAMP WHERE id=%s""",
+                        (cid, bdate, s_name, s_ph, s_addr, c_name, c_ph, c_addr, dstat, wt, pcs, cod, dec, srv,
+                         taxable, tax_rate, cgst, sgst, igst, tot, net, n_awb, pmode, info_txt, ex_row["id"]))
+                else:
+                    c.execute("DELETE FROM deleted_awbs WHERE awb_no=%s", (awb,))
+                    c.execute("""INSERT INTO shipments(
+                        awb_no, customer_id, booking_date, origin_name, origin_phone, origin_address,
+                        dest_name, dest_phone, dest_address, dest_station, weight_kg, quantity,
+                        cod_amount, declared_value, service_type, status, current_location,
+                        taxable_amount, tax_rate, cgst, sgst, igst, total_amount,
+                        network, network_awb, payment_mode, info, is_synced
+                    ) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'BOOKED',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,0)""",
+                    (awb, cid, bdate, s_name, s_ph, s_addr, c_name, c_ph, c_addr, dstat, wt, pcs, cod, dec, srv,
+                     orig_hub, taxable, tax_rate, cgst, sgst, igst, tot, net, n_awb, pmode, info_txt))
+                    sid = c.lastrowid
+                    c.execute("INSERT INTO scan_events(shipment_id, scan_type, location, remarks) VALUES(%s,'BOOKED',%s,%s)",
+                              (sid, orig_hub, f"Quick Print ({pmode}) via {net}"))
+                    if pmode in ("CASH", "UPI") and tot > 0:
+                        c.execute("INSERT INTO payments(customer_id, payment_date, amount, mode, reference) VALUES(%s,%s,%s,%s,%s)",
+                                  (cid, bdate, tot, pmode, f"Quick Booking {awb} ({s_name})"))
+                    elif cid and pmode == "CREDIT" and tot > 0:
+                        c.execute("INSERT INTO ledger(customer_id, entry_date, voucher_type, reference, debit, credit, narration) VALUES(%s,%s,'INVOICE',%s,%s,0,%s)",
+                                  (cid, bdate, awb, tot, f"Credit Booking {awb}"))
+            conn.commit()
+        finally:
+            conn.close()
+
+        lbl_size = d.get("lbl_size", "4x6")
+        slip_mode = d.get("slip_mode", "a4_3up")
+
+        if action == "print_label":
+            return redirect(f"/print/label/{awb}?size={lbl_size}")
+        if action == "print_slip":
+            return redirect(f"/print/receipt/{awb}?mode={slip_mode}")
+        if action == "add_queue":
+            q_list = session.get("qp_slip_queue", [])
+            if awb not in q_list:
+                q_list.append(awb)
+            session["qp_slip_queue"] = q_list
+            flash(f"✅ AWB {awb} Saved & Added to A4 3-Slip Queue ({len(q_list)} slips ready).", "success")
+            return redirect("/quick_print")
+
+        flash(f"✅ AWB {awb} Saved Successfully!", "success")
+        return redirect("/quick_print")
+
+    if request.args.get("clear_queue"):
+        session["qp_slip_queue"] = []
+        flash("Queue cleared.", "success")
+        return redirect("/quick_print")
+
+    with conn.cursor() as c:
+        c.execute("SELECT id, name FROM customers WHERE is_active=1 ORDER BY name")
+        custs = c.fetchall()
+        c.execute("SELECT name FROM stations ORDER BY name")
+        stations = c.fetchall()
+    conn.close()
+
+    q_list = session.get("qp_slip_queue", [])
+    html = """
+    <div class="card p-6" style="border-top:4px solid #f59e0b; max-width:1050px; margin:0 auto;">
+        <div class="flex flex-wrap justify-between items-center mb-4 gap-3">
+            <div>
+                <h3 class="text-xl font-extrabold text-slate-800">⚡ Quick Print & Counter Booking</h3>
+                <p class="text-xs text-slate-500 font-semibold">Same Booking Slip & Label Settings — Instant Thermal / A4 3-Slip Ready</p>
+            </div>
+            <div class="flex items-center gap-2">
+                {% if q_list %}
+                <form method="POST" action="/print/bulk_slips" target="_blank" class="inline">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                    <input type="hidden" name="awb_list" value="{{ q_list|join(',') }}">
+                    <button type="submit" class="btn-success"><i class="fas fa-print"></i> Print Queue A4 3-Slips ({{ q_list|length }})</button>
+                </form>
+                <a href="/quick_print?clear_queue=1" class="btn-danger" style="padding:8px 12px;"><i class="fas fa-trash"></i></a>
+                {% endif %}
+            </div>
+        </div>
+
+        <form method="POST" id="qpForm" class="space-y-4">
+            <input type="hidden" name="qp_action" id="qp_action" value="save">
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div><label class="label-modern">Customer A/c</label>
+                    <select name="cust_id" id="qp_cust" class="input-modern">
+                        <option value="">-- CASH BOOKING --</option>
+                        {% for c in custs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div><label class="label-modern text-red-600">AWB No (Blank = Auto)</label>
+                    <input name="awb" id="qp_awb" onblur="fetchExistingAwb()" placeholder="Scan/Type AWB..." class="input-modern font-bold text-red-600 uppercase">
+                </div>
+                <div><label class="label-modern">Date</label><input type="date" name="date" id="qp_date" class="input-modern" required></div>
+                <div><label class="label-modern">Origin Hub</label><input name="orig_hub" value="{{ session.get('branch','NOHAR') }}" class="input-modern uppercase font-bold"></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="p-4 rounded-xl bg-amber-50/70 border border-amber-200 space-y-2">
+                    <p class="text-xs font-extrabold text-amber-700 uppercase">📤 Shipper (Sender)</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input name="s_name" id="qp_sn" placeholder="Sender Name *" class="input-modern">
+                        <input name="s_ph" id="qp_sp" placeholder="Sender Phone" class="input-modern">
+                    </div>
+                    <input name="s_addr" id="qp_sa" placeholder="Sender Address" class="input-modern">
+                </div>
+                <div class="p-4 rounded-xl bg-blue-50/70 border border-blue-200 space-y-2">
+                    <p class="text-xs font-extrabold text-blue-700 uppercase">📥 Consignee (Receiver)</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input name="c_name" id="qp_cn" placeholder="Receiver Name *" class="input-modern">
+                        <input name="c_ph" id="qp_cp" placeholder="Receiver Phone" class="input-modern">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input name="dstat" id="qp_dst" list="qp_st_list" placeholder="Destination Station *" required class="input-modern uppercase font-bold">
+                        <datalist id="qp_st_list">{% for st in stations %}<option value="{{ st.name }}">{% endfor %}</datalist>
+                        <input name="c_addr" id="qp_ca" placeholder="Address + Pincode" class="input-modern">
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-3 p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <div><label class="label-modern">Weight (KG)</label><input type="number" step="0.01" name="wt" id="qp_wt" value="1.0" class="input-modern font-bold"></div>
+                <div><label class="label-modern">Pieces</label><input type="number" name="pcs" id="qp_pcs" value="1" min="1" class="input-modern"></div>
+                <div><label class="label-modern">COD Amt</label><input type="number" step="0.01" name="cod" id="qp_cod" value="0" class="input-modern"></div>
+                <div><label class="label-modern">Declared</label><input type="number" step="0.01" name="dec" id="qp_dec" value="0" class="input-modern"></div>
+                <div><label class="label-modern">Service</label><select name="srv" id="qp_srv" class="input-modern"><option>SURFACE</option><option>AIR</option><option>EXPRESS</option></select></div>
+                <div><label class="label-modern">Pay Mode</label><select name="payment_mode" id="qp_pm" class="input-modern font-bold text-emerald-700"><option>CASH</option><option>UPI</option><option>CREDIT</option><option>TO-PAY</option></select></div>
+                <div class="col-span-2"><label class="label-modern">Partner Network</label>
+                    <select name="network" id="qp_net" class="input-modern font-bold">
+                        <option value="SELF">SELF (AGC)</option><option>TRACKON</option><option>DELHIVERY</option>
+                        <option>SHREE MARUTI</option><option>TIRUPATI</option><option>DTDC</option>
+                        <option>BLUEDART</option><option>PROFESSIONAL COURIER</option><option>INDIA POST</option>
+                    </select>
+                </div>
+                <div><label class="label-modern">Fwd AWB</label><input name="network_awb" id="qp_nawb" class="input-modern uppercase"></div>
+                <div><label class="label-modern">Freight (₹)</label><input type="number" step="0.01" name="fr" id="qp_fr" value="0" oninput="qpCalc()" class="input-modern"></div>
+                <div><label class="label-modern">GST %</label><input type="number" step="0.01" name="tax" id="qp_tax" value="0" oninput="qpCalc()" class="input-modern"></div>
+                <div><label class="label-modern text-red-600">Grand Total</label><input type="number" step="0.01" name="tot" id="qp_tot" value="0" class="input-modern font-bold text-red-600 bg-red-50"></div>
+            </div>
+
+            <!-- BOOKING-STYLE PRINT SETTINGS BAR -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 rounded-xl bg-blue-50 border border-blue-200">
+                <div>
+                    <label class="label-modern text-blue-700">🏷️ Label Print Setting</label>
+                    <select name="lbl_size" class="input-modern font-bold">
+                        <option value="4x6">4 x 6 inch — Full Express Label</option>
+                        <option value="2x3">2 x 3 inch — Compact Thermal Sticker</option>
+                        <option value="1.5x1">1.5 x 1 inch — Mini Barcode Tag</option>
+                        <option value="3x2">3 x 2 inch — Wide Landscape Sticker</option>
+                        <option value="a4_4x6">A4 Sheet — 4x6 Label</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="label-modern text-emerald-700">🧾 Slip / Receipt Setting</label>
+                    <select name="slip_mode" class="input-modern font-bold">
+                        <option value="a4_3up">A4 Page — 3 Slips/Page Format</option>
+                        <option value="a5">Single Receipt — A5 Landscape</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2 justify-end pt-2">
+                <button type="button" onclick="qpSubmit('save', '_self')" class="btn-primary"><i class="fas fa-save"></i> Save Only</button>
+                <button type="button" onclick="qpSubmit('add_queue', '_self')" class="btn-warning"><i class="fas fa-plus-circle"></i> Save + Add to A4 3-Slip Queue ({{ q_list|length }})</button>
+                <button type="button" onclick="qpSubmit('print_label', '_blank')" class="btn-warning" style="background:#f97316;"><i class="fas fa-tag"></i> Save & Print Label</button>
+                <button type="button" onclick="qpSubmit('print_slip', '_blank')" class="btn-success"><i class="fas fa-receipt"></i> Save & Print Slip</button>
+            </div>
+        </form>
+    </div>
+
+    <script>
+    document.getElementById('qp_date').valueAsDate = new Date();
+    function qpCalc() {
+        let fr = parseFloat(document.getElementById('qp_fr').value) || 0;
+        let tx = parseFloat(document.getElementById('qp_tax').value) || 0;
+        if (fr > 0) document.getElementById('qp_tot').value = (fr + (fr * tx / 100)).toFixed(2);
+    }
+    function qpSubmit(act, tgt) {
+        let f = document.getElementById('qpForm');
+        document.getElementById('qp_action').value = act;
+        f.target = tgt;
+        f.submit();
+    }
+    function fetchExistingAwb() {
+        let awb = document.getElementById('qp_awb').value.trim();
+        if (awb.length < 4) return;
+        fetch('/api/quick_fetch/' + encodeURIComponent(awb))
+        .then(r => r.json()).then(res => {
+            if (!res.found) return;
+            let s = res.data;
+            if (s.customer_id) document.getElementById('qp_cust').value = s.customer_id;
+            document.getElementById('qp_sn').value = s.origin_name || '';
+            document.getElementById('qp_sp').value = s.origin_phone || '';
+            document.getElementById('qp_sa').value = s.origin_address || '';
+            document.getElementById('qp_cn').value = s.dest_name || '';
+            document.getElementById('qp_cp').value = s.dest_phone || '';
+            document.getElementById('qp_ca').value = s.dest_address || '';
+            document.getElementById('qp_dst').value = s.dest_station || '';
+            document.getElementById('qp_wt').value = s.weight_kg || 1;
+            document.getElementById('qp_pcs').value = s.quantity || 1;
+            document.getElementById('qp_cod').value = s.cod_amount || 0;
+            document.getElementById('qp_dec').value = s.declared_value || 0;
+            document.getElementById('qp_srv').value = s.service_type || 'SURFACE';
+            document.getElementById('qp_pm').value = s.payment_mode || 'CASH';
+            document.getElementById('qp_net').value = s.network || 'SELF';
+            document.getElementById('qp_nawb').value = s.network_awb || '';
+            document.getElementById('qp_fr').value = s.taxable_amount || 0;
+            document.getElementById('qp_tax').value = s.tax_rate || 0;
+            document.getElementById('qp_tot').value = s.total_amount || 0;
+        });
+    }
+    </script>
+    """
+    return render_page("Quick Print", render_template_string(html, custs=custs, stations=stations, q_list=q_list))
+
 # ==========================================
 # ✏️ 3.3 EDIT SHIPMENT (FULL UPDATE + NETWORK + AWB RENAME + STATUS)
 # ==========================================
@@ -3425,13 +3713,33 @@ def shipments():
     
     html = """
     <div class="card">
-        <h3 class="text-lg font-bold text-slate-800 mb-4">{% if session.get('role') == 'CUSTOMER' %}📦 My Shipments{% else %}📦 Delivery Status Register{% endif %}</h3>
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+            <h3 class="text-lg font-bold text-slate-800">{% if session.get('role') == 'CUSTOMER' %}📦 My Shipments{% else %}📦 Delivery Status Register{% endif %}</h3>
+            <div class="flex flex-wrap items-center gap-2">
+                <span id="selCountBadge" class="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-xs font-extrabold border border-blue-200">Selected: 0</span>
+                <button type="button" onclick="submitBulkSlips()" class="btn-success"><i class="fas fa-receipt"></i> Bulk Slips (A4 - 3/Page)</button>
+                <button type="button" onclick="openStickerStudio()" class="btn-warning"><i class="fas fa-tags"></i> Bulk Sticker Studio</button>
+                <a href="/quick_print" class="btn-primary"><i class="fas fa-bolt"></i> Quick Print</a>
+            </div>
+        </div>
+
+        <form id="bulkActionForm" method="POST" target="_blank">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div id="bulkHiddenInputs"></div>
+        </form>
+
         <div class="table-responsive">
         <table class="datatable">
-            <thead><tr><th>AWB</th><th>Date</th><th>Destination</th><th>Station</th><th>Weight</th><th>Status</th><th>Total</th><th>Actions</th></tr></thead>
+            <thead>
+                <tr>
+                    <th style="width:32px;"><input type="checkbox" id="chkAll" onclick="toggleAllShip(this)" class="w-4 h-4 cursor-pointer"></th>
+                    <th>AWB</th><th>Date</th><th>Destination</th><th>Station</th><th>Weight</th><th>Status</th><th>Total</th><th>Actions</th>
+                </tr>
+            </thead>
             <tbody>
             {% for r in rows %}
             <tr>
+                <td><input type="checkbox" class="ship-chk w-4 h-4 cursor-pointer" value="{{ r.id }}" onchange="updateSelCount()"></td>
                 <td class="font-bold text-red-600">{{ r.awb_no }}</td>
                 <td>{{ r.booking_date }}</td>
                 <td>{{ r.dest_name or '-' }}</td>
@@ -3444,15 +3752,12 @@ def shipments():
                     <a href="/edit_shipment/{{ r.id }}" class="btn-primary" style="padding:3px 8px; font-size:11px;" title="Edit Entry"><i class="fas fa-edit"></i></a>
                     {% endif %}
                     <a href="/track?awb={{ r.awb_no }}" target="_blank" class="btn-success" style="padding:3px 8px; font-size:11px;" title="Track"><i class="fas fa-map-marker-alt"></i></a>
-                    <a href="/print/label/{{ r.awb_no }}" target="_blank" class="btn-warning" style="padding:3px 8px; font-size:11px;" title="Print Label"><i class="fas fa-tag"></i></a>
+                    <a href="/print/label/{{ r.awb_no }}?size=4x6" target="_blank" class="btn-warning" style="padding:3px 8px; font-size:11px;" title="Print Label"><i class="fas fa-tag"></i></a>
                     <a href="/print/receipt/{{ r.awb_no }}" target="_blank" class="btn-primary" style="padding:3px 8px; font-size:11px;" title="Print Receipt"><i class="fas fa-receipt"></i></a>
-                    
                     {% if session.get('role') != 'CUSTOMER' and r.status not in ['DELIVERED', 'RETURNED'] %}
-                    <button onclick="openRtoModal('{{ r.id }}', '{{ r.awb_no }}', '{{ r.total_amount }}')" class="btn-warning" style="background:#f97316; padding:3px 8px; font-size:11px;" title="Process RTO"><i class="fas fa-undo"></i></button>
+                    <button type="button" onclick="openRtoModal('{{ r.id }}', '{{ r.awb_no }}', '{{ r.total_amount }}')" class="btn-warning" style="background:#f97316; padding:3px 8px; font-size:11px;" title="Process RTO"><i class="fas fa-undo"></i></button>
                     {% endif %}
-                    
-                    <a href="/print/multi_piece/{{ r.awb_no }}" target="_blank" class="btn-danger" style="background:#8b5cf6; padding:3px 8px; font-size:11px;" title="Multi-Piece Child Barcodes"><i class="fas fa-cubes"></i></a>
-
+                    <a href="/print/multi_piece/{{ r.awb_no }}" target="_blank" class="btn-danger" style="background:#8b5cf6; padding:3px 8px; font-size:11px;" title="Multi-Piece Barcodes"><i class="fas fa-cubes"></i></a>
                     {% if session.get('role') != 'CUSTOMER' or r.status == 'BOOKED' %}
                     <a href="/shipments?delete={{ r.id }}" class="btn-danger" style="padding:3px 8px; font-size:11px;" onclick="return confirm('Permanently delete AWB {{ r.awb_no }} from all registers?');" title="Permanent Delete"><i class="fas fa-trash"></i></a>
                     {% endif %}
@@ -3463,7 +3768,45 @@ def shipments():
         </table>
         </div>
     </div>
-    
+
+    <!-- MODAL: PRO BULK STICKER STUDIO -->
+    <div id="stickerStudioModal" class="modal">
+        <div class="modal-content" style="max-width:560px;">
+            <h3 class="text-lg font-bold text-slate-800 mb-1">🏷️ Bulk Sticker Studio</h3>
+            <p class="text-xs text-slate-500 mb-4">Selected Shipments: <b id="stSelCount" class="text-blue-600">0</b></p>
+            <form method="POST" action="/print/bulk_stickers" target="_blank" id="stickerStudioForm" class="space-y-3">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div id="stickerHiddenIds"></div>
+                <div>
+                    <label class="label-modern">Sticker Size & Sheet Format</label>
+                    <select name="preset" class="input-modern font-bold">
+                        <option value="2x3">📦 2 x 3 inch — Compact Thermal Sticker (Roll)</option>
+                        <option value="1.5x1">🏷️ 1.5 x 1 inch — Mini Barcode Tag (Roll)</option>
+                        <option value="3x2">🚚 3 x 2 inch — Wide Landscape Sticker (Roll)</option>
+                        <option value="4x6">📋 4 x 6 inch — Full Express Label (Roll)</option>
+                        <option value="a4_2x3">📄 A4 Sheet — 2 x 3 Stickers (12 per Page)</option>
+                        <option value="a4_1.5x1">📄 A4 Sheet — 1.5 x 1 Mini Tags (40 per Page)</option>
+                        <option value="a4_3x2">📄 A4 Sheet — 3 x 2 Wide Stickers (10 per Page)</option>
+                        <option value="a4_4x6">📄 A4 Sheet — 4 x 6 Full Labels (4 per Page)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="label-modern">Copies per Shipment</label>
+                    <input type="number" name="copies" id="stCopies" value="1" min="1" max="50" class="input-modern">
+                </div>
+                <div class="space-y-2 pt-2 text-sm font-semibold text-slate-700">
+                    <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="match_pieces" value="1" onchange="document.getElementById('stCopies').disabled=this.checked" class="w-4 h-4"> 📦 Match Shipment Pieces (Auto BOX 1/3, 2/3, 3/3)</label>
+                    <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="show_shipper" value="1" checked class="w-4 h-4"> 🏢 Show Shipper Details on 2x3 / 3x2</label>
+                    <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="dark_header" value="1" checked class="w-4 h-4"> ⬛ High-Contrast Dark Header (Thermal Best)</label>
+                </div>
+                <div class="flex gap-3 pt-4">
+                    <button type="button" class="btn-danger flex-1" onclick="document.getElementById('stickerStudioModal').style.display='none'">Cancel</button>
+                    <button type="submit" class="btn-warning flex-1"><i class="fas fa-print"></i> Generate Stickers PDF</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- MODAL: RTO PROCESS -->
     <div id="rtoModal" class="modal">
         <div class="modal-content">
@@ -3482,7 +3825,34 @@ def shipments():
             </form>
         </div>
     </div>
+
     <script>
+    function getSelectedShipIds() {
+        return Array.from(document.querySelectorAll('.ship-chk:checked')).map(el => el.value);
+    }
+    function toggleAllShip(src) {
+        document.querySelectorAll('.ship-chk').forEach(el => el.checked = src.checked);
+        updateSelCount();
+    }
+    function updateSelCount() {
+        document.getElementById('selCountBadge').innerText = 'Selected: ' + getSelectedShipIds().length;
+    }
+    function submitBulkSlips() {
+        let ids = getSelectedShipIds();
+        if (!ids.length) { alert('Pehle kam se kam ek shipment checkbox select karein!'); return; }
+        let form = document.getElementById('bulkActionForm');
+        form.action = '/print/bulk_slips';
+        let box = document.getElementById('bulkHiddenInputs');
+        box.innerHTML = ids.map(id => `<input type="hidden" name="shipment_ids" value="${id}">`).join('');
+        form.submit();
+    }
+    function openStickerStudio() {
+        let ids = getSelectedShipIds();
+        if (!ids.length) { alert('Pehle kam se kam ek shipment checkbox select karein!'); return; }
+        document.getElementById('stSelCount').innerText = ids.length;
+        document.getElementById('stickerHiddenIds').innerHTML = ids.map(id => `<input type="hidden" name="shipment_ids" value="${id}">`).join('');
+        document.getElementById('stickerStudioModal').style.display = 'block';
+    }
     function openRtoModal(id, awb, total) {
         document.getElementById('rto_shipment_id').value = id;
         document.getElementById('rto_awb_label').innerText = awb;
@@ -5366,28 +5736,127 @@ from reportlab.graphics.barcode import code128
 from reportlab.lib.utils import ImageReader
 import qrcode
 
+# ============================================================
+# 💎 WEB ERP: PRO RECEIPT (A5 & A4 3-UP) + BULK STICKER ENGINE
+# (Royal Blue + Saffron Orange | 1.5x1, 2x3, 3x2, 4x6 + A4 Grids)
+# ============================================================
+from urllib.parse import quote as url_quote
+from reportlab.lib.units import mm
+
+WEB_BLUE = "#0B4F9C"
+WEB_DARK = "#0F172A"
+WEB_ORANGE = "#F97316"
+WEB_ORANGE_DK = "#C2410C"
+WEB_GREEN = "#059669"
+WEB_SKY_BG = "#EFF6FF"
+WEB_WARM_BG = "#FFF7ED"
+WEB_LIGHT = "#F8FAFC"
+WEB_BORDER = "#CBD5E1"
+WEB_MUTED = "#64748B"
+
+_ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+         "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
+_TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+
+def _two_d(n):
+    n = int(n)
+    return _ONES[n] if n < 20 else (_TENS[n // 10] + " " + _ONES[n % 10]).strip()
+
+
+def _three_d(n):
+    h, r = n // 100, n % 100
+    parts = []
+    if h:
+        parts.append(_ONES[h] + " Hundred")
+    if r:
+        parts.append(_two_d(r))
+    return " ".join(parts)
+
+
+def num_to_words_inr_web(amount):
+    amount = round(safe_float(amount), 2)
+    rupees = int(amount)
+    paise = int(round((amount - rupees) * 100))
+    if rupees == 0:
+        words = "Zero"
+    else:
+        parts = []
+        crore, rem = divmod(rupees, 10000000)
+        lakh, rem = divmod(rem, 100000)
+        thousand, rem = divmod(rem, 1000)
+        if crore: parts.append(_two_d(crore) + " Crore")
+        if lakh: parts.append(_two_d(lakh) + " Lakh")
+        if thousand: parts.append(_two_d(thousand) + " Thousand")
+        if rem: parts.append(_three_d(rem))
+        words = " ".join(parts)
+    res = words + " Rupees"
+    if paise:
+        res += " and " + _two_d(paise) + " Paise"
+    return res + " Only"
+
+
 def hex_rgb(h):
     h = h.lstrip("#")
-    return tuple(int(h[i:i+2], 16)/255.0 for i in (0, 2, 4))
-    
+    return tuple(int(h[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
+
+
 def fit_text(cv, text, font, size, max_width):
     text = str(text or "")
-    if cv.stringWidth(text, font, size) <= max_width: return text
-    while text and cv.stringWidth(text + "...", font, size) > max_width: text = text[:-1]
+    if cv.stringWidth(text, font, size) <= max_width:
+        return text
+    while text and cv.stringWidth(text + "...", font, size) > max_width:
+        text = text[:-1]
     return text + "..."
+
+
+def _fit_font_size_web(cv, text, font, max_size, min_size, max_w):
+    text = str(text or "")
+    sz = float(max_size)
+    while sz > min_size and cv.stringWidth(text, font, sz) > max_w:
+        sz -= 0.4
+    return sz
+
 
 def wrap_lines(cv, text, font, size, max_width):
     lines, line = [], ""
     for word in str(text or "").split():
         t = (line + " " + word).strip()
-        if cv.stringWidth(t, font, size) <= max_width: line = t
+        if cv.stringWidth(t, font, size) <= max_width:
+            line = t
         else:
-            if line: lines.append(line)
+            if line:
+                lines.append(line)
             line = word
-    if line: lines.append(line)
+    if line:
+        lines.append(line)
     return lines
 
+
+def _fmt_inr_web(val):
+    return f"{safe_float(val):,.2f}"
+
+
+def _clean_web_url(url):
+    u = str(url or "").strip()
+    u = re.sub(r"^https?://", "", u, flags=re.IGNORECASE)
+    return u.rstrip("/").lower()
+
+
+def _party_contact_line_web(phone, second_label, second_val):
+    parts = []
+    ph = str(phone or "").strip()
+    if ph and ph != "-":
+        parts.append(f"Ph: {ph}")
+    sv = str(second_val or "").strip()
+    if sv and sv != "-":
+        parts.append(f"{second_label}: {sv}")
+    return "   |   ".join(parts) if parts else "-"
+
+
 def draw_qr_web(cv, text, x, y, size=60):
+    if qrcode is None:
+        return
     try:
         img = qrcode.make(text)
         buf = io.BytesIO()
@@ -5395,203 +5864,1075 @@ def draw_qr_web(cv, text, x, y, size=60):
         buf.seek(0)
         cv.drawImage(ImageReader(buf), x, y, width=size, height=size)
     except Exception as e:
-        print("QR Error:", e)
+        logging.error(f"QR Error: {e}")
+
 
 def draw_logo_web(cv, x, y, width, height):
-    # Desktop ka path ya Web ka static path
-    logo_paths = ['logo.png', 'static/logo.png']
-    for lp in logo_paths:
+    for lp in ("logo.png", "static/logo.png", "company_logo.png", "company_logo.jpg"):
         if os.path.exists(lp):
             try:
-                cv.drawImage(ImageReader(lp), x, y, width=width, height=height, preserveAspectRatio=True, mask="auto")
+                cv.drawImage(ImageReader(lp), x, y, width=width, height=height,
+                             preserveAspectRatio=True, mask="auto", anchor="c")
                 return True
-            except: pass
+            except Exception:
+                pass
     return False
 
-# ==========================================
-# 🖨️ WEB ERP: PRINT LABEL (DYNAMIC WHITE-LABELING)
-# ==========================================
+
+def draw_barcode_autofit_web(cv, value, x, y, max_w, bar_h, default_bw=0.90):
+    val = str(value or "").strip()
+    if not val:
+        return
+    try:
+        bc = code128.Code128(val, barHeight=bar_h, barWidth=default_bw)
+        if bc.width > max_w and bc.width > 0:
+            scaled_bw = max(0.36, default_bw * (max_w / bc.width))
+            bc = code128.Code128(val, barHeight=bar_h, barWidth=scaled_bw)
+        draw_x = x + (max_w - bc.width) / 2.0
+        cv.setFillColorRGB(0, 0, 0)
+        bc.drawOn(cv, draw_x, y)
+    except Exception:
+        pass
+
+
+def get_web_settings_dict(c):
+    c.execute("SELECT * FROM settings")
+    return {(r.get("key_name") or r.get("key") or r.get("name")): r.get("value") for r in c.fetchall()}
+
+
+def get_web_shipper_details(s, cust):
+    c_name = (cust.get("name") or "").strip() if cust else ""
+    c_addr = (cust.get("address") or "").strip() if cust else ""
+    c_phone = (cust.get("phone") or "").strip() if cust else ""
+    c_gst = (cust.get("gstin") or "-").strip() if cust else "-"
+    if c_addr.lower() == "none": c_addr = ""
+    if c_phone.lower() == "none": c_phone = ""
+
+    o_name = (s.get("origin_name") or "").strip()
+    o_addr = (s.get("origin_address") or "").strip()
+    o_phone = (s.get("origin_phone") or "").strip()
+    if o_addr.lower() == "none": o_addr = ""
+    if o_phone.lower() == "none": o_phone = ""
+
+    info_txt = str(s.get("info") or "")
+    if "Shipper: " in info_txt and (not o_name or o_name.upper() in ["NOHAR", "HQ", "SYSTEM"]):
+        o_name = info_txt.split("Shipper: ")[1].split("|")[0].strip()
+
+    is_cash = (not c_name) or ("CASH" in c_name.upper()) or ("WALK" in c_name.upper())
+    if is_cash:
+        final_name = o_name if (o_name and o_name.upper() not in ["NOHAR", "HQ", "SYSTEM"]) else (c_name or "CASH BOOKING")
+    else:
+        final_name = o_name if (o_name and o_name.upper() not in ["NOHAR", "HQ", "SYSTEM", c_name.upper()]) else c_name
+    return final_name, (o_addr or c_addr), (o_phone or c_phone), c_gst
+
+
+def get_web_network_tracking_info(s, outward):
+    net = (outward.get("network") if outward and outward.get("network") else s.get("network")) or "SELF"
+    net = str(net).strip().upper()
+    net_awb = (outward.get("network_awb") if outward and outward.get("network_awb") else s.get("network_awb")) or ""
+    net_awb = str(net_awb).strip().upper()
+
+    is_self = net in ["", "SELF", "AGC", "AKASH GANGA", "AKASHGANGA"]
+    track_no = net_awb if net_awb else str(s.get("awb_no") or "").strip()
+
+    NETWORK_MAP = {
+        "TRACKON": ("www.trackon.in", f"https://www.trackon.in/courier-tracking{track_no}"),
+        "DELHIVERY": ("www.delhivery.com", f"https://www.delhivery.com/track-v2/package/{track_no}"),
+        "SHREE MARUTI": ("www.shreemaruticourier.com", f"https://shreemaruti.com/track-shipment/?awb={track_no}"),
+        "TIRUPATI": ("www.shreetirupaticourier.net", f"http://www.shreetirupaticourier.net/Frm_DocTrack.aspx?docno={track_no}"),
+        "TIRUPATI COURIER": ("www.shreetirupaticourier.net", f"http://www.shreetirupaticourier.net/Frm_DocTrack.aspx?docno={track_no}"),
+        "DTDC": ("www.dtdc.in", f"https://www.dtdc.in/trace.asp?strCnno={track_no}"),
+        "BLUEDART": ("www.bluedart.com", f"https://www.bluedart.com/tracking?tracknumbers={track_no}"),
+        "PROFESSIONAL COURIER": ("www.tpcindia.com", f"https://www.tpcindia.com/track-result.aspx?id={track_no}"),
+        "INDIA POST": ("www.indiapost.gov.in", "https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx"),
+    }
+
+    if is_self:
+        site = "pagcerp.cgsmart.in"
+        url = f"https://pagcerp.cgsmart.in/track?awb={s.get('awb_no', '')}"
+    else:
+        site, url = NETWORK_MAP.get(
+            net,
+            (f"www.{net.lower().replace(' ', '')}.com",
+             f"https://www.google.com/search?q={url_quote(net + ' tracking ' + track_no)}"),
+        )
+    return is_self, net, net_awb, site, url
+
+
+def _web_draw_modern_route(cv, x, y, w, org_txt, dst_txt, compact=False):
+    org_u = str(org_txt or "NOHAR").strip().upper()
+    dst_u = str(dst_txt or "-").strip().upper()
+
+    arrow_gap = 9.0 * mm if compact else 11.5 * mm
+    avail_half = (w - arrow_gap) / 2.0
+
+    cv.setFillColor(HexColor(WEB_MUTED))
+    cv.setFont("Helvetica-Bold", 4.9 if compact else 5.8)
+    cv.drawString(x, y + (4.6 if compact else 5.8) * mm, "ORIGIN")
+    cv.drawRightString(x + w, y + (4.6 if compact else 5.8) * mm, "DESTINATION")
+
+    max_sz = 8.4 if compact else 10.2
+    min_sz = 6.2 if compact else 7.2
+    org_sz = _fit_font_size_web(cv, org_u, "Helvetica-Bold", max_sz, min_sz, avail_half)
+    dst_sz = _fit_font_size_web(cv, dst_u, "Helvetica-Bold", max_sz, min_sz, avail_half)
+
+    cv.setFillColor(HexColor(WEB_BLUE))
+    cv.setFont("Helvetica-Bold", org_sz)
+    cv.drawString(x, y, fit_text(cv, org_u, "Helvetica-Bold", org_sz, avail_half))
+
+    cv.setFillColor(HexColor(WEB_ORANGE_DK))
+    cv.setFont("Helvetica-Bold", dst_sz)
+    cv.drawRightString(x + w, y, fit_text(cv, dst_u, "Helvetica-Bold", dst_sz, avail_half))
+
+    cx = x + w / 2.0
+    ly = y + (1.4 if compact else 1.8) * mm
+    half_arr = arrow_gap * 0.34
+    cv.saveState()
+    cv.setStrokeColor(HexColor(WEB_ORANGE))
+    cv.setLineWidth(1.2)
+    cv.line(cx - half_arr, ly, cx + half_arr - 2.5, ly)
+    cv.setFillColor(HexColor(WEB_ORANGE))
+    cv.circle(cx - half_arr, ly, 1.3, fill=1, stroke=0)
+    arr = cv.beginPath()
+    arr.moveTo(cx + half_arr + 1.0, ly)
+    arr.lineTo(cx + half_arr - 3.2, ly + 2.2)
+    arr.lineTo(cx + half_arr - 3.2, ly - 2.2)
+    arr.close()
+    cv.drawPath(arr, fill=1, stroke=0)
+    cv.restoreState()
+
+
+def _web_sticker_meta(s, outward):
+    awb = str(s.get("awb_no") or "").strip()
+    is_self, net, n_awb, track_site, track_url = get_web_network_tracking_info(s, outward)
+    org_raw = (outward.get("origin_station") if outward else "") or "NOHAR"
+    dst_raw = (outward.get("out_station") if outward else "") or s.get("dest_station") or s.get("dest_name") or "-"
+
+    pin_m = re.search(r"\b\d{6}\b", str(dst_raw)) or re.search(r"\b\d{6}\b", str(s.get("dest_address") or ""))
+    dst_pin = pin_m.group(0) if pin_m else ""
+    dst_clean = re.sub(r"\s*-?\s*\b\d{6}\b\s*", "", str(dst_raw)).strip().upper() or "-"
+    org_clean = re.sub(r"\s*-?\s*\b\d{6}\b\s*", "", str(org_raw)).strip().upper() or "NOHAR"
+
+    pay_mode = str(s.get("payment_mode") or "CASH").upper()
+    cod_amt = safe_float(s.get("cod_amount"))
+    tot_amt = safe_float(s.get("total_amount"))
+    wt_act = safe_float(s.get("weight_kg"))
+    wt_app = safe_float(s.get("applied_weight"))
+    wt_show = wt_app if wt_app > wt_act else wt_act
+
+    stype = str(s.get("service_type") or "SURFACE").upper()
+    if stype in ("BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"):
+        stype = "SURFACE"
+
+    return {
+        "awb": awb,
+        "display_awb": awb if is_self else (n_awb or awb),
+        "org": org_clean,
+        "dst": dst_clean,
+        "dst_pin": dst_pin,
+        "net": net,
+        "is_self": is_self,
+        "track_site": track_site,
+        "track_url": track_url,
+        "pay_mode": pay_mode,
+        "cod_amt": cod_amt,
+        "tot_amt": tot_amt,
+        "wt": wt_show,
+        "pcs": max(1, safe_int(s.get("quantity") or 1)),
+        "stype": stype,
+        "date": str(s.get("booking_date") or "")[:10],
+    }
+
+
+# ---------- PRO STICKER DRAWERS (1.5x1, 2x3, 3x2, 4x6) ----------
+def _web_draw_sticker_1_5x1(cv, s, cust, outward, settings, piece_label="", dark_header=True):
+    w, h = 1.5 * inch, 1.0 * inch
+    m = _web_sticker_meta(s, outward)
+    comp = (settings.get("company_name") or "AGC").strip()
+
+    cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
+    cv.setStrokeColorRGB(0, 0, 0); cv.setLineWidth(0.8); cv.rect(2, 2, w - 4, h - 4, fill=0, stroke=1)
+
+    if dark_header:
+        cv.setFillColorRGB(0.06, 0.12, 0.22); cv.rect(2, h - 17, w - 4, 15, fill=1, stroke=0)
+        cv.setFillColorRGB(1, 1, 1)
+    else:
+        cv.setFillColorRGB(0.93, 0.95, 0.97); cv.rect(2, h - 17, w - 4, 15, fill=1, stroke=0)
+        cv.setFillColorRGB(0, 0, 0)
+
+    brand = comp.split()[0][:8].upper() if m["is_self"] else m["net"][:8]
+    cv.setFont("Helvetica-Bold", 6.5); cv.drawString(5, h - 12.2, brand)
+    dest_txt = f"{m['dst'][:10]}" + (f" {m['dst_pin']}" if m["dst_pin"] else "")
+    cv.setFont("Helvetica-Bold", 6.8); cv.drawRightString(w - 5, h - 12.2, fit_text(cv, dest_txt, "Helvetica-Bold", 6.8, w - 44))
+
+    draw_barcode_autofit_web(cv, m["display_awb"], 4, 24, w - 8, 26, default_bw=0.80)
+    cv.setFillColorRGB(0, 0, 0); cv.setFont("Helvetica-Bold", 7.8)
+    cv.drawCentredString(w / 2.0, 15.5, fit_text(cv, m["display_awb"], "Helvetica-Bold", 7.8, w - 8))
+
+    cv.setStrokeColorRGB(0.75, 0.78, 0.82); cv.setLineWidth(0.5); cv.line(3, 13, w - 3, 13)
+    cv.setFillColorRGB(0.15, 0.15, 0.15); cv.setFont("Helvetica-Bold", 5.4)
+    cv.drawString(5, 5.2, fit_text(cv, piece_label or f"{m['wt']:.1f}KG | {m['pcs']}P", "Helvetica-Bold", 5.4, 48))
+
+    right_tag = f"TOPAY:{int(m['tot_amt'])}" if m["pay_mode"] == "TO-PAY" else (
+        f"COD:{int(m['cod_amt'])}" if m["cod_amt"] > 0 else (s.get("dest_name") or m["date"])[:11].upper()
+    )
+    cv.drawRightString(w - 5, 5.2, fit_text(cv, right_tag, "Helvetica-Bold", 5.4, 52))
+
+
+def _web_draw_sticker_2x3(cv, s, cust, outward, settings, piece_label="", show_shipper=True, dark_header=True):
+    w, h = 2.0 * inch, 3.0 * inch
+    m = _web_sticker_meta(s, outward)
+    comp = (settings.get("company_name") or "PANKAJ AGENCY").strip()
+
+    cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
+    cv.setStrokeColorRGB(0.1, 0.1, 0.1); cv.setLineWidth(1.0); cv.rect(4, 4, w - 8, h - 8, fill=0, stroke=1)
+
+    if dark_header:
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(4, h - 28, w - 8, 24, fill=1, stroke=0)
+        cv.setFillColorRGB(1, 1, 1)
+    else:
+        cv.setFillColorRGB(0.94, 0.95, 0.97); cv.rect(4, h - 28, w - 8, 24, fill=1, stroke=0)
+        cv.setFillColorRGB(0, 0, 0)
+
+    hdr_title = comp.upper() if m["is_self"] else f"VIA {m['net']}"
+    cv.setFont("Helvetica-Bold", 8.2); cv.drawString(8, h - 14, fit_text(cv, hdr_title, "Helvetica-Bold", 8.2, w - 52))
+    cv.setFont("Helvetica", 5.5)
+    cv.drawString(8, h - 22.5, fit_text(cv, f"Ph: {settings.get('company_phone', '')}" if m["is_self"] else f"SYS: {m['awb']}", "Helvetica", 5.5, w - 52))
+
+    is_collect = (m["pay_mode"] == "TO-PAY" or m["cod_amt"] > 0)
+    cv.setFillColor(HexColor("#DC2626" if is_collect else WEB_ORANGE))
+    cv.roundRect(w - 43, h - 24, 36, 15, 2.5, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 6.5)
+    cv.drawCentredString(w - 25, h - 18.8, "TO-PAY" if m["pay_mode"] == "TO-PAY" else ("COD" if m["cod_amt"] > 0 else m["stype"][:7]))
+
+    # Routing Bar
+    cv.setFillColorRGB(0.95, 0.96, 0.98); cv.setStrokeColorRGB(0.2, 0.2, 0.2); cv.setLineWidth(0.6)
+    cv.rect(4, h - 54, w - 8, 26, fill=1, stroke=1)
+    cv.setFillColorRGB(0.35, 0.38, 0.42); cv.setFont("Helvetica-Bold", 5.2)
+    cv.drawString(8, h - 35, "ORIGIN"); cv.drawRightString(w - 8, h - 35, "DESTINATION")
+    cv.setFillColorRGB(0, 0, 0); cv.setFont("Helvetica-Bold", 8.0)
+    cv.drawString(8, h - 45.5, fit_text(cv, m["org"], "Helvetica-Bold", 8.0, 48))
+    dst_sz = _fit_font_size_web(cv, m["dst"], "Helvetica-Bold", 9.2, 6.4, 78)
+    cv.setFont("Helvetica-Bold", dst_sz); cv.drawRightString(w - 8, h - 45.5, fit_text(cv, m["dst"], "Helvetica-Bold", dst_sz, 78))
+    if m["dst_pin"]:
+        cv.setFont("Helvetica-Bold", 6.2); cv.drawRightString(w - 8, h - 52, f"PIN: {m['dst_pin']}")
+    cv.setFont("Helvetica", 5.8); cv.drawString(8, h - 52, m["date"])
+
+    # Auto-Fit Barcode
+    draw_barcode_autofit_web(cv, m["display_awb"], 8, h - 88, w - 16, 28, default_bw=0.90)
+    cv.setFillColorRGB(0, 0, 0); cv.setFont("Helvetica-Bold", 9.5)
+    cv.drawCentredString(w / 2.0, h - 98, fit_text(cv, m["display_awb"], "Helvetica-Bold", 9.5, w - 12))
+    cv.setStrokeColorRGB(0.2, 0.2, 0.2); cv.setLineWidth(0.7); cv.line(4, h - 102, w - 4, h - 102)
+
+    # Consignee
+    to_top = h - 105
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 5.8); cv.drawString(8, to_top - 6, "DELIVER TO (CONSIGNEE):")
+    cv.setFillColorRGB(0, 0, 0); cv.setFont("Helvetica-Bold", 8.2)
+    yy = to_top - 16
+    for ln in wrap_lines(cv, (s.get("dest_name") or "-").upper(), "Helvetica-Bold", 8.2, w - 16)[:2]:
+        cv.drawString(8, yy, ln); yy -= 9.5
+    cv.setFont("Helvetica", 6.6)
+    for ln in wrap_lines(cv, s.get("dest_address") or m["dst"], "Helvetica", 6.6, w - 16)[:3]:
+        cv.drawString(8, yy, ln); yy -= 8.0
+    cv.setFont("Helvetica-Bold", 7.0); cv.drawString(8, max(yy - 1, 66), f"Ph: {s.get('dest_phone') or '-'}")
+
+    # Shipper
+    if show_shipper:
+        cv.setStrokeColorRGB(0.75, 0.78, 0.82); cv.setLineWidth(0.6); cv.line(4, 60, w - 4, 60)
+        sh_name, sh_addr, sh_phone, _ = get_web_shipper_details(s, cust)
+        cv.setFillColorRGB(0.35, 0.38, 0.42); cv.setFont("Helvetica-Bold", 5.3); cv.drawString(8, 53, "FROM (SHIPPER):")
+        cv.setFillColorRGB(0, 0, 0); cv.setFont("Helvetica-Bold", 6.8)
+        cv.drawString(8, 45, fit_text(cv, f"{sh_name} | {sh_phone or '-'}", "Helvetica-Bold", 6.8, w - 16))
+        if sh_addr:
+            cv.setFont("Helvetica", 5.8); cv.drawString(8, 37.5, fit_text(cv, sh_addr, "Helvetica", 5.8, w - 16))
+
+    # Bottom Grid
+    fy, fh = 4, 28
+    cv.setStrokeColorRGB(0.15, 0.15, 0.15); cv.setLineWidth(0.7); cv.rect(4, fy, w - 8, fh, fill=0, stroke=1)
+    col_w = (w - 8) / 3.0
+    cv.line(4 + col_w, fy, 4 + col_w, fy + fh); cv.line(4 + 2 * col_w, fy, 4 + 2 * col_w, fy + fh)
+
+    c3_lbl, c3_val = ("TO-PAY", f"Rs {int(m['tot_amt'])}") if m["pay_mode"] == "TO-PAY" else (
+        ("COD", f"Rs {int(m['cod_amt'])}") if m["cod_amt"] > 0 else ("MODE", m["pay_mode"][:7])
+    )
+    for i, (clb, cvl) in enumerate([("WEIGHT", f"{m['wt']:.2f} KG"), ("PIECES", piece_label or f"{m['pcs']} PCS"), (c3_lbl, c3_val)]):
+        cx = 4 + i * col_w
+        if i == 2 and is_collect:
+            cv.setFillColorRGB(0.06, 0.06, 0.06); cv.rect(cx, fy, col_w, fh, fill=1, stroke=0); cv.setFillColorRGB(1, 1, 1)
+        else:
+            cv.setFillColorRGB(0.35, 0.38, 0.42)
+        cv.setFont("Helvetica-Bold", 5.2); cv.drawCentredString(cx + col_w / 2.0, fy + fh - 8.5, clb)
+        if not (i == 2 and is_collect):
+            cv.setFillColorRGB(0, 0, 0)
+        cv.setFont("Helvetica-Bold", 7.8); cv.drawCentredString(cx + col_w / 2.0, fy + 7.5, fit_text(cv, cvl, "Helvetica-Bold", 7.8, col_w - 4))
+
+
+def _web_draw_sticker_3x2(cv, s, cust, outward, settings, piece_label="", show_shipper=True, dark_header=True):
+    w, h = 3.0 * inch, 2.0 * inch
+    m = _web_sticker_meta(s, outward)
+    comp = (settings.get("company_name") or "PANKAJ AGENCY").strip()
+
+    cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
+    cv.setStrokeColorRGB(0.1, 0.1, 0.1); cv.setLineWidth(1.0); cv.rect(4, 4, w - 8, h - 8, fill=0, stroke=1)
+
+    if dark_header:
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(4, h - 24, w - 8, 20, fill=1, stroke=0); cv.setFillColorRGB(1, 1, 1)
+    else:
+        cv.setFillColorRGB(0.94, 0.95, 0.97); cv.rect(4, h - 24, w - 8, 20, fill=1, stroke=0); cv.setFillColorRGB(0, 0, 0)
+
+    cv.setFont("Helvetica-Bold", 8.2); cv.drawString(8, h - 16.5, fit_text(cv, comp.upper() if m["is_self"] else f"NETWORK: {m['net']}", "Helvetica-Bold", 8.2, 112))
+    route_txt = f"{m['org'][:8]} -> {m['dst'][:11]}" + (f" ({m['dst_pin']})" if m["dst_pin"] else "")
+    cv.setFont("Helvetica-Bold", 7.2); cv.drawRightString(w - 8, h - 16.5, fit_text(cv, route_txt, "Helvetica-Bold", 7.2, 98))
+
+    draw_barcode_autofit_web(cv, m["display_awb"], 10, h - 55, w - 20, 26, default_bw=1.05)
+    cv.setFillColorRGB(0, 0, 0); cv.setFont("Helvetica-Bold", 9.2)
+    cv.drawCentredString(w / 2.0, h - 65, fit_text(cv, m["display_awb"], "Helvetica-Bold", 9.2, w - 16))
+
+    mid_y, split_x = h - 69, w - 68
+    cv.setStrokeColorRGB(0.2, 0.2, 0.2); cv.setLineWidth(0.7)
+    cv.line(4, mid_y, w - 4, mid_y); cv.line(split_x, 4, split_x, mid_y)
+
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 5.6); cv.drawString(8, mid_y - 8, "DELIVER TO:")
+    cv.setFillColorRGB(0, 0, 0); cv.setFont("Helvetica-Bold", 8.0)
+    cv.drawString(8, mid_y - 17, fit_text(cv, (s.get("dest_name") or "-").upper(), "Helvetica-Bold", 8.0, split_x - 12))
+    cv.setFont("Helvetica", 6.5)
+    yy = mid_y - 25.5
+    for ln in wrap_lines(cv, s.get("dest_address") or m["dst"], "Helvetica", 6.5, split_x - 12)[:2]:
+        cv.drawString(8, yy, ln); yy -= 8.0
+    cv.setFont("Helvetica-Bold", 6.8); cv.drawString(8, max(yy, 22), f"Ph: {s.get('dest_phone') or '-'}")
+
+    if show_shipper:
+        sh_name, _, sh_phone, _ = get_web_shipper_details(s, cust)
+        cv.setStrokeColorRGB(0.8, 0.82, 0.85); cv.line(4, 17, split_x, 17)
+        cv.setFont("Helvetica-Bold", 5.8); cv.setFillColorRGB(0.2, 0.2, 0.2)
+        cv.drawString(8, 8.5, fit_text(cv, f"FROM: {sh_name} ({sh_phone or '-'})", "Helvetica-Bold", 5.8, split_x - 12))
+
+    is_collect = (m["pay_mode"] == "TO-PAY" or m["cod_amt"] > 0)
+    cv.setFillColorRGB(0, 0, 0)
+    cv.setFont("Helvetica-Bold", 7.2); cv.drawCentredString(split_x + 32, mid_y - 12, f"{m['wt']:.2f} KG")
+    cv.setFont("Helvetica-Bold", 6.8); cv.drawCentredString(split_x + 32, mid_y - 23, piece_label or f"PCS: {m['pcs']}")
+    cv.setFont("Helvetica", 6.0); cv.drawCentredString(split_x + 32, mid_y - 34, m["stype"])
+    cv.drawCentredString(split_x + 32, mid_y - 43, m["date"])
+
+    cv.setFillColor(HexColor("#DC2626" if is_collect else WEB_BLUE))
+    cv.rect(split_x + 3, 7, 58, 16, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 7.0)
+    p_txt = f"TOPAY {int(m['tot_amt'])}" if m["pay_mode"] == "TO-PAY" else (f"COD {int(m['cod_amt'])}" if m["cod_amt"] > 0 else m["pay_mode"][:8])
+    cv.drawCentredString(split_x + 32, 12.5, fit_text(cv, p_txt, "Helvetica-Bold", 7.0, 54))
+
+
+def _web_draw_sticker_4x6(cv, s, cust, outward, settings, piece_label="", dark_header=True):
+    w, h = 4.0 * inch, 6.0 * inch
+    m = _web_sticker_meta(s, outward)
+    comp = (settings.get("company_name") or "PANKAJ AGENCY").strip()
+
+    cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
+    cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
+
+    # Top Blue/Orange Trim
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(8, h - 13, (w - 16) * 0.72, 5, fill=1, stroke=0)
+    cv.setFillColor(HexColor(WEB_ORANGE)); cv.rect(8 + (w - 16) * 0.72, h - 13, (w - 16) * 0.28, 5, fill=1, stroke=0)
+
+    pay_mode = m["pay_mode"]
+    box_text = f"TO-PAY: Rs {int(m['tot_amt'])}" if pay_mode == "TO-PAY" else (
+        f"COD: Rs {int(m['cod_amt'])}" if m["cod_amt"] > 0 else ("EXPRESS LABEL" if m["is_self"] else f"VIA {m['net'][:10]}")
+    )
+    cv.setFont("Helvetica-Bold", 6.5)
+    box_w = cv.stringWidth(box_text, "Helvetica-Bold", 6.5) + 14
+    box_x = w - box_w - 14
+    x = 14
+    max_w = box_x - x - 8
+
+    if m["is_self"]:
+        if draw_logo_web(cv, x, h - 56, 62, 36):
+            x = 82; max_w = box_x - x - 8
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 10.5)
+        cv.drawString(x, h - 28, fit_text(cv, comp.upper(), "Helvetica-Bold", 10.5, max_w))
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 6.2)
+        yy = h - 38
+        for ln in wrap_lines(cv, settings.get("company_address", ""), "Helvetica", 6.2, max_w)[:2]:
+            cv.drawString(x, yy, ln); yy -= 8
+        cv.drawString(x, yy - 1, fit_text(cv, f"GSTIN: {settings.get('company_gstin', '')} | Ph: {settings.get('company_phone', '')}", "Helvetica", 6.2, max_w))
+        draw_qr_web(cv, m["track_url"], w - 74, h - 140, 58)
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 6); cv.drawCentredString(w - 45, h - 149, "SCAN & TRACK")
+    else:
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 11.5)
+        cv.drawString(14, h - 30, fit_text(cv, f"ROUTED VIA: {m['net']}", "Helvetica-Bold", 11.5, max_w))
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 8.5)
+        cv.drawString(14, h - 44, fit_text(cv, f"SYSTEM AWB: {m['awb']}", "Helvetica-Bold", 8.5, max_w))
+
+    badge_hex = "#DC2626" if (pay_mode == "TO-PAY" or m["cod_amt"] > 0) else WEB_ORANGE
+    cv.setFillColor(HexColor(badge_hex)); cv.roundRect(box_x, h - 40, box_w, 16, 3, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 6.5)
+    cv.drawCentredString(box_x + box_w / 2.0, h - 34.5, box_text)
+    cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(1.0); cv.line(10, h - 62, w - 10, h - 62)
+
+    # AWB + Auto-Fit Barcode
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 6.5)
+    cv.drawString(14, h - 74, "AWB NUMBER" if m["is_self"] else "FORWARDING AWB NUMBER")
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 17)
+    cv.drawString(14, h - 91, fit_text(cv, m["display_awb"], "Helvetica-Bold", 17, w - 95))
+    draw_barcode_autofit_web(cv, m["display_awb"], 14, h - 129, w - 96, 30, default_bw=1.0)
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Courier-Bold", 9); cv.drawString(16, h - 140, m["display_awb"])
+
+    # Route Box
+    cv.setFillColor(HexColor(WEB_SKY_BG)); cv.setStrokeColor(HexColor("#BFDBFE"))
+    cv.rect(12, h - 182, w - 24, 38, fill=1, stroke=1)
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 6)
+    cv.drawString(20, h - 154, "ORIGIN"); cv.drawCentredString(w / 2.0, h - 154, "SERVICE"); cv.drawRightString(w - 20, h - 154, "DESTINATION")
+
+    sb_w = max(56, cv.stringWidth(m["stype"], "Helvetica-Bold", 7.5) + 14)
+    safe_w = (w / 2.0 - sb_w / 2.0) - 24
+    org_sz = _fit_font_size_web(cv, m["org"], "Helvetica-Bold", 11, 7.5, safe_w)
+    dst_sz = _fit_font_size_web(cv, m["dst"], "Helvetica-Bold", 11.5, 7.5, safe_w)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", org_sz); cv.drawString(20, h - 168, fit_text(cv, m["org"], "Helvetica-Bold", org_sz, safe_w))
+    cv.setFillColor(HexColor(WEB_ORANGE_DK)); cv.setFont("Helvetica-Bold", dst_sz); cv.drawRightString(w - 20, h - 168, fit_text(cv, m["dst"], "Helvetica-Bold", dst_sz, safe_w))
+    if m["dst_pin"]:
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 7.5); cv.drawRightString(w - 20, h - 178, f"PIN: {m['dst_pin']}")
+
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.roundRect((w - sb_w) / 2.0, h - 175, sb_w, 16, 3, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 7.2); cv.drawCentredString(w / 2.0, h - 169.5, m["stype"])
+
+    # Consignee
+    cv.setFillColorRGB(1, 1, 1); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.rect(12, h - 256, w - 24, 70, fill=1, stroke=1)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(12, h - 256, 4, 70, fill=1, stroke=0)
+    cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, h - 196, "DELIVER TO (CONSIGNEE)")
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 10)
+    yy = h - 208
+    for line in wrap_lines(cv, (s.get("dest_name") or "-").upper(), "Helvetica-Bold", 10, w - 50)[:2]:
+        cv.drawString(22, yy, line); yy -= 12
+    cv.setFont("Helvetica", 7.5)
+    for line in wrap_lines(cv, s.get("dest_address") or m["dst"], "Helvetica", 7.5, w - 50)[:3]:
+        cv.drawString(22, yy, line); yy -= 10
+    cv.setFont("Helvetica-Bold", 7.5); cv.drawString(22, yy, f"Ph: {s.get('dest_phone') or '-'}")
+
+    # Metrics Grid
+    collect_val = f"Rs {_fmt_inr_web(m['tot_amt'])}" if pay_mode == "TO-PAY" else f"Rs {_fmt_inr_web(m['cod_amt'])}"
+    cells = [
+        ("WEIGHT", f"{m['wt']:.2f} KG"), ("PIECES", piece_label or str(m["pcs"])),
+        ("COLLECT" if pay_mode == "TO-PAY" else "COD", collect_val), ("PAY MODE", pay_mode),
+        ("DATE", m["date"]), ("MODE", m["stype"]),
+        ("DEST CITY", m["dst"][:14]), ("BRANCH", str(settings.get("branch_name", "HQ")) if m["is_self"] else "HUB"),
+    ]
+    cw, chh, y0 = (w - 24) / 4.0, 19, h - 260
+    for i, (label, value) in enumerate(cells):
+        col, row = i % 4, i // 4
+        cx, cy = 12 + col * cw, y0 - (row + 1) * chh
+        cv.setFillColor(HexColor(WEB_LIGHT if row % 2 == 0 else "#FFFFFF")); cv.setStrokeColor(HexColor(WEB_BORDER))
+        cv.rect(cx, cy, cw, chh, fill=1, stroke=1)
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 5.5); cv.drawString(cx + 4, cy + chh - 7, label)
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 7.8); cv.drawString(cx + 4, cy + 4, fit_text(cv, str(value), "Helvetica-Bold", 7.8, cw - 6))
+
+    # Shipper
+    st = y0 - 2 * chh - 6
+    cv.setFillColorRGB(1, 1, 1); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.rect(12, st - 44, w - 24, 44, fill=1, stroke=1)
+    cv.setFillColor(HexColor(WEB_ORANGE)); cv.rect(12, st - 44, 4, 44, fill=1, stroke=0)
+    cv.setFillColor(HexColor(WEB_ORANGE_DK)); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, st - 10, "SHIPPER / SENDER DETAILS")
+    sh_name, sh_addr, sh_phone, sh_gst = get_web_shipper_details(s, cust)
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 7.6)
+    cv.drawString(22, st - 21, fit_text(cv, f"{sh_name.upper()}  |  Ph: {sh_phone or '-'}", "Helvetica-Bold", 7.6, w - 44))
+    cv.setFont("Helvetica", 6.8)
+    addr_line = f"{sh_addr}" + (f" | GSTIN: {sh_gst}" if sh_gst and sh_gst != "-" else "")
+    for idx_l, line in enumerate(wrap_lines(cv, addr_line, "Helvetica", 6.8, w - 44)[:2]):
+        cv.drawString(22, st - 31 - idx_l * 8, line)
+
+    draw_qr_web(cv, f"AWB:{m['awb']}|DT:{m['date']}|ORG:{m['org']}|DST:{m['dst']}|WT:{m['wt']}|MODE:{pay_mode}", 14, 40, 42)
+    draw_qr_web(cv, f"VERIFIED|AWB:{m['awb']}|SECURE", w - 56, 40, 42)
+    cv.setFillColor(HexColor(WEB_GREEN)); cv.setFont("Helvetica-Bold", 5.5); cv.drawCentredString(w - 35, 34, "VERIFIED SEAL")
+
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(8, 8, w - 16, 22, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica", 5.8)
+    cv.drawCentredString(w / 2.0, 21, fit_text(cv, settings.get("terms_note", ""), "Helvetica", 5.8, w - 30))
+    cv.setFillColor(HexColor("#FDBA74")); cv.setFont("Helvetica-Bold", 6.0)
+    cv.drawCentredString(w / 2.0, 12, m["track_site"] if not m["is_self"] else _clean_web_url(settings.get("company_website", "pagcerp.cgsmart.in")))
+
+
+def build_web_bulk_stickers_pdf(rows_meta, settings, preset="2x3", copies=1, match_pieces=False, show_shipper=True, dark_header=True):
+    expanded = []
+    for s, cust, outward in rows_meta:
+        if match_pieces:
+            pcs = max(1, safe_int(s.get("quantity") or 1))
+            for pi in range(1, pcs + 1):
+                expanded.append((s, cust, outward, f"BOX {pi}/{pcs}" if pcs > 1 else ""))
+        else:
+            for _ in range(max(1, safe_int(copies or 1))):
+                expanded.append((s, cust, outward, ""))
+
+    DRAWERS = {
+        "1.5x1": (1.5 * inch, 1.0 * inch, lambda cv, s, c, o, plb: _web_draw_sticker_1_5x1(cv, s, c, o, settings, plb, dark_header)),
+        "2x3":   (2.0 * inch, 3.0 * inch, lambda cv, s, c, o, plb: _web_draw_sticker_2x3(cv, s, c, o, settings, plb, show_shipper, dark_header)),
+        "3x2":   (3.0 * inch, 2.0 * inch, lambda cv, s, c, o, plb: _web_draw_sticker_3x2(cv, s, c, o, settings, plb, show_shipper, dark_header)),
+        "4x6":   (4.0 * inch, 6.0 * inch, lambda cv, s, c, o, plb: _web_draw_sticker_4x6(cv, s, c, o, settings, plb, dark_header)),
+    }
+    A4_GRIDS = {
+        "a4_1.5x1": ("1.5x1", 5, 8, 6, 6),
+        "a4_2x3":   ("2x3",   3, 4, 8, 6),
+        "a4_3x2":   ("3x2",   2, 5, 10, 8),
+        "a4_4x6":   ("4x6",   2, 2, 6, 6),
+    }
+
+    buf = io.BytesIO()
+    if preset in DRAWERS:
+        sw, sh, draw_fn = DRAWERS[preset]
+        cv = canvas.Canvas(buf, pagesize=(sw, sh))
+        for s, c, o, plb in expanded:
+            draw_fn(cv, s, c, o, plb)
+            cv.showPage()
+        cv.save()
+        buf.seek(0)
+        return buf
+
+    base_key, cols, rows, gap_x, gap_y = A4_GRIDS.get(preset, ("2x3", 3, 4, 8, 6))
+    sw, sh, draw_fn = DRAWERS[base_key]
+    page_w, page_h = A4
+    margin = 14.0
+    scale = min(1.0, (page_w - 2 * margin - (cols - 1) * gap_x) / (cols * sw),
+                (page_h - 2 * margin - (rows - 1) * gap_y) / (rows * sh))
+    cell_w, cell_h = sw * scale, sh * scale
+    start_x = (page_w - (cols * cell_w + (cols - 1) * gap_x)) / 2.0
+    start_y_top = page_h - (page_h - (rows * cell_h + (rows - 1) * gap_y)) / 2.0
+    per_page = cols * rows
+
+    cv = canvas.Canvas(buf, pagesize=A4)
+    for idx, (s, c, o, plb) in enumerate(expanded):
+        slot = idx % per_page
+        r_idx, c_idx = slot // cols, slot % cols
+        px = start_x + c_idx * (cell_w + gap_x)
+        py = start_y_top - (r_idx + 1) * cell_h - r_idx * gap_y
+        cv.saveState()
+        cv.translate(px, py)
+        cv.scale(scale, scale)
+        draw_fn(cv, s, c, o, plb)
+        cv.restoreState()
+
+        if slot == per_page - 1 or idx == len(expanded) - 1:
+            cv.saveState()
+            cv.setStrokeColor(HexColor("#CBD5E1")); cv.setLineWidth(0.4); cv.setDash(3, 3)
+            for ci in range(1, cols):
+                gx = start_x + ci * cell_w + (ci - 0.5) * gap_x
+                cv.line(gx, 10, gx, page_h - 10)
+            for ri in range(1, rows):
+                gy = start_y_top - ri * cell_h - (ri - 0.5) * gap_y
+                cv.line(10, gy, page_w - 10, gy)
+            cv.restoreState()
+            cv.showPage()
+
+    cv.save()
+    buf.seek(0)
+    return buf
+
+
+# ---------- MODERN CORPORATE RECEIPT (SINGLE A5 & A4 3-UP) ----------
+def build_web_single_receipt_pdf(s, cust, outward, settings):
+    comp_name = (settings.get("company_name") or "PANKAJ AGENCY").strip()
+    comp_addr = (settings.get("company_address") or "").strip()
+    comp_gst = (settings.get("company_gstin") or "-").strip()
+    comp_ph = (settings.get("company_phone") or "-").strip()
+    comp_web = _clean_web_url(settings.get("company_website") or "pagcerp.cgsmart.in")
+
+    w, h = 210 * mm, 148.5 * mm
+    buf = io.BytesIO()
+    cv = canvas.Canvas(buf, pagesize=(w, h))
+
+    is_self, net_name, net_awb, track_site, tracking_url = get_web_network_tracking_info(s, outward)
+    pay_mode = str(s.get("payment_mode") or "CASH").upper()
+    b_date = str(s.get("booking_date") or "")[:10]
+    awb_no = str(s.get("awb_no") or "")
+    bc_val = net_awb if (not is_self and net_awb) else awb_no
+    tot_val = safe_float(s.get("total_amount"))
+    cod_val = safe_float(s.get("cod_amount"))
+
+    cv.setFillColor(HexColor("#FFFFFF")); cv.rect(0, 0, w, h, fill=1, stroke=0)
+    m_x, m_y, cw_all, ch_all = 4.5 * mm, 4.5 * mm, w - 9 * mm, h - 9 * mm
+    cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(1.0); cv.roundRect(m_x, m_y, cw_all, ch_all, 4, fill=0, stroke=1)
+
+    top_y = m_y + ch_all
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(m_x, top_y - 2.6 * mm, cw_all * 0.72, 2.6 * mm, fill=1, stroke=0)
+    cv.setFillColor(HexColor(WEB_ORANGE)); cv.rect(m_x + cw_all * 0.72, top_y - 2.6 * mm, cw_all * 0.28, 2.6 * mm, fill=1, stroke=0)
+
+    hdr_bottom = top_y - 26.5 * mm
+    if not draw_logo_web(cv, 8 * mm, hdr_bottom + 2.5 * mm, 33 * mm, 19.5 * mm):
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.roundRect(8 * mm, hdr_bottom + 3 * mm, 30 * mm, 18 * mm, 4, fill=1, stroke=0)
+        cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 14); cv.drawCentredString(23 * mm, hdr_bottom + 9.5 * mm, "AGC")
+
+    tx, t_max = 44 * mm, 104 * mm
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 14.5)
+    cv.drawString(tx, top_y - 9.2 * mm, fit_text(cv, comp_name.upper(), "Helvetica-Bold", 14.5, t_max))
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 7.6)
+    ay = top_y - 14.2 * mm
+    for ln in wrap_lines(cv, comp_addr, "Helvetica", 7.6, t_max)[:2]:
+        cv.drawString(tx, ay, ln); ay -= 3.9 * mm
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 7.4)
+    cv.drawString(tx, hdr_bottom + 2.2 * mm, fit_text(cv, f"GSTIN: {comp_gst}   |   Helpline: {comp_ph}", "Helvetica-Bold", 7.4, t_max))
+
+    rx_right, pill_w = w - 8 * mm, 48 * mm
+    pill_x = rx_right - pill_w
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.roundRect(pill_x, top_y - 10.8 * mm, pill_w, 6.8 * mm, 3, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 8.5); cv.drawCentredString(pill_x + pill_w / 2.0, top_y - 8.5 * mm, "BOOKING RECEIPT")
+
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 8.6); cv.drawRightString(rx_right, top_y - 16.5 * mm, f"Date: {b_date}")
+    pm_bg = "#DC2626" if (pay_mode == "TO-PAY" or cod_val > 0) else (WEB_GREEN if pay_mode in ("CASH", "UPI") else WEB_ORANGE)
+    cv.setFillColor(HexColor(pm_bg)); cv.roundRect(pill_x, hdr_bottom + 2.0 * mm, 20 * mm, 5.2 * mm, 2.5, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 6.8); cv.drawCentredString(pill_x + 10 * mm, hdr_bottom + 3.6 * mm, pay_mode[:8])
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 6.2); cv.drawRightString(rx_right, hdr_bottom + 3.6 * mm, "CONSIGNOR COPY")
+    cv.setStrokeColor(HexColor("#E2E8F0")); cv.setLineWidth(0.9); cv.line(8 * mm, hdr_bottom, w - 8 * mm, hdr_bottom)
+
+    # Hero Row
+    band_h = 31.5 * mm
+    band_y = hdr_bottom - band_h - 3 * mm
+    upi_id = (settings.get("upi_id") or "").strip()
+    show_upi = (tot_val > 0 and bool(upi_id))
+
+    cv.setFillColor(HexColor(WEB_LIGHT)); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.8)
+    cv.roundRect(8 * mm, band_y, 61 * mm, band_h, 4, fill=1, stroke=1)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(8 * mm, band_y + 1.5 * mm, 2.0 * mm, band_h - 3 * mm, fill=1, stroke=0)
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 6.2); cv.drawString(12 * mm, band_y + 26.2 * mm, "AWB / DOCKET NUMBER")
+    cv.setFillColor(HexColor(WEB_BLUE))
+    awb_sz = _fit_font_size_web(cv, awb_no, "Helvetica-Bold", 13.5, 9.5, 54 * mm)
+    cv.setFont("Helvetica-Bold", awb_sz); cv.drawString(12 * mm, band_y + 20.0 * mm, awb_no)
+    draw_barcode_autofit_web(cv, bc_val, 11.5 * mm, band_y + 6.4 * mm, 55 * mm, 11.5 * mm, default_bw=0.92)
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Courier-Bold", 7.4); cv.drawCentredString(39 * mm, band_y + 2.2 * mm, bc_val)
+
+    _org = (outward.get("origin_station") if outward else "") or "NOHAR"
+    _dst = (outward.get("out_station") if outward else "") or s.get("dest_station") or s.get("dest_name") or "-"
+    stype = str(s.get("service_type") or "SURFACE").upper()
+    if stype in ("BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"):
+        stype = "SURFACE"
+
+    mid_x = 71.5 * mm
+    mid_w = 78 * mm if show_upi else 104 * mm
+    cv.setFillColor(HexColor(WEB_WARM_BG if not is_self else WEB_SKY_BG))
+    cv.setStrokeColor(HexColor("#FDBA74" if not is_self else "#BFDBFE")); cv.setLineWidth(0.9)
+    cv.roundRect(mid_x, band_y, mid_w, band_h, 4, fill=1, stroke=1)
+    _web_draw_modern_route(cv, mid_x + 3.5 * mm, band_y + 20.2 * mm, mid_w - 7 * mm, _org, _dst, compact=False)
+    cv.setStrokeColor(HexColor("#FED7AA" if not is_self else "#BFDBFE")); cv.setLineWidth(0.7)
+    cv.line(mid_x + 3.5 * mm, band_y + 17.5 * mm, mid_x + mid_w - 3.5 * mm, band_y + 17.5 * mm)
+
+    if not is_self:
+        cv.setFillColor(HexColor(WEB_ORANGE_DK)); cv.setFont("Helvetica-Bold", 8.2)
+        cv.drawString(mid_x + 3.5 * mm, band_y + 12.6 * mm, fit_text(cv, f"PARTNER: {net_name}", "Helvetica-Bold", 8.2, mid_w - 7 * mm))
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 7.6)
+        cv.drawString(mid_x + 3.5 * mm, band_y + 8.2 * mm, fit_text(cv, f"Fwd AWB: {net_awb or awb_no}", "Helvetica-Bold", 7.6, mid_w - 7 * mm))
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 7.2)
+        cv.drawString(mid_x + 3.5 * mm, band_y + 3.6 * mm, fit_text(cv, f"Track: {track_site}", "Helvetica-Bold", 7.2, mid_w - 7 * mm))
+    else:
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 8.0)
+        cv.drawString(mid_x + 3.5 * mm, band_y + 12.6 * mm, f"Service: {stype}   |   Network: SELF")
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 7.4)
+        cv.drawString(mid_x + 3.5 * mm, band_y + 8.0 * mm, fit_text(cv, f"Declared Val: Rs {_fmt_inr_web(s.get('declared_value', 0))}  |  Branch: {settings.get('branch_name', 'HQ')}", "Helvetica", 7.4, mid_w - 7 * mm))
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 7.4)
+        cv.drawString(mid_x + 3.5 * mm, band_y + 3.4 * mm, fit_text(cv, f"Live Tracking: {track_site}", "Helvetica-Bold", 7.4, mid_w - 7 * mm))
+
+    qr_w = 24 * mm
+    if show_upi:
+        ux = 152 * mm
+        cv.setFillColor(HexColor("#ECFDF5")); cv.setStrokeColor(HexColor("#6EE7B7")); cv.setLineWidth(0.9)
+        cv.roundRect(ux, band_y, qr_w, band_h, 4, fill=1, stroke=1)
+        upi_url = f"upi://pay?pa={upi_id}&pn={url_quote(comp_name[:20])}&am={tot_val:.2f}&cu=INR&tn=AWB-{awb_no}"
+        draw_qr_web(cv, upi_url, ux + 2.25 * mm, band_y + 8.5 * mm, 19.5 * mm)
+        cv.setFillColor(HexColor(WEB_GREEN)); cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawCentredString(ux + qr_w / 2.0, band_y + 4.8 * mm, f"UPI Rs {tot_val:.0f}")
+        cv.setFont("Helvetica", 5.2); cv.drawCentredString(ux + qr_w / 2.0, band_y + 1.8 * mm, "SCAN TO PAY")
+
+    tx_qr = 178 * mm
+    cv.setFillColor(HexColor("#FFFFFF")); cv.setStrokeColor(HexColor("#93C5FD")); cv.setLineWidth(0.9)
+    cv.roundRect(tx_qr, band_y, qr_w, band_h, 4, fill=1, stroke=1)
+    draw_qr_web(cv, tracking_url, tx_qr + 2.25 * mm, band_y + 8.5 * mm, 19.5 * mm)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 6.3)
+    cv.drawCentredString(tx_qr + qr_w / 2.0, band_y + 4.8 * mm, "SCAN TRACK")
+    cv.setFont("Helvetica", 5.2); cv.setFillColor(HexColor(WEB_MUTED))
+    cv.drawCentredString(tx_qr + qr_w / 2.0, band_y + 1.8 * mm, net_name[:12])
+
+    # Shipper & Consignee Cards
+    card_h, card_w = 33.5 * mm, 95.5 * mm
+    card_y = band_y - card_h - 3 * mm
+    sh_name, sh_addr, sh_phone, sh_gst = get_web_shipper_details(s, cust)
+    for cx, hdr_bg, title_col, bar_col, header_lbl, party_name, party_addr, footer_line in [
+        (8 * mm, WEB_WARM_BG, WEB_ORANGE_DK, WEB_ORANGE, "FROM : SHIPPER / CONSIGNOR", sh_name, sh_addr, _party_contact_line_web(sh_phone, "GSTIN", sh_gst)),
+        (106.5 * mm, WEB_SKY_BG, WEB_BLUE, WEB_BLUE, "TO : CONSIGNEE / RECEIVER", s.get("dest_name") or "-", s.get("dest_address") or "-", _party_contact_line_web(s.get("dest_phone"), "Station", str(_dst).upper())),
+    ]:
+        cv.setFillColorRGB(1, 1, 1); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.8)
+        cv.roundRect(cx, card_y, card_w, card_h, 4, fill=1, stroke=1)
+        cv.setFillColor(HexColor(hdr_bg)); cv.rect(cx + 0.5, card_y + card_h - 7.0 * mm, card_w - 1.0, 6.6 * mm, fill=1, stroke=0)
+        cv.setFillColor(HexColor(bar_col)); cv.rect(cx + 0.5, card_y + card_h - 7.0 * mm, 2.2 * mm, 6.6 * mm, fill=1, stroke=0)
+        cv.setFillColor(HexColor(title_col)); cv.setFont("Helvetica-Bold", 7.2); cv.drawString(cx + 4.8 * mm, card_y + card_h - 4.8 * mm, header_lbl)
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 10.2)
+        cv.drawString(cx + 4.5 * mm, card_y + card_h - 12.6 * mm, fit_text(cv, str(party_name).upper(), "Helvetica-Bold", 10.2, card_w - 8 * mm))
+        cv.setFillColor(HexColor("#334155")); cv.setFont("Helvetica", 8.0)
+        yy = card_y + card_h - 17.5 * mm
+        for ln in wrap_lines(cv, party_addr or "-", "Helvetica", 8.0, card_w - 8 * mm)[:3]:
+            cv.drawString(cx + 4.5 * mm, yy, ln); yy -= 3.9 * mm
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 7.8)
+        cv.drawString(cx + 4.5 * mm, card_y + 2.8 * mm, fit_text(cv, footer_line, "Helvetica-Bold", 7.8, card_w - 8 * mm))
+
+    # Charges Strip
+    gst_tot = safe_float(s.get("cgst")) + safe_float(s.get("sgst")) + safe_float(s.get("igst"))
+    wt_act, wt_app = safe_float(s.get("weight_kg")), safe_float(s.get("applied_weight"))
+    wt_show = wt_app if wt_app > wt_act else wt_act
+
+    strip_h = 14.5 * mm
+    strip_y = card_y - strip_h - 3 * mm
+    grand_w = 43 * mm
+    other_w = (194 * mm - grand_w) / 6.0
+    cells = [
+        ("WEIGHT", f"{wt_show:.2f} KG"), ("PIECES", str(s.get("quantity") or 1)),
+        ("NETWORK", net_name[:11]), ("COD AMT", f"Rs {_fmt_inr_web(cod_val)}"),
+        ("TAXABLE", f"Rs {_fmt_inr_web(s.get('taxable_amount', 0))}"), ("GST", f"Rs {_fmt_inr_web(gst_tot)}"),
+    ]
+    for i, (lb, vl) in enumerate(cells):
+        cx = 8 * mm + i * other_w
+        cv.setFillColor(HexColor(WEB_LIGHT if i % 2 == 0 else "#FFFFFF")); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.7)
+        cv.rect(cx, strip_y, other_w, strip_h, fill=1, stroke=1)
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 5.8); cv.drawString(cx + 2 * mm, strip_y + 10.2 * mm, lb)
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 8.6)
+        cv.drawString(cx + 2 * mm, strip_y + 3.6 * mm, fit_text(cv, vl, "Helvetica-Bold", 8.6, other_w - 3.5 * mm))
+
+    gx = 8 * mm + 6 * other_w
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setStrokeColor(HexColor(WEB_BLUE)); cv.rect(gx, strip_y, grand_w, strip_h, fill=1, stroke=1)
+    cv.setFillColor(HexColor(WEB_ORANGE)); cv.rect(gx, strip_y + strip_h - 1.4 * mm, grand_w, 1.4 * mm, fill=1, stroke=0)
+    cv.setFillColor(HexColor("#BFDBFE")); cv.setFont("Helvetica-Bold", 6.2); cv.drawString(gx + 3 * mm, strip_y + 9.8 * mm, "GRAND TOTAL")
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 11.8)
+    cv.drawString(gx + 3 * mm, strip_y + 3.2 * mm, fit_text(cv, f"Rs {_fmt_inr_web(tot_val)}", "Helvetica-Bold", 11.8, grand_w - 5 * mm))
+
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 8.0)
+    cv.drawString(8 * mm, strip_y - 5.2 * mm, fit_text(cv, f"Amount in Words: {num_to_words_inr_web(tot_val)}", "Helvetica-Bold", 8.0, 140 * mm))
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 6.5)
+    cv.drawString(8 * mm, 14.5 * mm, fit_text(cv, f"Terms: {settings.get('terms_note', '')}", "Helvetica", 6.5, 140 * mm))
+
+    cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.9); cv.line(156 * mm, 19.2 * mm, 202 * mm, 19.2 * mm)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 7.6); cv.drawCentredString(179 * mm, 15.5 * mm, f"For {comp_name[:26].upper()}")
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 6.2); cv.drawCentredString(179 * mm, 12.4 * mm, "Authorized Signatory")
+
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(m_x, m_y, cw_all, 5.8 * mm, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 6.6)
+    cv.drawString(8 * mm, m_y + 2.0 * mm, fit_text(cv, f"Track Online ({net_name}): {tracking_url}", "Helvetica-Bold", 6.6, 145 * mm))
+    cv.setFillColor(HexColor("#FDBA74")); cv.setFont("Helvetica-Bold", 6.8)
+    cv.drawRightString(w - 8 * mm, m_y + 2.0 * mm, track_site if not is_self else (comp_web or comp_name))
+
+    cv.showPage(); cv.save(); buf.seek(0)
+    return buf
+
+
+def _web_draw_a4_3up_slip_slot(cv, s, cust, outward, settings, y_bottom):
+    x0, box_w, box_h = 6 * mm, 198 * mm, 92 * mm
+    y_top = y_bottom + box_h
+
+    comp_name = (settings.get("company_name") or "PANKAJ AGENCY").strip()
+    comp_addr = (settings.get("company_address") or "").strip()
+    comp_gst = (settings.get("company_gstin") or "-").strip()
+    comp_ph = (settings.get("company_phone") or "-").strip()
+    comp_web = _clean_web_url(settings.get("company_website") or "pagcerp.cgsmart.in")
+
+    is_self, net_name, net_awb, track_site, tracking_url = get_web_network_tracking_info(s, outward)
+    pay_mode = str(s.get("payment_mode") or "CASH").upper()
+    b_date = str(s.get("booking_date") or "")[:10]
+    awb_no = str(s.get("awb_no") or "")
+    bc_val = net_awb if (not is_self and net_awb) else awb_no
+    tot_val = safe_float(s.get("total_amount"))
+    cod_val = safe_float(s.get("cod_amount"))
+
+    cv.setFillColorRGB(1, 1, 1); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.9)
+    cv.roundRect(x0, y_bottom, box_w, box_h, 3.5, fill=1, stroke=1)
+
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(x0, y_top - 1.8 * mm, box_w * 0.72, 1.8 * mm, fill=1, stroke=0)
+    cv.setFillColor(HexColor(WEB_ORANGE)); cv.rect(x0 + box_w * 0.72, y_top - 1.8 * mm, box_w * 0.28, 1.8 * mm, fill=1, stroke=0)
+
+    hdr_bottom = y_top - 17.8 * mm
+    if not draw_logo_web(cv, x0 + 2.5 * mm, hdr_bottom + 1.5 * mm, 24 * mm, 13 * mm):
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.roundRect(x0 + 2.5 * mm, hdr_bottom + 2 * mm, 22 * mm, 12 * mm, 3, fill=1, stroke=0)
+        cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 10); cv.drawCentredString(x0 + 13.5 * mm, hdr_bottom + 6 * mm, "AGC")
+
+    tx, t_max = x0 + 29 * mm, 114 * mm
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 11.2)
+    cv.drawString(tx, y_top - 6.8 * mm, fit_text(cv, comp_name.upper(), "Helvetica-Bold", 11.2, t_max))
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 6.4)
+    cv.drawString(tx, y_top - 10.8 * mm, fit_text(cv, comp_addr, "Helvetica", 6.4, t_max))
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 6.3)
+    cv.drawString(tx, hdr_bottom + 1.8 * mm, fit_text(cv, f"GSTIN: {comp_gst}  |  Ph: {comp_ph}", "Helvetica-Bold", 6.3, t_max))
+
+    rx_right, pill_w = x0 + box_w - 3 * mm, 46 * mm
+    pill_x = rx_right - pill_w
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.roundRect(pill_x, y_top - 7.8 * mm, pill_w, 4.9 * mm, 2.2, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 7.0); cv.drawCentredString(pill_x + pill_w / 2.0, y_top - 6.2 * mm, "BOOKING RECEIPT")
+
+    pm_bg = "#DC2626" if (pay_mode == "TO-PAY" or cod_val > 0) else (WEB_GREEN if pay_mode in ("CASH", "UPI") else WEB_ORANGE)
+    cv.setFillColor(HexColor(pm_bg)); cv.roundRect(pill_x, hdr_bottom + 1.6 * mm, 16.5 * mm, 4.4 * mm, 2, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 5.8); cv.drawCentredString(pill_x + 8.25 * mm, hdr_bottom + 3.0 * mm, pay_mode[:8])
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 6.8); cv.drawRightString(rx_right, hdr_bottom + 3.0 * mm, f"Date: {b_date}")
+    cv.setStrokeColor(HexColor("#E2E8F0")); cv.setLineWidth(0.7); cv.line(x0 + 2.5 * mm, hdr_bottom, x0 + box_w - 2.5 * mm, hdr_bottom)
+
+    # Hero Band
+    by, bh = y_bottom + 51.2 * mm, 21.5 * mm
+    upi_id = (settings.get("upi_id") or "").strip()
+    show_upi = (tot_val > 0 and bool(upi_id))
+
+    cv.setFillColor(HexColor(WEB_LIGHT)); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.7)
+    cv.roundRect(x0 + 2.5 * mm, by, 60 * mm, bh, 3, fill=1, stroke=1)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(x0 + 2.5 * mm, by + 1 * mm, 1.6 * mm, bh - 2 * mm, fill=1, stroke=0)
+    awb_sz = _fit_font_size_web(cv, f"AWB: {awb_no}", "Helvetica-Bold", 9.8, 7.5, 53 * mm)
+    cv.setFont("Helvetica-Bold", awb_sz); cv.drawString(x0 + 5.6 * mm, by + 16.2 * mm, f"AWB: {awb_no}")
+    draw_barcode_autofit_web(cv, bc_val, x0 + 5.2 * mm, by + 4.8 * mm, 55.5 * mm, 9.8 * mm, default_bw=0.84)
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Courier-Bold", 6.5); cv.drawCentredString(x0 + 33 * mm, by + 1.5 * mm, bc_val)
+
+    _org = (outward.get("origin_station") if outward else "") or "NOHAR"
+    _dst = (outward.get("out_station") if outward else "") or s.get("dest_station") or s.get("dest_name") or "-"
+    stype = str(s.get("service_type") or "SURFACE").upper()
+    if stype in ("BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"):
+        stype = "SURFACE"
+
+    mx = x0 + 65 * mm
+    mw = 84.5 * mm if show_upi else 107.5 * mm
+    cv.setFillColor(HexColor(WEB_WARM_BG if not is_self else WEB_SKY_BG))
+    cv.setStrokeColor(HexColor("#FDBA74" if not is_self else "#BFDBFE")); cv.setLineWidth(0.8)
+    cv.roundRect(mx, by, mw, bh, 3, fill=1, stroke=1)
+    _web_draw_modern_route(cv, mx + 3 * mm, by + 13.4 * mm, mw - 6 * mm, _org, _dst, compact=True)
+    cv.setStrokeColor(HexColor("#FED7AA" if not is_self else "#BFDBFE")); cv.setLineWidth(0.5)
+    cv.line(mx + 3 * mm, by + 11.4 * mm, mx + mw - 3 * mm, by + 11.4 * mm)
+
+    if not is_self:
+        cv.setFillColor(HexColor(WEB_ORANGE_DK)); cv.setFont("Helvetica-Bold", 6.8)
+        cv.drawString(mx + 3 * mm, by + 7.6 * mm, fit_text(cv, f"PARTNER: {net_name} | FWD: {net_awb or awb_no}", "Helvetica-Bold", 6.8, mw - 6 * mm))
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 6.4)
+        cv.drawString(mx + 3 * mm, by + 3.6 * mm, fit_text(cv, f"Track: {track_site}", "Helvetica-Bold", 6.4, mw - 6 * mm))
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 5.2); cv.drawString(mx + 3 * mm, by + 1.1 * mm, "Scan right QR for live partner status")
+    else:
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 6.8)
+        cv.drawString(mx + 3 * mm, by + 7.5 * mm, f"Service: {stype}   |   Network: SELF")
+        cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawString(mx + 3 * mm, by + 3.6 * mm, fit_text(cv, f"Track Online: {track_site}", "Helvetica-Bold", 6.5, mw - 6 * mm))
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 5.2)
+        cv.drawString(mx + 3 * mm, by + 1.1 * mm, f"Declared Val: Rs {_fmt_inr_web(s.get('declared_value', 0))}")
+
+    qw = 20.5 * mm
+    if show_upi:
+        ux = x0 + 152 * mm
+        cv.setFillColor(HexColor("#ECFDF5")); cv.setStrokeColor(HexColor("#6EE7B7")); cv.setLineWidth(0.7)
+        cv.roundRect(ux, by, qw, bh, 3, fill=1, stroke=1)
+        upi_url = f"upi://pay?pa={upi_id}&pn={url_quote(comp_name[:20])}&am={tot_val:.2f}&cu=INR&tn=AWB-{awb_no}"
+        draw_qr_web(cv, upi_url, ux + 2.5 * mm, by + 5.0 * mm, 15.5 * mm)
+        cv.setFillColor(HexColor(WEB_GREEN)); cv.setFont("Helvetica-Bold", 5.2)
+        cv.drawCentredString(ux + qw / 2.0, by + 1.7 * mm, f"UPI Rs {tot_val:.0f}")
+
+    tx_q = x0 + 175 * mm
+    cv.setFillColorRGB(1, 1, 1); cv.setStrokeColor(HexColor("#93C5FD")); cv.setLineWidth(0.7)
+    cv.roundRect(tx_q, by, qw, bh, 3, fill=1, stroke=1)
+    draw_qr_web(cv, tracking_url, tx_q + 2.5 * mm, by + 5.0 * mm, 15.5 * mm)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 5.1)
+    cv.drawCentredString(tx_q + qw / 2.0, by + 1.7 * mm, "SCAN TRACK")
+
+    # Shipper & Consignee
+    cy, ch, cw = y_bottom + 28.0 * mm, 21.5 * mm, 95 * mm
+    sh_name, sh_addr, sh_phone, sh_gst = get_web_shipper_details(s, cust)
+    for cx, hdr_bg, title_col, bar_col, header_lbl, party_name, party_addr, footer_line in [
+        (x0 + 2.5 * mm, WEB_WARM_BG, WEB_ORANGE_DK, WEB_ORANGE, "FROM : SHIPPER / CONSIGNOR", sh_name, sh_addr, _party_contact_line_web(sh_phone, "GSTIN", sh_gst)),
+        (x0 + 100.5 * mm, WEB_SKY_BG, WEB_BLUE, WEB_BLUE, "TO : CONSIGNEE / RECEIVER", s.get("dest_name") or "-", s.get("dest_address") or "-", _party_contact_line_web(s.get("dest_phone"), "Station", str(_dst).upper())),
+    ]:
+        cv.setFillColorRGB(1, 1, 1); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.7)
+        cv.roundRect(cx, cy, cw, ch, 3, fill=1, stroke=1)
+        cv.setFillColor(HexColor(hdr_bg)); cv.rect(cx + 0.4, cy + ch - 5.2 * mm, cw - 0.8, 4.9 * mm, fill=1, stroke=0)
+        cv.setFillColor(HexColor(bar_col)); cv.rect(cx + 0.4, cy + ch - 5.2 * mm, 1.8 * mm, 4.9 * mm, fill=1, stroke=0)
+        cv.setFillColor(HexColor(title_col)); cv.setFont("Helvetica-Bold", 5.8); cv.drawString(cx + 3.8 * mm, cy + ch - 3.6 * mm, header_lbl)
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 8.2)
+        cv.drawString(cx + 3.5 * mm, cy + ch - 8.8 * mm, fit_text(cv, str(party_name).upper(), "Helvetica-Bold", 8.2, cw - 6 * mm))
+        cv.setFillColor(HexColor("#334155")); cv.setFont("Helvetica", 6.5)
+        yy = cy + ch - 12.4 * mm
+        for ln in wrap_lines(cv, party_addr or "-", "Helvetica", 6.5, cw - 6 * mm)[:2]:
+            cv.drawString(cx + 3.5 * mm, yy, ln); yy -= 3.1 * mm
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 6.5)
+        cv.drawString(cx + 3.5 * mm, cy + 1.8 * mm, fit_text(cv, footer_line, "Helvetica-Bold", 6.5, cw - 6 * mm))
+
+    # Charges Strip
+    gst_tot = safe_float(s.get("cgst")) + safe_float(s.get("sgst")) + safe_float(s.get("igst"))
+    wt_act, wt_app = safe_float(s.get("weight_kg")), safe_float(s.get("applied_weight"))
+    wt_show = wt_app if wt_app > wt_act else wt_act
+
+    sy, sh, grand_w = y_bottom + 15.8 * mm, 10.5 * mm, 39 * mm
+    other_w = (193 * mm - grand_w) / 6.0
+    cells = [
+        ("WEIGHT", f"{wt_show:.2f} KG"), ("PCS", str(s.get("quantity") or 1)),
+        ("NETWORK", net_name[:10]), ("COD", f"Rs {_fmt_inr_web(cod_val)}"),
+        ("TAXABLE", f"Rs {_fmt_inr_web(s.get('taxable_amount', 0))}"), ("GST", f"Rs {_fmt_inr_web(gst_tot)}"),
+    ]
+    for idx, (lb, vl) in enumerate(cells):
+        cx = x0 + 2.5 * mm + idx * other_w
+        cv.setFillColor(HexColor(WEB_LIGHT if idx % 2 == 0 else "#FFFFFF")); cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.6)
+        cv.rect(cx, sy, other_w, sh, fill=1, stroke=1)
+        cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica-Bold", 5.2); cv.drawString(cx + 1.5 * mm, sy + 7.2 * mm, lb)
+        cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 7.4)
+        cv.drawString(cx + 1.5 * mm, sy + 2.1 * mm, fit_text(cv, vl, "Helvetica-Bold", 7.4, other_w - 2.5 * mm))
+
+    gx = x0 + 2.5 * mm + 6 * other_w
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setStrokeColor(HexColor(WEB_BLUE)); cv.rect(gx, sy, grand_w, sh, fill=1, stroke=1)
+    cv.setFillColor(HexColor(WEB_ORANGE)); cv.rect(gx, sy + sh - 1.1 * mm, grand_w, 1.1 * mm, fill=1, stroke=0)
+    cv.setFillColor(HexColor("#BFDBFE")); cv.setFont("Helvetica-Bold", 5.4); cv.drawString(gx + 2 * mm, sy + 6.9 * mm, "GRAND TOTAL")
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 9.6)
+    cv.drawString(gx + 2 * mm, sy + 1.9 * mm, fit_text(cv, f"Rs {_fmt_inr_web(tot_val)}", "Helvetica-Bold", 9.6, grand_w - 3.5 * mm))
+
+    cv.setFillColor(HexColor(WEB_DARK)); cv.setFont("Helvetica-Bold", 6.5)
+    cv.drawString(x0 + 2.5 * mm, y_bottom + 11.4 * mm, fit_text(cv, f"Amount in Words: {num_to_words_inr_web(tot_val)}", "Helvetica-Bold", 6.5, 140 * mm))
+    cv.setFillColor(HexColor(WEB_MUTED)); cv.setFont("Helvetica", 5.4)
+    cv.drawString(x0 + 2.5 * mm, y_bottom + 7.0 * mm, fit_text(cv, f"Terms: {settings.get('terms_note', '')}", "Helvetica", 5.4, 140 * mm))
+
+    cv.setStrokeColor(HexColor(WEB_BORDER)); cv.setLineWidth(0.7); cv.line(x0 + box_w - 47 * mm, y_bottom + 10.0 * mm, x0 + box_w - 2.5 * mm, y_bottom + 10.0 * mm)
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.setFont("Helvetica-Bold", 6.1)
+    cv.drawCentredString(x0 + box_w - 24.75 * mm, y_bottom + 6.7 * mm, f"For {comp_name[:24].upper()}")
+
+    cv.setFillColor(HexColor(WEB_BLUE)); cv.rect(x0, y_bottom, box_w, 4.8 * mm, fill=1, stroke=0)
+    cv.setFillColorRGB(1, 1, 1); cv.setFont("Helvetica-Bold", 5.6)
+    cv.drawString(x0 + 2.5 * mm, y_bottom + 1.6 * mm, fit_text(cv, f"Track Online ({net_name}): {tracking_url}", "Helvetica-Bold", 5.6, 138 * mm))
+    cv.setFillColor(HexColor("#FDBA74")); cv.setFont("Helvetica-Bold", 5.8)
+    cv.drawRightString(x0 + box_w - 2.5 * mm, y_bottom + 1.6 * mm, f"CONSIGNOR COPY  |  {track_site if not is_self else (comp_web or comp_name)}")
+
+
+def build_web_a4_3up_slips_pdf(rows_meta, settings):
+    buf = io.BytesIO()
+    cv = canvas.Canvas(buf, pagesize=A4)
+    y_slots = [199.5 * mm, 102.5 * mm, 5.5 * mm]
+
+    for idx, (s, cust, outward) in enumerate(rows_meta):
+        slot = idx % 3
+        y_pos = y_slots[slot]
+        _web_draw_a4_3up_slip_slot(cv, s, cust, outward, settings, y_pos)
+
+        if slot < 2 and idx < len(rows_meta) - 1:
+            cut_y = y_pos - 2.5 * mm
+            cv.saveState()
+            cv.setStrokeColor(HexColor("#94A3B8")); cv.setLineWidth(0.55); cv.setDash(3, 3)
+            cv.line(6 * mm, cut_y, 88 * mm, cut_y); cv.line(122 * mm, cut_y, 204 * mm, cut_y)
+            cv.setDash(); cv.setFillColor(HexColor("#64748B")); cv.setFont("Helvetica-Bold", 5.2)
+            cv.drawCentredString(105 * mm, cut_y - 1.4, "CUT HERE")
+            cv.restoreState()
+
+        if slot == 2 and idx < len(rows_meta) - 1:
+            cv.showPage()
+
+    cv.showPage(); cv.save(); buf.seek(0)
+    return buf
+
+
+def _fetch_shipments_bundle(c, awb_list=None, id_list=None):
+    rows_meta = []
+    if awb_list:
+        for awb in awb_list:
+            c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb.strip().upper(),))
+            s = c.fetchone()
+            if not s:
+                continue
+            cust = {}
+            if s.get("customer_id"):
+                c.execute("SELECT * FROM customers WHERE id=%s", (s["customer_id"],))
+                cust = c.fetchone() or {}
+            c.execute("SELECT origin_station, out_station, network, network_awb FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (s["awb_no"],))
+            outward = c.fetchone() or {}
+            rows_meta.append((s, cust, outward))
+    elif id_list:
+        for sid in id_list:
+            c.execute("SELECT * FROM shipments WHERE id=%s", (sid,))
+            s = c.fetchone()
+            if not s:
+                continue
+            cust = {}
+            if s.get("customer_id"):
+                c.execute("SELECT * FROM customers WHERE id=%s", (s["customer_id"],))
+                cust = c.fetchone() or {}
+            c.execute("SELECT origin_station, out_station, network, network_awb FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (s["awb_no"],))
+            outward = c.fetchone() or {}
+            rows_meta.append((s, cust, outward))
+    return rows_meta
+
+
+# ---------- PRINT ROUTES ----------
 @app.route('/print/label/<awb>')
 @login_required
 def print_label(awb):
+    size = request.args.get("size", "4x6").strip().lower()
+    dark = request.args.get("dark", "1") == "1"
+    show_shipper = request.args.get("shipper", "1") == "1"
+    conn = get_db()
     try:
-        conn = get_db()
         with conn.cursor() as c:
-            c.execute("SELECT * FROM shipments WHERE awb_no=%s", (awb,))
-            s = c.fetchone()
-            if not s: return "Shipment not found", 404
-            
-            cust = {}
-            if s.get('customer_id'):
-                c.execute("SELECT * FROM customers WHERE id=%s", (s['customer_id'],))
-                cust = c.fetchone() or {}
-            
-            c.execute("SELECT origin_station, out_station, network, network_awb FROM outward_register WHERE awb_no=%s ORDER BY id DESC LIMIT 1", (awb,))
-            outward = c.fetchone() or {}
-            
-            c.execute("SELECT * FROM settings")
-            settings = {r.get('key_name') or r.get('key') or r.get('name'): r.get('value') for r in c.fetchall()}
+            bundle = _fetch_shipments_bundle(c, awb_list=[awb])
+            if not bundle:
+                return "Shipment not found", 404
+            settings = get_web_settings_dict(c)
+    finally:
         conn.close()
-    except Exception as e:
-        return f"Database Error: {str(e)}", 500
+    buf = build_web_bulk_stickers_pdf(bundle, settings, preset=size, copies=1, match_pieces=False, show_shipper=show_shipper, dark_header=dark)
+    return send_file(buf, as_attachment=False, download_name=f"Label_{size}_{awb}.pdf", mimetype="application/pdf")
 
+
+@app.route('/print/receipt/<awb>')
+@login_required
+def print_receipt(awb):
+    mode = request.args.get("mode", "a5").strip().lower()
+    conn = get_db()
     try:
-        _org = outward.get('origin_station') or "NOHAR"
-        _dst = outward.get('out_station') or s.get('dest_station') or s.get('dest_name') or "-"
-        
-        _net = outward.get('network') if outward.get('network') else (s.get('network') or 'SELF')
-        _n_awb = outward.get('network_awb') if outward.get('network_awb') else (s.get('network_awb') or '')
-        is_self = not _net or str(_net).upper() in ["SELF", "AGC", "AKASH GANGA", "AKASHGANGA"]
-        pay_mode = str(s.get("payment_mode") or "CASH").upper()
+        with conn.cursor() as c:
+            bundle = _fetch_shipments_bundle(c, awb_list=[awb])
+            if not bundle:
+                return "Shipment not found", 404
+            settings = get_web_settings_dict(c)
+    finally:
+        conn.close()
+    if mode == "a4_3up":
+        buf = build_web_a4_3up_slips_pdf(bundle, settings)
+    else:
+        s, cust, outward = bundle[0]
+        buf = build_web_single_receipt_pdf(s, cust, outward, settings)
+    return send_file(buf, as_attachment=False, download_name=f"Receipt_{awb}.pdf", mimetype="application/pdf")
 
-        def extract_pin(station, address):
-            match = re.search(r'\b\d{6}\b', str(station)) or re.search(r'\b\d{6}\b', str(address))
-            pin = match.group(0) if match else ""
-            clean_station = re.sub(r'\s*-?\s*\b\d{6}\b\s*', '', str(station)).strip()
-            return clean_station, pin
 
-        _org_clean, org_pin = extract_pin(_org, s.get("origin_address", ""))
-        _dst_clean, dst_pin = extract_pin(_dst, s.get("dest_address", ""))
+@app.route('/print/bulk_slips', methods=['POST'])
+@login_required
+def print_bulk_slips():
+    ids = [safe_int(x) for x in request.form.getlist("shipment_ids") if safe_int(x) > 0]
+    awbs = [x.strip().upper() for x in request.form.get("awb_list", "").split(",") if x.strip()]
+    if not ids and not awbs:
+        flash("Kam se kam ek shipment select karein!", "error")
+        return redirect('/shipments')
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            bundle = _fetch_shipments_bundle(c, awb_list=awbs) if awbs else _fetch_shipments_bundle(c, id_list=ids)
+            if not bundle:
+                return "No matching shipments found", 404
+            settings = get_web_settings_dict(c)
+    finally:
+        conn.close()
+    buf = build_web_a4_3up_slips_pdf(bundle, settings)
+    return send_file(buf, as_attachment=False, download_name=f"Bulk_A4_3Slips_{len(bundle)}.pdf", mimetype="application/pdf")
 
-        stype = s.get("service_type") or "SURFACE"
-        if stype in ["BOOKED", "OUTWARD", "INWARD", "ON_DRS", "DELIVERED"]:
-            stype = "SURFACE"
 
-        buf = io.BytesIO()
-        w, h = 4 * inch, 6 * inch
-        cv = canvas.Canvas(buf, pagesize=(w, h))
-        cv.setFillColorRGB(1, 1, 1); cv.rect(0, 0, w, h, fill=1, stroke=0)
-        cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.setLineWidth(1.2); cv.rect(8, 8, w - 16, h - 16)
-        
-        safe_awb = str(s.get("awb_no") or "")
-        x = 14
-        
-        cv.setFont("Helvetica-Bold", 6.5)
-        box_text = f"TO-PAY: Rs {safe_float(s.get('total_amount')):.0f}" if pay_mode == "TO-PAY" else ("PREMIUM EXPRESS" if is_self else "NETWORK DISPATCH")
-        box_w = cv.stringWidth(box_text, "Helvetica-Bold", 6.5) + 16 
-        box_x = w - box_w - 14 
-        max_w = box_x - x - 10 
-        
-        if is_self:
-            if draw_logo_web(cv, x, h - 56, 68, 40): 
-                x = 90
-                max_w = box_x - x - 10
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
-            cv.drawString(x, h - 26, fit_text(cv, settings.get("company_name", "PANKAJ AGENCY"), "Helvetica-Bold", 11, max_w))
-            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 6.2)
-            yy = h - 36
-            for ln in wrap_lines(cv, settings.get("company_address", ""), "Helvetica", 6.2, max_w)[:2]:
-                cv.drawString(x, yy, ln); yy -= 8
-            cv.drawString(x, yy - 1, fit_text(cv, f"GSTIN: {settings.get('company_gstin','')} | Ph: {settings.get('company_phone','')}", "Helvetica", 6.2, max_w))
-            
-            # 🔗 LIVE PORTAL TRACKING URL
-            track_url = f"https://pagcerp.cgsmart.in/track?awb={safe_awb}"
-            draw_qr_web(cv, track_url, w - 74, h - 138, 58)
-            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6); cv.drawCentredString(w - 45, h - 148, "SCAN & TRACK")
-        else:
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 12)
-            cv.drawString(14, h - 28, fit_text(cv, f"ROUTED VIA: {str(_net).upper()}", "Helvetica-Bold", 12, max_w))
-            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 9)
-            cv.drawString(14, h - 42, fit_text(cv, f"SYSTEM AWB: {safe_awb}", "Helvetica-Bold", 9, max_w))
-                
-        badge_hex = "#E04F5F" if pay_mode == "TO-PAY" else "#B08A47"
-        cv.setStrokeColorRGB(*hex_rgb(badge_hex)); cv.setLineWidth(1.2); cv.rect(box_x, h - 42, box_w, 16)
-        cv.setFillColorRGB(*hex_rgb(badge_hex)); cv.setFont("Helvetica-Bold", 6.5)
-        cv.drawCentredString(box_x + (box_w / 2), h - 37, box_text)
-        cv.setStrokeColorRGB(*hex_rgb("#B08A47")); cv.setLineWidth(1.5); cv.line(10, h - 62, w - 10, h - 62)
-        
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6.5)
-        cv.drawString(14, h - 74, "AWB NUMBER" if is_self else "FORWARDING AWB NUMBER")
-        
-        display_awb = safe_awb if is_self else (_n_awb or safe_awb)
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 19); cv.drawString(14, h - 90, display_awb)
-        try: code128.Code128(display_awb, barHeight=0.40*inch, barWidth=0.011*inch).drawOn(cv, 18, h - 128)
-        except: pass
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Courier-Bold", 9); cv.drawString(18, h - 140, display_awb)
-        
-        cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA"))
-        cv.rect(12, h - 180, w - 24, 38, fill=1, stroke=1)
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 6)
-        cv.drawString(20, h - 158, "ORIGIN"); cv.drawCentredString(w / 2, h - 158, "SERVICE"); cv.drawRightString(w - 20, h - 158, "DESTINATION")
-        
-        cv.setFont("Helvetica-Bold", 7.5)
-        stype_text_w = cv.stringWidth(str(stype), "Helvetica-Bold", 7.5)
-        stype_box_w = max(80, stype_text_w + 16) 
-        stype_box_x = (w / 2) - (stype_box_w / 2)
-        safe_station_w = stype_box_x - 24 
+@app.route('/print/bulk_stickers', methods=['POST'])
+@login_required
+def print_bulk_stickers():
+    ids = [safe_int(x) for x in request.form.getlist("shipment_ids") if safe_int(x) > 0]
+    awbs = [x.strip().upper() for x in request.form.get("awb_list", "").split(",") if x.strip()]
+    if not ids and not awbs:
+        flash("Kam se kam ek shipment select karein!", "error")
+        return redirect('/shipments')
 
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 11)
-        cv.drawString(20, h - 169, fit_text(cv, _org_clean.upper(), "Helvetica-Bold", 11, safe_station_w))
-        cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.setFont("Helvetica-Bold", 12)
-        cv.drawRightString(w - 20, h - 169, fit_text(cv, _dst_clean.upper(), "Helvetica-Bold", 12, safe_station_w))
-        
-        if org_pin:
-            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 8)
-            cv.drawString(20, h - 178, f"PIN: {org_pin}")
-        if dst_pin:
-            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 8)
-            cv.drawRightString(w - 20, h - 178, f"PIN: {dst_pin}")
+    preset = request.form.get("preset", "2x3").strip().lower()
+    copies = max(1, safe_int(request.form.get("copies", 1)))
+    match_pieces = request.form.get("match_pieces") == "1"
+    show_shipper = request.form.get("show_shipper") == "1"
+    dark_header = request.form.get("dark_header") == "1"
 
-        cv.setStrokeColorRGB(*hex_rgb("#0E8A6D")); cv.setLineWidth(1.2); cv.rect(stype_box_x, h - 175, stype_box_w, 18)
-        cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.setFont("Helvetica-Bold", 7.5); cv.drawCentredString(w / 2, h - 169, str(stype))
-        
-        cv.setFillColorRGB(1, 1, 1); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, h - 254, w - 24, 70, fill=1, stroke=1)
-        cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.rect(12, h - 254, 4, 70, fill=1, stroke=0)
-        cv.setFont("Helvetica-Bold", 6.5); cv.drawString(22, h - 194, "DELIVER TO (CONSIGNEE)")
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 10)
-        
-        yy = h - 206
-        for line in wrap_lines(cv, s.get("dest_name") or "", "Helvetica-Bold", 10, w - 50)[:2]:
-            cv.drawString(22, yy, line); yy -= 12
-        cv.setFont("Helvetica", 7.5)
-        for line in wrap_lines(cv, s.get("dest_address") or "", "Helvetica", 7.5, w - 50)[:3]:
-            cv.drawString(22, yy, line); yy -= 10
-        cv.setFont("Helvetica-Bold", 7.5); cv.drawString(22, yy, f"Ph: {s.get('dest_phone') or '-'}")
-        
-        wt_val = s.get("applied_weight") if safe_float(s.get("applied_weight")) > safe_float(s.get("weight_kg")) else s.get("weight_kg", 1)
-        cod_or_topay = f"Rs {safe_float(s.get('total_amount')):.0f}" if pay_mode == "TO-PAY" else f"Rs {safe_float(s.get('cod_amount')):.0f}"
+    conn = get_db()
+    try:
+        with conn.cursor() as c:
+            bundle = _fetch_shipments_bundle(c, awb_list=awbs) if awbs else _fetch_shipments_bundle(c, id_list=ids)
+            if not bundle:
+                return "No matching shipments found", 404
+            settings = get_web_settings_dict(c)
+    finally:
+        conn.close()
 
-        cells = [("WEIGHT", f"{wt_val} KG"), ("PIECES", str(s.get("quantity") or "1")), 
-                 ("COLLECT" if pay_mode == "TO-PAY" else "COD", cod_or_topay), ("PAY MODE", pay_mode), 
-                 ("DATE", str(s.get("booking_date") or "")[:10]), ("MODE", str(stype)),
-                 ("DEST CITY", str(_dst_clean)[:14]), ("BRANCH", str(settings.get("branch_name", "HQ")) if is_self else "HUB")]
-        
-        cw = (w - 24) / 4; chh = 19; y0 = h - 258
-        for i, (label, value) in enumerate(cells):
-            col, row = i % 4, i // 4
-            cx = 12 + col * cw; cy = y0 - (row + 1) * chh
-            cv.setFillColorRGB(*hex_rgb("#F7F8FA" if row % 2 == 0 else "#FFFFFF")); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA"))
-            cv.rect(cx, cy, cw, chh, fill=1, stroke=1)
-            cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica-Bold", 5.6); cv.drawString(cx + 4, cy + chh - 7, label)
-            cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 8); cv.drawString(cx + 4, cy + 4, str(value))
-            
-        st = y0 - 2 * chh - 6
-        cv.setFillColorRGB(1, 1, 1); cv.setStrokeColorRGB(*hex_rgb("#E3E6EA")); cv.rect(12, st - 44, w - 24, 44, fill=1, stroke=1)
-        cv.setFillColorRGB(*hex_rgb("#B08A47")); cv.setFont("Helvetica-Bold", 6.5); cv.drawString(20, st - 10, "SHIPPER / SENDER DETAILS")
-        
-        sh_name, sh_addr, sh_phone, sh_gst = get_web_shipper_details(s, cust)
-        cv.setFillColorRGB(*hex_rgb("#23272F")); cv.setFont("Helvetica-Bold", 7.5)
-        cv.drawString(20, st - 21, fit_text(cv, f"{sh_name}   |   Ph: {sh_phone or '-'}", "Helvetica-Bold", 7.5, w - 44))
-        cv.setFont("Helvetica", 6.8)
-        addr_line = f"{sh_addr}" + (f" | GSTIN: {sh_gst}" if sh_gst and sh_gst != '-' else "")
-        for line in wrap_lines(cv, addr_line, "Helvetica", 6.8, w - 44)[:2]:
-            cv.drawString(20, st - 31, line)
-            
-        history_text = f"AWB:{safe_awb}|DT:{str(s.get('booking_date',''))[:10]}|ORG:{_org_clean}|DST:{_dst_clean}|WT:{wt_val}|MODE:{pay_mode}"
-        draw_qr_web(cv, history_text, 14, 42, 42)
-        draw_qr_web(cv, f"NEXUS-VERIFIED|AWB:{safe_awb}|SECURE", w - 56, 42, 42)
-        cv.setFillColorRGB(*hex_rgb("#0E8A6D")); cv.setFont("Helvetica-Bold", 5.5); cv.drawCentredString(w - 35, 36, "NEXUS SEAL")
-
-        cv.setFillColorRGB(*hex_rgb("#F7F8FA")); cv.rect(10, 10, w - 20, 25, fill=1, stroke=0)
-        cv.setFillColorRGB(*hex_rgb("#6B7280")); cv.setFont("Helvetica", 5.8)
-        cv.drawCentredString(w / 2, 24, fit_text(cv, settings.get("terms_note", ""), "Helvetica", 5.8, w - 40))
-        cv.drawCentredString(w / 2, 15, "Computer Generated Label | https://pagcerp.cgsmart.in" if is_self else "Neutral Routing Partner")
-        
-        cv.showPage(); cv.save()
-        buf.seek(0)
-        return send_file(buf, as_attachment=False, download_name=f"Label_{awb}.pdf", mimetype='application/pdf')
-    except Exception as e:
-        return f"PDF Generator Error: {str(e)}", 500
+    buf = build_web_bulk_stickers_pdf(
+        bundle, settings, preset=preset, copies=copies,
+        match_pieces=match_pieces, show_shipper=show_shipper, dark_header=dark_header
+    )
+    return send_file(buf, as_attachment=False, download_name=f"Bulk_Stickers_{preset}_{len(bundle)}.pdf", mimetype="application/pdf")
 
 # ==========================================
 # 🧠 SMART SHIPPER DETAILS EXTRACTOR (WEB PDF)
@@ -5652,8 +6993,8 @@ def get_web_network_tracking_info(s, outward):
     }
 
     if is_self:
-        site = "pagcerp.cgsmart.in"
-        url = f"https://pagcerp.cgsmart.in/track?awb={s.get('awb_no', '')}"
+        site = "agcgroup.in"
+        url = f"https://agcgroup.in/track?awb={s.get('awb_no', '')}"
     else:
         site, url = NETWORK_MAP.get(net, (f"www.{net.lower().replace(' ', '')}.com", f"https://www.google.com/search?q={quote(net + ' tracking ' + track_no)}"))
 
@@ -5816,7 +7157,7 @@ def print_receipt(awb):
         cv.drawString(30, 30, f"Track Shipment Online ({net_name}): {track_url}")
         cv.setFont("Helvetica", 6); cv.setFillColorRGB(*hex_rgb("#6B7280"))
         cv.drawString(30, 18, str(settings.get("terms_note", "")))
-        cv.drawRightString(w - 30, 18, track_site if not is_self else "https://pagcerp.cgsmart.in")
+        cv.drawRightString(w - 30, 18, track_site if not is_self else "https://agcgroup.in")
         
         cv.showPage(); cv.save()
         buf.seek(0)
