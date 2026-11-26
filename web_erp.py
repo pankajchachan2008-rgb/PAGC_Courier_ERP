@@ -5216,14 +5216,18 @@ def accounts():
                 else:
                     flash("Amount must be greater than zero.", "error")
             
-            # 🗑️ DELETE PAYMENT (with ledger rollback)
+            # 🗑️ DELETE PAYMENT (with ledger rollback — PostgreSQL Safe)
             elif action == 'delete':
                 pid = request.form.get('del_id')
                 c.execute("SELECT * FROM payments WHERE id=%s", (pid,))
                 p = c.fetchone()
                 if p:
                     if p['customer_id']:
-                        c.execute("DELETE FROM ledger WHERE voucher_type='PAYMENT' AND customer_id=%s AND credit=%s LIMIT 1", (p['customer_id'], p['amount']))
+                        c.execute("""DELETE FROM ledger WHERE id IN (
+                            SELECT id FROM ledger
+                            WHERE voucher_type='PAYMENT' AND customer_id=%s AND credit=%s
+                            ORDER BY id DESC LIMIT 1
+                        )""", (p['customer_id'], p['amount']))
                     c.execute("DELETE FROM payments WHERE id=%s", (pid,))
                     flash("Payment deleted & Ledger reversed.", "success")
         conn.commit()
